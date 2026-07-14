@@ -1,3313 +1,1338 @@
-<!doctype html>
-
+<!DOCTYPE html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>PES Manager</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; padding: 0; background: #0A1712; }
+  * { box-sizing: border-box; }
+  ::-webkit-scrollbar { display: none; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .animate-spin { animation: spin 1s linear infinite; }
+</style>
 
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<!-- React -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<!-- Babel (transforms the JSX below, right in the browser) -->
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- Firebase (shared database, no login needed for visitors) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
 
-    <title>PES Manager</title>
+<script>
+  // ============================================================
+  // PASTE YOUR FIREBASE CONFIG HERE (see the setup instructions).
+  // Get this from: Firebase Console > Project Settings > Your apps > SDK setup and configuration
+  // ============================================================
+  window.__FIREBASE_CONFIG__ = {
+    apiKey: "",
+    authDomain: "",
+    databaseURL: "",
+    projectId: "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId: ""
+  };
+</script>
+</head>
+<body>
+<div id="root"></div>
 
-    <link rel="icon" href="data:," />
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback, useMemo } = React;
 
-    <style>
-      html,
-      body {
-        margin: 0;
-        padding: 0;
-        background: #0a1712;
+function makeIcon(emoji) {
+  return function Icon({ size = 16, color, style = {}, className }) {
+    return React.createElement("span", {
+      className,
+      style: { fontSize: size, color, lineHeight: 1, display: "inline-flex", verticalAlign: "middle", ...style },
+    }, emoji);
+  };
+}
+const Home = makeIcon("🏠");
+const Shield = makeIcon("🛡️");
+const Trophy = makeIcon("🏆");
+const ArrowLeftRight = makeIcon("🔄");
+const History = makeIcon("📜");
+const Plus = makeIcon("➕");
+const X = makeIcon("✕");
+const ChevronRight = makeIcon("›");
+const ChevronDown = makeIcon("⌄");
+const Check = makeIcon("✓");
+const Star = makeIcon("★");
+const Users = makeIcon("👤");
+const Loader2 = makeIcon("⏳");
+const Trash2 = makeIcon("🗑️");
+const Crown = makeIcon("👑");
+const ArrowRight = makeIcon("→");
+const Calendar = makeIcon("📅");
+const Target = makeIcon("🎯");
+const Flag = makeIcon("🚩");
+const AlertCircle = makeIcon("⚠️");
+const Coins = makeIcon("💰");
+const Tag = makeIcon("🏷️");
+const Search = makeIcon("🔎");
+
+const POS_LABELS = {
+  GK: "Goleiro", CWP: "Goleiro", CB: "Zagueiro", CBT: "Zagueiro", SB: "Lateral", WB: "Ala",
+  DM: "Volante", DMF: "Volante", CM: "Meia", CMF: "Meia", SM: "Meia", SMF: "Meia (lateral)",
+  AM: "Meia ofensivo", AMF: "Meia ofensivo", WG: "Ponta", WF: "Ponta", SS: "Segundo atacante", CF: "Centroavante",
+};
+const TEAM_COLORS = ["#D4AF37", "#4A7FC1", "#C1443D", "#2F7A4D", "#9B59B6", "#E67E22", "#1ABC9C", "#95A5A6"];
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function generateRoundRobin(teamIds) {
+  let arr = [...teamIds];
+  if (arr.length % 2 !== 0) arr.push(null);
+  const n = arr.length;
+  const rounds = [];
+  for (let r = 0; r < n - 1; r++) {
+    const roundMatches = [];
+    for (let i = 0; i < n / 2; i++) {
+      const home = arr[i], away = arr[n - 1 - i];
+      if (home !== null && away !== null) {
+        roundMatches.push(r % 2 === 0 ? { home, away } : { home: away, away: home });
       }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      ::-webkit-scrollbar {
-        display: none;
-      }
-
-      @keyframes spin {
-        from {
-          transform: rotate(0deg);
-        }
-        to {
-          transform: rotate(360deg);
-        }
-      }
-
-      .animate-spin {
-        animation: spin 1s linear infinite;
-      }
-    </style>
-
-    <!-- React -->
-
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-
-    <script
-      crossorigin
-      src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"
-    ></script>
-
-    <!-- Babel (transforms the JSX below, right in the browser) -->
-
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- Firebase (shared database, no login needed for visitors) -->
-
-    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
-
-    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
-
-    <script>
-      // ============================================================
-
-      // PASTE YOUR FIREBASE CONFIG HERE (see the setup instructions).
-
-      // Get this from: Firebase Console > Project Settings > Your apps > SDK setup and configuration
-
-      // ============================================================
-
-      window.__FIREBASE_CONFIG__ = {
-        apiKey: "AIzaSyDmQqmMiaUIlVGtUGQ4FzHv_pQsf0YLMZw",
-
-        authDomain: "manchado-patch.firebaseapp.com",
-
-        databaseURL: "https://manchado-patch-default-rtdb.firebaseio.com",
-
-        projectId: "manchado-patch",
-
-        storageBucket: "manchado-patch.firebasestorage.app",
-
-        messagingSenderId: "792838211036",
-
-        appId: "1:792838211036:web:c3b8c20ed2652e60b37b19",
-      };
-    </script>
-  </head>
-
-  <body>
-    <div id="root"></div>
-
-    <script type="text/babel" data-presets="react">
-      const { useState, useEffect, useCallback, useMemo } = React;
-
-      function makeIcon(emoji) {
-        return function Icon({ size = 16, color, style = {}, className }) {
-          return React.createElement(
-            "span",
-            {
-              className,
-
-              style: {
-                fontSize: size,
-                color,
-                lineHeight: 1,
-                display: "inline-flex",
-                verticalAlign: "middle",
-                ...style,
-              },
-            },
-            emoji,
-          );
-        };
-      }
-
-      const Home = makeIcon("🏠");
-
-      const Shield = makeIcon("🛡️");
-
-      const Trophy = makeIcon("🏆");
-
-      const ArrowLeftRight = makeIcon("🔄");
-
-      const History = makeIcon("📜");
-
-      const Plus = makeIcon("➕");
-
-      const X = makeIcon("✕");
-
-      const ChevronRight = makeIcon("›");
-
-      const ChevronDown = makeIcon("⌄");
-
-      const Check = makeIcon("✓");
-
-      const Star = makeIcon("★");
-
-      const Users = makeIcon("👤");
-
-      const Shuffle = makeIcon("🔀");
-
-      const Award = makeIcon("🎖️");
-
-      const Loader2 = makeIcon("⏳");
-
-      const Edit2 = makeIcon("✎");
-
-      const Trash2 = makeIcon("🗑️");
-
-      const Crown = makeIcon("👑");
-
-      const Circle = makeIcon("●");
-
-      const ArrowRight = makeIcon("→");
-
-      const Calendar = makeIcon("📅");
-
-      const Target = makeIcon("🎯");
-
-      const Flag = makeIcon("🚩");
-
-      const AlertCircle = makeIcon("⚠️");
-
-      const POSITIONS = ["GOL", "ZAG", "LAT", "VOL", "MEI", "ATA"];
-
-      const POS_LABELS = {
-        GOL: "Goleiro",
-        ZAG: "Zagueiro",
-        LAT: "Lateral",
-        VOL: "Volante",
-        MEI: "Meia",
-        ATA: "Atacante",
-      };
-
-      const TEAM_COLORS = [
-        "#D4AF37",
-        "#4A7FC1",
-        "#C1443D",
-        "#2F7A4D",
-        "#9B59B6",
-        "#E67E22",
-        "#1ABC9C",
-        "#95A5A6",
-      ];
-
-      const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
-
-      function shuffle(arr) {
-        const a = [...arr];
-
-        for (let i = a.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-
-          [a[i], a[j]] = [a[j], a[i]];
-        }
-
-        return a;
-      }
-
-      function generateRoundRobin(teamIds) {
-        let arr = [...teamIds];
-
-        if (arr.length % 2 !== 0) arr.push(null);
-
-        const n = arr.length;
-
-        const rounds = [];
-
-        for (let r = 0; r < n - 1; r++) {
-          const roundMatches = [];
-
-          for (let i = 0; i < n / 2; i++) {
-            const home = arr[i],
-              away = arr[n - 1 - i];
-
-            if (home !== null && away !== null) {
-              roundMatches.push(r % 2 === 0 ? { home, away } : { home: away, away: home });
-            }
-          }
-
-          rounds.push(roundMatches);
-
-          const fixed = arr[0];
-
-          const rest = arr.slice(1);
-
-          rest.unshift(rest.pop());
-
-          arr = [fixed, ...rest];
-        }
-
-        return rounds;
-      }
-
-      function generateKnockoutRound(teamIds) {
-        const s = shuffle(teamIds);
-
-        const matches = [];
-
-        for (let i = 0; i < s.length; i += 2) {
-          if (i + 1 < s.length) matches.push({ home: s[i], away: s[i + 1], bye: false });
-          else matches.push({ home: s[i], away: null, bye: true });
-        }
-
-        return matches;
-      }
-
-      function splitGroups(teamIds, numGroups) {
-        const s = shuffle(teamIds);
-
-        const groups = Array.from({ length: numGroups }, () => []);
-
-        s.forEach((id, i) => groups[i % numGroups].push(id));
-
-        return groups;
-      }
-
-      function computeStandings(teamIds, matches) {
-        const table = {};
-
-        teamIds.forEach((id) => {
-          table[id] = { id, pj: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0, pts: 0 };
-        });
-
-        matches.forEach((m) => {
-          if (!m.played || m.bye) return;
-
-          const h = table[m.homeId],
-            a = table[m.awayId];
-
-          if (!h || !a) return;
-
-          h.pj++;
-          a.pj++;
-
-          h.gp += m.homeScore;
-          h.gc += m.awayScore;
-
-          a.gp += m.awayScore;
-          a.gc += m.homeScore;
-
-          if (m.homeScore > m.awayScore) {
-            h.v++;
-            a.d++;
-            h.pts += 3;
-          } else if (m.homeScore < m.awayScore) {
-            a.v++;
-            h.d++;
-            a.pts += 3;
-          } else {
-            h.e++;
-            a.e++;
-            h.pts += 1;
-            a.pts += 1;
-          }
-        });
-
-        Object.values(table).forEach((t) => (t.sg = t.gp - t.gc));
-
-        return Object.values(table).sort((x, y) => y.pts - x.pts || y.sg - x.sg || y.gp - x.gp);
-      }
-
-      function matchWinner(m) {
-        if (m.bye) return m.home;
-
-        if (!m.played) return null;
-
-        if (m.homeScore > m.awayScore) return m.homeId;
-
-        if (m.awayScore > m.homeScore) return m.awayId;
-
-        return m.penaltyWinner || null;
-      }
-
-      // ---------- FIREBASE STORAGE (shared, realtime) ----------
-
-      // Config is set at the bottom of this file (window.__FIREBASE_CONFIG__) — see instructions.
-
-      let db = null;
-
-      function getDb() {
-        if (db) return db;
-
-        if (window.firebase && window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey) {
-          if (!window.firebase.apps.length)
-            window.firebase.initializeApp(window.__FIREBASE_CONFIG__);
-
-          db = window.firebase.database();
-        }
-
-        return db;
-      }
-
-      function dbSet(path, value) {
-        const d = getDb();
-
-        if (!d) return Promise.resolve();
-
-        return d
-          .ref("pes/" + path)
-          .set(value === undefined ? null : value)
-          .catch((e) => console.error("firebase set failed", path, e));
-      }
-
-      function dbSubscribe(path, cb) {
-        const d = getDb();
-
-        if (!d) {
-          cb(null);
-          return () => {};
-        }
-
-        const ref = d.ref("pes/" + path);
-
-        const handler = (snap) => cb(snap.val());
-
-        ref.on("value", handler);
-
-        return () => ref.off("value", handler);
-      }
-
-      // personal, per-browser (not shared) — just remembers which profile this device picked
-
-      function localGet(key) {
-        try {
-          const v = localStorage.getItem(key);
-          return v ? JSON.parse(v) : null;
-        } catch (e) {
-          return null;
-        }
-      }
-
-      function localSet(key, value) {
-        try {
-          localStorage.setItem(key, JSON.stringify(value));
-        } catch (e) {
-          /* ignore */
-        }
-      }
-
-      const btnPrimary = {
-        background: "linear-gradient(180deg,#E8C766,#D4AF37)",
-
-        color: "#12241C",
-
-        fontWeight: 700,
-      };
-
-      function App() {
-        const [loading, setLoading] = useState(true);
-
-        const [teams, setTeams] = useState([]);
-
-        const [tournaments, setTournaments] = useState([]);
-
-        const [transfers, setTransfers] = useState([]);
-
-        const [meta, setMeta] = useState({ currentTournamentId: null, seasonCounter: 1 });
-
-        const [tab, setTab] = useState("home");
-
-        const [profiles, setProfiles] = useState([]);
-
-        const [myProfile, setMyProfile] = useState(null);
-
-        const [profileReady, setProfileReady] = useState(false);
-
-        const [newProfileName, setNewProfileName] = useState("");
-
-        // modal / UI states
-
-        const [teamModal, setTeamModal] = useState(false);
-
-        const [teamForm, setTeamForm] = useState({ name: "", color: TEAM_COLORS[0] });
-
-        const [activeTeamId, setActiveTeamId] = useState(null);
-
-        const [playerModal, setPlayerModal] = useState(null); // {teamId, player|null}
-
-        const [newTourModal, setNewTourModal] = useState(false);
-
-        const [tourForm, setTourForm] = useState({
-          name: "",
-          format: "liga",
-          teamIds: [],
-          numGroups: 2,
-        });
-
-        const [matchModal, setMatchModal] = useState(null); // match object
-
-        const [scoreDraft, setScoreDraft] = useState({
-          home: "",
-          away: "",
-          scorers: [],
-          penaltyWinner: null,
-        });
-
-        const [transferPick, setTransferPick] = useState(null); // player being transferred
-
-        const [historyOpen, setHistoryOpen] = useState(null);
-
-        const [groupTab, setGroupTab] = useState(0);
-
-        const [firebaseMissing, setFirebaseMissing] = useState(false);
-
-        useEffect(() => {
-          if (!getDb()) {
-            setFirebaseMissing(true);
-            setLoading(false);
-            return;
-          }
-
-          setMyProfile(localGet("pes-my-profile"));
-
-          setProfileReady(true);
-
-          const offTeams = dbSubscribe("teams", (v) => {
-            setTeams(v || []);
-            setLoading(false);
-          });
-
-          const offTours = dbSubscribe("tournaments", (v) => setTournaments(v || []));
-
-          const offTransfers = dbSubscribe("transfers", (v) => setTransfers(v || []));
-
-          const offMeta = dbSubscribe("meta", (v) =>
-            setMeta(v || { currentTournamentId: null, seasonCounter: 1 }),
-          );
-
-          const offProfiles = dbSubscribe("profiles", (v) => setProfiles(v || []));
-
-          return () => {
-            offTeams();
-            offTours();
-            offTransfers();
-            offMeta();
-            offProfiles();
-          };
-        }, []);
-
-        function pickProfile(name) {
-          setMyProfile(name);
-
-          localSet("pes-my-profile", name);
-
-          if (!profiles.includes(name)) {
-            const next = [...profiles, name];
-
-            setProfiles(next);
-
-            dbSet("profiles", next);
-          }
-        }
-
-        function switchProfile() {
-          setMyProfile(null);
-
-          localSet("pes-my-profile", null);
-        }
-
-        const persistTeams = useCallback((next) => {
-          setTeams(next);
-          dbSet("teams", next);
-        }, []);
-
-        const persistTournaments = useCallback((next) => {
-          setTournaments(next);
-          dbSet("tournaments", next);
-        }, []);
-
-        const persistTransfers = useCallback((next) => {
-          setTransfers(next);
-          dbSet("transfers", next);
-        }, []);
-
-        const persistMeta = useCallback((next) => {
-          setMeta(next);
-          dbSet("meta", next);
-        }, []);
-
-        const currentTournament = useMemo(
-          () => tournaments.find((t) => t.id === meta.currentTournamentId) || null,
-
-          [tournaments, meta.currentTournamentId],
-        );
-
-        const teamById = useCallback((id) => teams.find((t) => t.id === id), [teams]);
-
-        // ---------- TEAM MANAGEMENT ----------
-
-        function openNewTeam() {
-          setTeamForm({ name: "", color: TEAM_COLORS[teams.length % TEAM_COLORS.length] });
-
-          setTeamModal(true);
-        }
-
-        function saveNewTeam() {
-          if (!teamForm.name.trim()) return;
-
-          const newTeam = {
-            id: uid(),
-            name: teamForm.name.trim(),
-            color: teamForm.color,
-            players: [],
-          };
-
-          persistTeams([...teams, newTeam]);
-
-          setTeamModal(false);
-        }
-
-        function deleteTeam(id) {
-          persistTeams(teams.filter((t) => t.id !== id));
-
-          if (activeTeamId === id) setActiveTeamId(null);
-        }
-
-        function savePlayer(teamId, player) {
-          const next = teams.map((t) => {
-            if (t.id !== teamId) return t;
-
-            const exists = t.players.some((p) => p.id === player.id);
-
-            const players = exists
-              ? t.players.map((p) => (p.id === player.id ? player : p))
-              : [...t.players, player];
-
-            return { ...t, players };
-          });
-
-          persistTeams(next);
-
-          setPlayerModal(null);
-        }
-
-        function deletePlayer(teamId, playerId) {
-          const next = teams.map((t) =>
-            t.id === teamId ? { ...t, players: t.players.filter((p) => p.id !== playerId) } : t,
-          );
-
-          persistTeams(next);
-        }
-
-        // ---------- TOURNAMENT CREATION ----------
-
-        function openNewTournament() {
-          setTourForm({
-            name: `Temporada ${meta.seasonCounter}`,
-            format: "liga",
-            teamIds: [],
-            numGroups: 2,
-          });
-
-          setNewTourModal(true);
-        }
-
-        function toggleTourTeam(id) {
-          setTourForm((f) => ({
-            ...f,
-
-            teamIds: f.teamIds.includes(id)
-              ? f.teamIds.filter((x) => x !== id)
-              : [...f.teamIds, id],
-          }));
-        }
-
-        function createTournament() {
-          const { name, format, teamIds, numGroups } = tourForm;
-
-          if (!name.trim() || teamIds.length < 2) return;
-
-          let matches = [];
-
-          let groups = null;
-
-          if (format === "liga") {
-            const rounds = generateRoundRobin(teamIds);
-
-            rounds.forEach((round, ri) => {
-              round.forEach((m) => {
-                matches.push({
-                  id: uid(),
-                  stage: "league",
-                  round: ri + 1,
-                  homeId: m.home,
-                  awayId: m.away,
-                  homeScore: 0,
-                  awayScore: 0,
-                  played: false,
-                  bye: false,
-                  scorers: [],
-                });
-              });
-            });
-          } else if (format === "mata-mata") {
-            const r1 = generateKnockoutRound(teamIds);
-
-            matches = r1.map((m) => ({
-              id: uid(),
-              stage: "knockout",
-              round: 1,
-              homeId: m.home,
-              awayId: m.away,
-              homeScore: 0,
-              awayScore: 0,
-              played: m.bye,
-              bye: m.bye,
-              scorers: [],
-            }));
-          } else if (format === "grupos") {
-            const ng = teamIds.length >= 8 ? numGroups : 2;
-
-            const gArr = splitGroups(teamIds, ng);
-
-            groups = gArr.map((ids, i) => ({
-              name: `Grupo ${String.fromCharCode(65 + i)}`,
-              teamIds: ids,
-            }));
-
-            groups.forEach((g) => {
-              const rounds = generateRoundRobin(g.teamIds);
-
-              rounds.forEach((round, ri) => {
-                round.forEach((m) => {
-                  matches.push({
-                    id: uid(),
-                    stage: "group",
-                    groupName: g.name,
-                    round: ri + 1,
-                    homeId: m.home,
-                    awayId: m.away,
-                    homeScore: 0,
-                    awayScore: 0,
-                    played: false,
-                    bye: false,
-                    scorers: [],
-                  });
-                });
-              });
-            });
-          }
-
-          const tour = {
-            id: uid(),
-            name: name.trim(),
-            format,
-            season: meta.seasonCounter,
-
-            teamIds,
-            groups,
-            matches,
-            status: "ongoing",
-            champion: null,
-            createdAt: Date.now(),
-          };
-
-          persistTournaments([...tournaments, tour]);
-
-          persistMeta({ ...meta, currentTournamentId: tour.id });
-
-          setNewTourModal(false);
-
-          setTab("tournament");
-        }
-
-        // ---------- MATCH RESULT ----------
-
-        function openMatch(m) {
-          setMatchModal(m);
-
-          setScoreDraft({
-            home: m.played ? String(m.homeScore) : "",
-
-            away: m.played ? String(m.awayScore) : "",
-
-            scorers: m.scorers || [],
-
-            penaltyWinner: m.penaltyWinner || null,
-          });
-        }
-
-        function addScorer(teamId, playerId, playerName) {
-          setScoreDraft((d) => ({
-            ...d,
-            scorers: [...d.scorers, { teamId, playerId, playerName }],
-          }));
-        }
-
-        function removeScorer(idx) {
-          setScoreDraft((d) => ({ ...d, scorers: d.scorers.filter((_, i) => i !== idx) }));
-        }
-
-        function saveMatchResult() {
-          if (!matchModal) return;
-
-          const hs = parseInt(scoreDraft.home, 10);
-
-          const as = parseInt(scoreDraft.away, 10);
-
-          if (isNaN(hs) || isNaN(as)) return;
-
-          if (hs === as && matchModal.stage === "knockout" && !scoreDraft.penaltyWinner) return;
-
-          // revert previous goal counts if editing an already played match
-
-          let nextTeams = teams;
-
-          if (matchModal.played && matchModal.scorers && matchModal.scorers.length) {
-            nextTeams = nextTeams.map((t) => ({
-              ...t,
-
-              players: t.players.map((p) => {
-                const count = matchModal.scorers.filter((s) => s.playerId === p.id).length;
-
-                return count ? { ...p, goals: Math.max(0, (p.goals || 0) - count) } : p;
-              }),
-            }));
-          }
-
-          // apply new goal counts
-
-          nextTeams = nextTeams.map((t) => ({
-            ...t,
-
-            players: t.players.map((p) => {
-              const count = scoreDraft.scorers.filter((s) => s.playerId === p.id).length;
-
-              return count ? { ...p, goals: (p.goals || 0) + count } : p;
-            }),
-          }));
-
-          const updatedMatch = {
-            ...matchModal,
-            played: true,
-            homeScore: hs,
-            awayScore: as,
-
-            scorers: scoreDraft.scorers,
-            penaltyWinner: scoreDraft.penaltyWinner,
-          };
-
-          const nextMatches = currentTournament.matches.map((m) =>
-            m.id === matchModal.id ? updatedMatch : m,
-          );
-
-          const nextTour = { ...currentTournament, matches: nextMatches };
-
-          persistTeams(nextTeams);
-
-          persistTournaments(tournaments.map((t) => (t.id === nextTour.id ? nextTour : t)));
-
-          setMatchModal(null);
-        }
-
-        // ---------- ADVANCE STAGE ----------
-
-        function stageComplete(matches, filterFn) {
-          const relevant = matches.filter(filterFn);
-
-          return relevant.length > 0 && relevant.every((m) => m.played);
-        }
-
-        function advanceKnockout() {
-          const t = currentTournament;
-
-          const maxRound = Math.max(
-            ...t.matches.filter((m) => m.stage === "knockout").map((m) => m.round),
-          );
-
-          const roundMatches = t.matches.filter(
-            (m) => m.stage === "knockout" && m.round === maxRound,
-          );
-
-          const winners = roundMatches.map(matchWinner);
-
-          if (winners.length === 1) {
-            finishTournament(winners[0]);
-
-            return;
-          }
-
-          const nextRound = generateKnockoutRound(winners);
-
-          const newMatches = nextRound.map((m) => ({
-            id: uid(),
-            stage: "knockout",
-            round: maxRound + 1,
-            homeId: m.home,
-            awayId: m.away,
-
-            homeScore: 0,
-            awayScore: 0,
-            played: m.bye,
-            bye: m.bye,
-            scorers: [],
-          }));
-
-          const nextTour = { ...t, matches: [...t.matches, ...newMatches] };
-
-          persistTournaments(tournaments.map((x) => (x.id === t.id ? nextTour : x)));
-        }
-
-        function advanceFromGroups() {
-          const t = currentTournament;
-
-          const qualifiers = [];
-
-          t.groups.forEach((g) => {
-            const groupMatches = t.matches.filter(
-              (m) => m.stage === "group" && m.groupName === g.name,
-            );
-
-            const standings = computeStandings(g.teamIds, groupMatches);
-
-            qualifiers.push(...standings.slice(0, 2).map((s) => s.id));
-          });
-
-          const shuffled = shuffle(qualifiers);
-
-          const round1 = generateKnockoutRound(shuffled);
-
-          const newMatches = round1.map((m) => ({
-            id: uid(),
-            stage: "knockout",
-            round: 1,
-            homeId: m.home,
-            awayId: m.away,
-
-            homeScore: 0,
-            awayScore: 0,
-            played: m.bye,
-            bye: m.bye,
-            scorers: [],
-          }));
-
-          const nextTour = { ...t, matches: [...t.matches, ...newMatches] };
-
-          persistTournaments(tournaments.map((x) => (x.id === t.id ? nextTour : x)));
-        }
-
-        function finishTournament(championId) {
-          const t = { ...currentTournament, status: "finished", champion: championId };
-
-          persistTournaments(tournaments.map((x) => (x.id === t.id ? t : x)));
-        }
-
-        function archiveSeason() {
-          persistMeta({ currentTournamentId: null, seasonCounter: meta.seasonCounter + 1 });
-
-          setTab("home");
-        }
-
-        // ---------- TRANSFERS ----------
-
-        function executeTransfer(player, fromTeamId, toTeamId) {
-          if (fromTeamId === toTeamId) return;
-
-          const from = teamById(fromTeamId),
-            to = teamById(toTeamId);
-
-          const nextTeams = teams.map((t) => {
-            if (t.id === fromTeamId)
-              return { ...t, players: t.players.filter((p) => p.id !== player.id) };
-
-            if (t.id === toTeamId) return { ...t, players: [...t.players, player] };
-
-            return t;
-          });
-
-          const log = {
-            id: uid(),
-            playerId: player.id,
-            playerName: player.name,
-            fromTeamId,
-            toTeamId,
-            fromTeamName: from?.name,
-            toTeamName: to?.name,
-            date: new Date().toLocaleDateString("pt-BR"),
-          };
-
-          persistTeams(nextTeams);
-
-          persistTransfers([log, ...transfers]);
-
-          setTransferPick(null);
-        }
-
-        // ---------- DERIVED ----------
-
-        const topScorers = useMemo(() => {
-          const all = [];
-
-          teams.forEach((t) =>
-            t.players.forEach((p) => all.push({ ...p, teamName: t.name, teamColor: t.color })),
-          );
-
-          return all
-            .filter((p) => (p.goals || 0) > 0)
-            .sort((a, b) => (b.goals || 0) - (a.goals || 0))
-            .slice(0, 10);
-        }, [teams]);
-
-        const nextMatches = useMemo(() => {
-          if (!currentTournament) return [];
-
-          return currentTournament.matches.filter((m) => !m.played && !m.bye).slice(0, 6);
-        }, [currentTournament]);
-
-        if (firebaseMissing) {
-          return (
-            <div
-              style={{
-                background: "#0A1712",
-                minHeight: "100vh",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 24,
-              }}
-            >
-              <div
-                style={{
-                  color: "#EDEFE7",
-                  maxWidth: 420,
-                  textAlign: "center",
-                  fontFamily: "system-ui",
-                }}
-              >
-                <div style={{ fontSize: 30, marginBottom: 10 }}>⚠️</div>
-
-                <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 8 }}>
-                  Configuração pendente
-                </div>
-
-                <div style={{ fontSize: 13.5, color: "#9AAA9F", lineHeight: 1.5 }}>
-                  Preencha o <code style={{ color: "#D4AF37" }}>firebaseConfig</code> no topo do
-                  arquivo <code style={{ color: "#D4AF37" }}>index.html</code> com os dados do seu
-                  projeto Firebase para o app funcionar.
-                </div>
-              </div>
-            </div>
-          );
-        }
-
-        if (loading) {
-          return (
-            <div
-              style={{
-                background: "#0A1712",
-                minHeight: "100vh",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <div
-                style={{
-                  color: "#D4AF37",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 12,
-                }}
-              >
-                <Loader2 size={32} className="animate-spin" />
-
-                <span
-                  style={{
-                    fontFamily: "system-ui",
-                    letterSpacing: 2,
-                    fontSize: 13,
-                    textTransform: "uppercase",
-                    color: "#9AAA9F",
-                  }}
-                >
-                  Carregando temporada...
-                </span>
-              </div>
-            </div>
-          );
-        }
-
-        if (profileReady && !myProfile) {
-          return (
-            <ProfileGate
-              profiles={profiles}
-              newProfileName={newProfileName}
-              setNewProfileName={setNewProfileName}
-              onPick={pickProfile}
-            />
-          );
-        }
-
-        return (
-          <div
-            style={{
-              minHeight: "100vh",
-              background:
-                "radial-gradient(circle at 15% 0%, #16301F 0%, #0A1712 45%), radial-gradient(circle at 90% 10%, #14281B 0%, #0A1712 40%)",
-
-              color: "#EDEFE7",
-              fontFamily: "system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
-              paddingBottom: 84,
-              maxWidth: 480,
-              margin: "0 auto",
-              position: "relative",
-            }}
-          >
-            <style>{`
-
+    }
+    rounds.push(roundMatches);
+    const fixed = arr[0];
+    const rest = arr.slice(1);
+    rest.unshift(rest.pop());
+    arr = [fixed, ...rest];
+  }
+  return rounds;
+}
+function generateKnockoutRound(teamIds) {
+  const s = shuffle(teamIds);
+  const matches = [];
+  for (let i = 0; i < s.length; i += 2) {
+    if (i + 1 < s.length) matches.push({ home: s[i], away: s[i + 1], bye: false });
+    else matches.push({ home: s[i], away: null, bye: true });
+  }
+  return matches;
+}
+function splitGroups(teamIds, numGroups) {
+  const s = shuffle(teamIds);
+  const groups = Array.from({ length: numGroups }, () => []);
+  s.forEach((id, i) => groups[i % numGroups].push(id));
+  return groups;
+}
+function computeStandings(teamIds, matches) {
+  const table = {};
+  teamIds.forEach((id) => { table[id] = { id, pj: 0, v: 0, e: 0, d: 0, gp: 0, gc: 0, sg: 0, pts: 0 }; });
+  matches.forEach((m) => {
+    if (!m.played || m.bye) return;
+    const h = table[m.homeId], a = table[m.awayId];
+    if (!h || !a) return;
+    h.pj++; a.pj++;
+    h.gp += m.homeScore; h.gc += m.awayScore;
+    a.gp += m.awayScore; a.gc += m.homeScore;
+    if (m.homeScore > m.awayScore) { h.v++; a.d++; h.pts += 3; }
+    else if (m.homeScore < m.awayScore) { a.v++; h.d++; a.pts += 3; }
+    else { h.e++; a.e++; h.pts += 1; a.pts += 1; }
+  });
+  Object.values(table).forEach((t) => (t.sg = t.gp - t.gc));
+  return Object.values(table).sort((x, y) => y.pts - x.pts || y.sg - x.sg || y.gp - x.gp);
+}
+function matchWinner(m) {
+  if (m.bye) return m.home;
+  if (!m.played) return null;
+  if (m.homeScore > m.awayScore) return m.homeId;
+  if (m.awayScore > m.homeScore) return m.awayId;
+  return m.penaltyWinner || null;
+}
+
+// ---------- FIREBASE (shared, realtime, mutable data only) ----------
+let db = null;
+function getDb() {
+  if (db) return db;
+  if (window.firebase && window.__FIREBASE_CONFIG__ && window.__FIREBASE_CONFIG__.apiKey) {
+    if (!window.firebase.apps.length) window.firebase.initializeApp(window.__FIREBASE_CONFIG__);
+    db = window.firebase.database();
+  }
+  return db;
+}
+function dbSet(path, value) {
+  const d = getDb();
+  if (!d) return Promise.resolve();
+  return d.ref("pes/" + path).set(value === undefined ? null : value).catch((e) => console.error("firebase set failed", path, e));
+}
+function dbSubscribe(path, cb) {
+  const d = getDb();
+  if (!d) { cb(null); return () => {}; }
+  const ref = d.ref("pes/" + path);
+  const handler = (snap) => cb(snap.val());
+  ref.on("value", handler);
+  return () => ref.off("value", handler);
+}
+function localGet(key) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+function localSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* ignore */ }
+}
+
+// ---------- STYLES ----------
+const btnPrimary = { background: "linear-gradient(180deg,#E8C766,#D4AF37)", color: "#12241C", fontWeight: 700 };
+const lbl = { display: "block", fontSize: 12, textTransform: "uppercase", letterSpacing: 1, color: "#9AAA9F", marginBottom: 6 };
+const inputStyle = { width: "100%", padding: "12px 14px", borderRadius: 10, border: "1px solid #24402F", backgroundColor: "#0E1E16", color: "#EDEFE7", fontSize: 15 };
+const bigBtn = { width: "100%", padding: "13px 16px", borderRadius: 12, border: "none", fontSize: 15, cursor: "pointer", marginTop: 4 };
+const panelStyle = { background: "#12241C", border: "1px solid #1E3528", borderRadius: 14, padding: 14, marginBottom: 12 };
+const chip = (active) => ({
+  padding: "6px 12px", borderRadius: 20, fontSize: 12.5, fontWeight: 600, cursor: "pointer",
+  background: active ? "#D4AF37" : "#1A2F24", color: active ? "#12241C" : "#9AAA9F", border: active ? "none" : "1px solid #24402F",
+});
+const thNum = { textAlign: "center", padding: "4px 4px" };
+
+function fmtValue(v) { return v + "M"; }
+
+function App() {
+  const [loading, setLoading] = useState(true);
+  const [firebaseMissing, setFirebaseMissing] = useState(false);
+  const [catalog, setCatalog] = useState([]);
+  const [catalogError, setCatalogError] = useState(false);
+
+  const [teams, setTeams] = useState([]);
+  const [ownership, setOwnership] = useState({});
+  const [playerStats, setPlayerStats] = useState({});
+  const [tournaments, setTournaments] = useState([]);
+  const [transfers, setTransfers] = useState([]);
+  const [meta, setMeta] = useState({ currentTournamentId: null, seasonCounter: 1 });
+  const [profiles, setProfiles] = useState([]);
+  const [myProfile, setMyProfile] = useState(null);
+  const [profileReady, setProfileReady] = useState(false);
+  const [newProfileName, setNewProfileName] = useState("");
+  const [tab, setTab] = useState("home");
+
+  const [teamModal, setTeamModal] = useState(false);
+  const [teamForm, setTeamForm] = useState({ name: "", color: TEAM_COLORS[0], budget: 300 });
+  const [activeTeamId, setActiveTeamId] = useState(null);
+  const [newTourModal, setNewTourModal] = useState(false);
+  const [tourForm, setTourForm] = useState({ name: "", format: "liga", teamIds: [], numGroups: 2 });
+  const [matchModal, setMatchModal] = useState(null);
+  const [scoreDraft, setScoreDraft] = useState({ home: "", away: "", scorers: [], penaltyWinner: null });
+  const [historyOpen, setHistoryOpen] = useState(null);
+  const [groupTab, setGroupTab] = useState(0);
+  const [playerDetail, setPlayerDetail] = useState(null);
+  const [buyModal, setBuyModal] = useState(null); // { player, listing }
+  const [sellModal, setSellModal] = useState(null); // { player, teamId }
+
+  // ---------- LOAD CATALOG (static, read-only) ----------
+  useEffect(() => {
+    fetch("./players.json")
+      .then((r) => { if (!r.ok) throw new Error("fail"); return r.json(); })
+      .then((data) => setCatalog(data))
+      .catch(() => setCatalogError(true));
+  }, []);
+  const catalogMap = useMemo(() => {
+    const m = new Map();
+    catalog.forEach((p) => m.set(p.id, p));
+    return m;
+  }, [catalog]);
+
+  // ---------- FIREBASE SUBSCRIPTIONS ----------
+  useEffect(() => {
+    if (!getDb()) { setFirebaseMissing(true); setLoading(false); return; }
+    setMyProfile(localGet("pes-my-profile"));
+    setProfileReady(true);
+    const offs = [
+      dbSubscribe("teams", (v) => { setTeams(v || []); setLoading(false); }),
+      dbSubscribe("ownership", (v) => setOwnership(v || {})),
+      dbSubscribe("playerStats", (v) => setPlayerStats(v || {})),
+      dbSubscribe("tournaments", (v) => setTournaments(v || [])),
+      dbSubscribe("transfers", (v) => setTransfers(v || [])),
+      dbSubscribe("meta", (v) => setMeta(v || { currentTournamentId: null, seasonCounter: 1 })),
+      dbSubscribe("profiles", (v) => setProfiles(v || [])),
+    ];
+    return () => offs.forEach((f) => f());
+  }, []);
+
+  const persistTeams = useCallback((next) => { setTeams(next); dbSet("teams", next); }, []);
+  const persistOwnership = useCallback((next) => { setOwnership(next); dbSet("ownership", next); }, []);
+  const persistPlayerStats = useCallback((next) => { setPlayerStats(next); dbSet("playerStats", next); }, []);
+  const persistTournaments = useCallback((next) => { setTournaments(next); dbSet("tournaments", next); }, []);
+  const persistTransfers = useCallback((next) => { setTransfers(next); dbSet("transfers", next); }, []);
+  const persistMeta = useCallback((next) => { setMeta(next); dbSet("meta", next); }, []);
+
+  function pickProfile(name) {
+    setMyProfile(name);
+    localSet("pes-my-profile", name);
+    if (!profiles.includes(name)) {
+      const next = [...profiles, name];
+      setProfiles(next);
+      dbSet("profiles", next);
+    }
+  }
+  function switchProfile() { setMyProfile(null); localSet("pes-my-profile", null); }
+
+  const currentTournament = useMemo(() => tournaments.find((t) => t.id === meta.currentTournamentId) || null, [tournaments, meta.currentTournamentId]);
+  const teamById = useCallback((id) => teams.find((t) => t.id === id), [teams]);
+  const squadOf = useCallback((teamId) => catalog.filter((p) => ownership[p.id] && ownership[p.id].teamId === teamId), [catalog, ownership]);
+
+  // ---------- TEAMS ----------
+  function openNewTeam() { setTeamForm({ name: "", color: TEAM_COLORS[teams.length % TEAM_COLORS.length], budget: 300 }); setTeamModal(true); }
+  function saveNewTeam() {
+    if (!teamForm.name.trim()) return;
+    const newTeam = { id: uid(), name: teamForm.name.trim(), color: teamForm.color, budget: Math.max(0, Number(teamForm.budget) || 0) };
+    persistTeams([...teams, newTeam]);
+    setTeamModal(false);
+  }
+  function deleteTeam(id) {
+    persistTeams(teams.filter((t) => t.id !== id));
+    const nextOwn = { ...ownership };
+    Object.keys(nextOwn).forEach((pid) => { if (nextOwn[pid].teamId === id) delete nextOwn[pid]; });
+    persistOwnership(nextOwn);
+    if (activeTeamId === id) setActiveTeamId(null);
+  }
+
+  // ---------- MARKET ----------
+  function priceOf(player) {
+    const o = ownership[player.id];
+    if (!o || !o.teamId) return player.value;
+    if (o.forSale) return o.price;
+    return null;
+  }
+  function statusOf(player) {
+    const o = ownership[player.id];
+    if (!o || !o.teamId) return { kind: "free" };
+    if (o.forSale) return { kind: "listed", teamId: o.teamId, price: o.price };
+    return { kind: "owned", teamId: o.teamId };
+  }
+  function openBuy(player) {
+    const st = statusOf(player);
+    if (st.kind === "owned") return;
+    setBuyModal({ player, status: st });
+  }
+  function confirmBuy(player, status, buyerTeamId) {
+    const buyer = teamById(buyerTeamId);
+    if (!buyer) return;
+    const price = status.kind === "free" ? player.value : status.price;
+    if (buyer.budget < price) return;
+    const nextTeams = teams.map((t) => {
+      if (t.id === buyerTeamId) return { ...t, budget: t.budget - price };
+      if (status.kind === "listed" && t.id === status.teamId) return { ...t, budget: t.budget + price };
+      return t;
+    });
+    const nextOwn = { ...ownership, [player.id]: { teamId: buyerTeamId, forSale: false, price: null } };
+    persistTeams(nextTeams);
+    persistOwnership(nextOwn);
+    persistTransfers([{ id: uid(), playerId: player.id, playerName: player.name, fromTeamId: status.kind === "listed" ? status.teamId : null, toTeamId: buyerTeamId, price, date: new Date().toLocaleDateString("pt-BR") }, ...transfers]);
+    setBuyModal(null);
+  }
+  function openSell(player, teamId) { setSellModal({ player, teamId, price: player.value }); }
+  function confirmSell(player, teamId, price) {
+    const p = Math.max(1, Number(price) || player.value);
+    persistOwnership({ ...ownership, [player.id]: { teamId, forSale: true, price: p } });
+    setSellModal(null);
+  }
+  function unlist(player, teamId) {
+    persistOwnership({ ...ownership, [player.id]: { teamId, forSale: false, price: null } });
+  }
+  function releasePlayer(player) {
+    const next = { ...ownership };
+    delete next[player.id];
+    persistOwnership(next);
+  }
+
+  // ---------- TOURNAMENT CREATION ----------
+  function openNewTournament() { setTourForm({ name: `Temporada ${meta.seasonCounter}`, format: "liga", teamIds: [], numGroups: 2 }); setNewTourModal(true); }
+  function toggleTourTeam(id) { setTourForm((f) => ({ ...f, teamIds: f.teamIds.includes(id) ? f.teamIds.filter((x) => x !== id) : [...f.teamIds, id] })); }
+  function createTournament() {
+    const { name, format, teamIds, numGroups } = tourForm;
+    if (!name.trim() || teamIds.length < 2) return;
+    let matches = [], groups = null;
+    if (format === "liga") {
+      generateRoundRobin(teamIds).forEach((round, ri) => round.forEach((m) => {
+        matches.push({ id: uid(), stage: "league", round: ri + 1, homeId: m.home, awayId: m.away, homeScore: 0, awayScore: 0, played: false, bye: false, scorers: [] });
+      }));
+    } else if (format === "mata-mata") {
+      matches = generateKnockoutRound(teamIds).map((m) => ({ id: uid(), stage: "knockout", round: 1, homeId: m.home, awayId: m.away, homeScore: 0, awayScore: 0, played: m.bye, bye: m.bye, scorers: [] }));
+    } else if (format === "grupos") {
+      const ng = teamIds.length >= 8 ? numGroups : 2;
+      const gArr = splitGroups(teamIds, ng);
+      groups = gArr.map((ids, i) => ({ name: `Grupo ${String.fromCharCode(65 + i)}`, teamIds: ids }));
+      groups.forEach((g) => {
+        generateRoundRobin(g.teamIds).forEach((round, ri) => round.forEach((m) => {
+          matches.push({ id: uid(), stage: "group", groupName: g.name, round: ri + 1, homeId: m.home, awayId: m.away, homeScore: 0, awayScore: 0, played: false, bye: false, scorers: [] });
+        }));
+      });
+    }
+    const tour = { id: uid(), name: name.trim(), format, season: meta.seasonCounter, teamIds, groups, matches, status: "ongoing", champion: null, createdAt: Date.now() };
+    persistTournaments([...tournaments, tour]);
+    persistMeta({ ...meta, currentTournamentId: tour.id });
+    setNewTourModal(false);
+    setTab("tournament");
+  }
+
+  // ---------- MATCH RESULT ----------
+  function openMatch(m) {
+    setMatchModal(m);
+    setScoreDraft({ home: m.played ? String(m.homeScore) : "", away: m.played ? String(m.awayScore) : "", scorers: m.scorers || [], penaltyWinner: m.penaltyWinner || null });
+  }
+  function addScorer(teamId, playerId) { setScoreDraft((d) => ({ ...d, scorers: [...d.scorers, { teamId, playerId }] })); }
+  function removeScorer(idx) { setScoreDraft((d) => ({ ...d, scorers: d.scorers.filter((_, i) => i !== idx) })); }
+  function saveMatchResult() {
+    if (!matchModal) return;
+    const hs = parseInt(scoreDraft.home, 10), as = parseInt(scoreDraft.away, 10);
+    if (isNaN(hs) || isNaN(as)) return;
+    if (hs === as && matchModal.stage === "knockout" && !scoreDraft.penaltyWinner) return;
+
+    const nextStats = { ...playerStats };
+    if (matchModal.played && matchModal.scorers && matchModal.scorers.length) {
+      matchModal.scorers.forEach((s) => {
+        if (nextStats[s.playerId]) nextStats[s.playerId] = { goals: Math.max(0, (nextStats[s.playerId].goals || 0) - 1) };
+      });
+    }
+    scoreDraft.scorers.forEach((s) => {
+      nextStats[s.playerId] = { goals: ((nextStats[s.playerId] && nextStats[s.playerId].goals) || 0) + 1 };
+    });
+
+    const updatedMatch = { ...matchModal, played: true, homeScore: hs, awayScore: as, scorers: scoreDraft.scorers, penaltyWinner: scoreDraft.penaltyWinner };
+    const nextMatches = currentTournament.matches.map((m) => (m.id === matchModal.id ? updatedMatch : m));
+    persistPlayerStats(nextStats);
+    persistTournaments(tournaments.map((t) => (t.id === currentTournament.id ? { ...currentTournament, matches: nextMatches } : t)));
+    setMatchModal(null);
+  }
+
+  // ---------- ADVANCE STAGE ----------
+  function advanceKnockout() {
+    const t = currentTournament;
+    const maxRound = Math.max(...t.matches.filter((m) => m.stage === "knockout").map((m) => m.round));
+    const roundMatches = t.matches.filter((m) => m.stage === "knockout" && m.round === maxRound);
+    const winners = roundMatches.map(matchWinner);
+    if (winners.length === 1) { finishTournament(winners[0]); return; }
+    const nextRound = generateKnockoutRound(winners);
+    const newMatches = nextRound.map((m) => ({ id: uid(), stage: "knockout", round: maxRound + 1, homeId: m.home, awayId: m.away, homeScore: 0, awayScore: 0, played: m.bye, bye: m.bye, scorers: [] }));
+    persistTournaments(tournaments.map((x) => (x.id === t.id ? { ...t, matches: [...t.matches, ...newMatches] } : x)));
+  }
+  function advanceFromGroups() {
+    const t = currentTournament;
+    const qualifiers = [];
+    t.groups.forEach((g) => {
+      const groupMatches = t.matches.filter((m) => m.stage === "group" && m.groupName === g.name);
+      const standings = computeStandings(g.teamIds, groupMatches);
+      qualifiers.push(...standings.slice(0, 2).map((s) => s.id));
+    });
+    const round1 = generateKnockoutRound(shuffle(qualifiers));
+    const newMatches = round1.map((m) => ({ id: uid(), stage: "knockout", round: 1, homeId: m.home, awayId: m.away, homeScore: 0, awayScore: 0, played: m.bye, bye: m.bye, scorers: [] }));
+    persistTournaments(tournaments.map((x) => (x.id === t.id ? { ...t, matches: [...t.matches, ...newMatches] } : x)));
+  }
+  function finishTournament(championId) {
+    persistTournaments(tournaments.map((x) => (x.id === currentTournament.id ? { ...currentTournament, status: "finished", champion: championId } : x)));
+  }
+  function archiveSeason() { persistMeta({ currentTournamentId: null, seasonCounter: meta.seasonCounter + 1 }); setTab("home"); }
+
+  // ---------- DERIVED ----------
+  const topScorers = useMemo(() => {
+    const list = [];
+    Object.entries(playerStats).forEach(([pid, s]) => {
+      if (!s || !s.goals) return;
+      const p = catalogMap.get(pid);
+      if (!p) return;
+      const o = ownership[pid];
+      const team = o && o.teamId ? teamById(o.teamId) : null;
+      list.push({ ...p, goals: s.goals, teamName: team ? team.name : "Livre", teamColor: team ? team.color : "#555" });
+    });
+    return list.sort((a, b) => b.goals - a.goals).slice(0, 10);
+  }, [playerStats, catalogMap, ownership, teamById]);
+
+  const nextMatches = useMemo(() => (currentTournament ? currentTournament.matches.filter((m) => !m.played && !m.bye).slice(0, 6) : []), [currentTournament]);
+  const squadCount = useMemo(() => Object.values(ownership).filter((o) => o.teamId).length, [ownership]);
+
+  if (firebaseMissing) {
+    return (
+      <div style={{ background: "#0A1712", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ color: "#EDEFE7", maxWidth: 420, textAlign: "center", fontFamily: "system-ui" }}>
+          <div style={{ fontSize: 30, marginBottom: 10 }}>⚠️</div>
+          <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 8 }}>Configuração pendente</div>
+          <div style={{ fontSize: 13.5, color: "#9AAA9F", lineHeight: 1.5 }}>
+            Preencha o <code style={{ color: "#D4AF37" }}>firebaseConfig</code> no topo do <code style={{ color: "#D4AF37" }}>index.html</code>.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (loading) {
+    return (
+      <div style={{ background: "#0A1712", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ color: "#D4AF37", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <Loader2 size={32} className="animate-spin" />
+          <span style={{ fontFamily: "system-ui", letterSpacing: 2, fontSize: 13, textTransform: "uppercase", color: "#9AAA9F" }}>Carregando temporada...</span>
+        </div>
+      </div>
+    );
+  }
+  if (profileReady && !myProfile) {
+    return <ProfileGate profiles={profiles} newProfileName={newProfileName} setNewProfileName={setNewProfileName} onPick={pickProfile} />;
+  }
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: "radial-gradient(circle at 15% 0%, #16301F 0%, #0A1712 45%), radial-gradient(circle at 90% 10%, #14281B 0%, #0A1712 40%)",
+      color: "#EDEFE7", fontFamily: "system-ui,-apple-system,Segoe UI,Roboto,sans-serif", paddingBottom: 84, maxWidth: 480, margin: "0 auto", position: "relative",
+    }}>
+      <style>{`
         * { box-sizing: border-box; }
-
         ::-webkit-scrollbar { display: none; }
-
         .scoreboard { font-variant-numeric: tabular-nums; letter-spacing: 1px; }
-
         .tapbtn:active { transform: scale(0.97); }
-
         input, select { outline: none; }
-
         input::placeholder { color: #6B7A6F; }
-
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; }
       `}</style>
 
-            <Header
-              meta={meta}
-              currentTournament={currentTournament}
-              myProfile={myProfile}
-              onSwitchProfile={switchProfile}
-            />
+      <Header meta={meta} currentTournament={currentTournament} myProfile={myProfile} onSwitchProfile={switchProfile} />
 
-            <div style={{ padding: "16px 16px 0" }}>
-              {tab === "home" && (
-                <HomeTab
-                  teams={teams}
-                  currentTournament={currentTournament}
-                  nextMatches={nextMatches}
-                  topScorers={topScorers}
-                  onOpenMatch={openMatch}
-                  onGoTournament={() => setTab("tournament")}
-                />
-              )}
+      {catalogError && (
+        <div style={{ margin: "0 16px 12px", background: "rgba(193,68,61,0.15)", border: "1px solid #C1443D", borderRadius: 10, padding: 10, fontSize: 12.5, color: "#F0A8A3" }}>
+          Não encontrei o arquivo <code>players.json</code> ao lado do index.html. Sem ele o catálogo de jogadores não carrega.
+        </div>
+      )}
 
-              {tab === "teams" && (
-                <TeamsTab
-                  teams={teams}
-                  activeTeamId={activeTeamId}
-                  setActiveTeamId={setActiveTeamId}
-                  onNewTeam={openNewTeam}
-                  onDeleteTeam={deleteTeam}
-                  onNewPlayer={(teamId) => setPlayerModal({ teamId, player: null })}
-                  onEditPlayer={(teamId, player) => setPlayerModal({ teamId, player })}
-                  onDeletePlayer={deletePlayer}
-                />
-              )}
+      <div style={{ padding: "16px 16px 0" }}>
+        {tab === "home" && (
+          <HomeTab teams={teams} currentTournament={currentTournament} nextMatches={nextMatches} topScorers={topScorers}
+            onGoTournament={() => setTab("tournament")} squadCount={squadCount} catalogCount={catalog.length} />
+        )}
+        {tab === "teams" && (
+          <TeamsTab teams={teams} activeTeamId={activeTeamId} setActiveTeamId={setActiveTeamId}
+            onNewTeam={openNewTeam} onDeleteTeam={deleteTeam} squadOf={squadOf}
+            onOpenSell={openSell} onUnlist={unlist} onRelease={releasePlayer} ownership={ownership}
+            onOpenDetail={setPlayerDetail} onGoMarket={() => setTab("market")} />
+        )}
+        {tab === "tournament" && (
+          <TournamentTab teams={teams} teamById={teamById} tournament={currentTournament}
+            onNewTournament={openNewTournament} onOpenMatch={openMatch}
+            groupTab={groupTab} setGroupTab={setGroupTab}
+            advanceKnockout={advanceKnockout} advanceFromGroups={advanceFromGroups}
+            archiveSeason={archiveSeason} finishTournament={finishTournament} />
+        )}
+        {tab === "market" && (
+          <MarketTab catalog={catalog} ownership={ownership} teamById={teamById} teams={teams}
+            statusOf={statusOf} onBuy={openBuy} onOpenDetail={setPlayerDetail} transfers={transfers} />
+        )}
+        {tab === "history" && (
+          <HistoryTab tournaments={tournaments.filter((t) => t.status === "finished")} teamById={teamById} historyOpen={historyOpen} setHistoryOpen={setHistoryOpen} />
+        )}
+      </div>
 
-              {tab === "tournament" && (
-                <TournamentTab
-                  teams={teams}
-                  teamById={teamById}
-                  tournament={currentTournament}
-                  teamsAll={teams}
-                  onNewTournament={openNewTournament}
-                  onOpenMatch={openMatch}
-                  groupTab={groupTab}
-                  setGroupTab={setGroupTab}
-                  advanceKnockout={advanceKnockout}
-                  advanceFromGroups={advanceFromGroups}
-                  archiveSeason={archiveSeason}
-                  finishTournament={finishTournament}
-                />
-              )}
+      <BottomNav tab={tab} setTab={setTab} />
 
-              {tab === "market" && (
-                <MarketTab
-                  teams={teams}
-                  transfers={transfers}
-                  onPick={(p, teamId) => setTransferPick({ player: p, fromTeamId: teamId })}
-                />
-              )}
-
-              {tab === "history" && (
-                <HistoryTab
-                  tournaments={tournaments.filter((t) => t.status === "finished")}
-                  teamById={teamById}
-                  historyOpen={historyOpen}
-                  setHistoryOpen={setHistoryOpen}
-                />
-              )}
-            </div>
-
-            <BottomNav tab={tab} setTab={setTab} />
-
-            {teamModal && (
-              <Modal title="Novo time" onClose={() => setTeamModal(false)}>
-                <label style={lbl}>Nome do time</label>
-
-                <input
-                  style={inputStyle}
-                  value={teamForm.name}
-                  onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })}
-                  placeholder="Ex: Furacão FC"
-                  autoFocus
-                />
-
-                <label style={{ ...lbl, marginTop: 14 }}>Cor</label>
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-                  {TEAM_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setTeamForm({ ...teamForm, color: c })}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 8,
-                        background: c,
-                        border:
-                          teamForm.color === c ? "2px solid #EDEFE7" : "2px solid transparent",
-                        cursor: "pointer",
-                      }}
-                    />
-                  ))}
-                </div>
-
-                <button
-                  className="tapbtn"
-                  style={{ ...bigBtn, ...btnPrimary }}
-                  onClick={saveNewTeam}
-                >
-                  Criar time
-                </button>
-              </Modal>
-            )}
-
-            {playerModal && (
-              <PlayerModal
-                data={playerModal}
-                onClose={() => setPlayerModal(null)}
-                onSave={savePlayer}
-              />
-            )}
-
-            {newTourModal && (
-              <NewTournamentModal
-                teams={teams}
-                tourForm={tourForm}
-                setTourForm={setTourForm}
-                onClose={() => setNewTourModal(false)}
-                onToggleTeam={toggleTourTeam}
-                onCreate={createTournament}
-              />
-            )}
-
-            {matchModal && (
-              <MatchModal
-                match={matchModal}
-                teamById={teamById}
-                scoreDraft={scoreDraft}
-                setScoreDraft={setScoreDraft}
-                onClose={() => setMatchModal(null)}
-                onSave={saveMatchResult}
-                addScorer={addScorer}
-                removeScorer={removeScorer}
-              />
-            )}
-
-            {transferPick && (
-              <TransferModal
-                pick={transferPick}
-                teams={teams}
-                onClose={() => setTransferPick(null)}
-                onConfirm={executeTransfer}
-              />
-            )}
+      {teamModal && (
+        <Modal title="Novo time" onClose={() => setTeamModal(false)}>
+          <label style={lbl}>Nome do time</label>
+          <input style={inputStyle} value={teamForm.name} onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })} placeholder="Ex: Furacão FC" autoFocus />
+          <label style={{ ...lbl, marginTop: 14 }}>Cor</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {TEAM_COLORS.map((c) => (
+              <button key={c} onClick={() => setTeamForm({ ...teamForm, color: c })} style={{ width: 32, height: 32, borderRadius: 8, background: c, border: teamForm.color === c ? "2px solid #EDEFE7" : "2px solid transparent", cursor: "pointer" }} />
+            ))}
           </div>
-        );
-      }
+          <label style={lbl}>Orçamento inicial (em milhões)</label>
+          <input type="number" min={0} style={inputStyle} value={teamForm.budget} onChange={(e) => setTeamForm({ ...teamForm, budget: e.target.value })} />
+          <button className="tapbtn" style={{ ...bigBtn, ...btnPrimary }} onClick={saveNewTeam}>Criar time</button>
+        </Modal>
+      )}
 
-      // ============ SHARED STYLES ============
+      {newTourModal && (
+        <NewTournamentModal teams={teams} tourForm={tourForm} setTourForm={setTourForm} onClose={() => setNewTourModal(false)} onToggleTeam={toggleTourTeam} onCreate={createTournament} />
+      )}
 
-      const lbl = {
-        display: "block",
-        fontSize: 12,
-        textTransform: "uppercase",
-        letterSpacing: 1,
-        color: "#9AAA9F",
-        marginBottom: 6,
-      };
+      {matchModal && (
+        <MatchModal match={matchModal} teamById={teamById} squadOf={squadOf} catalogMap={catalogMap} scoreDraft={scoreDraft} setScoreDraft={setScoreDraft}
+          onClose={() => setMatchModal(null)} onSave={saveMatchResult} addScorer={addScorer} removeScorer={removeScorer} />
+      )}
 
-      const inputStyle = {
-        width: "100%",
-        padding: "12px 14px",
-        borderRadius: 10,
-        border: "1px solid #24402F",
-        background: "#0F201700",
-        backgroundColor: "#0E1E16",
-        color: "#EDEFE7",
-        fontSize: 15,
-      };
+      {playerDetail && <PlayerDetailModal player={playerDetail} onClose={() => setPlayerDetail(null)} />}
 
-      const bigBtn = {
-        width: "100%",
-        padding: "13px 16px",
-        borderRadius: 12,
-        border: "none",
-        fontSize: 15,
-        cursor: "pointer",
-        marginTop: 4,
-      };
+      {buyModal && (
+        <BuyModal data={buyModal} teams={teams} onClose={() => setBuyModal(null)} onConfirm={confirmBuy} />
+      )}
+      {sellModal && (
+        <SellModal data={sellModal} onClose={() => setSellModal(null)} onConfirm={confirmSell} />
+      )}
+    </div>
+  );
+}
 
-      const panelStyle = {
-        background: "#12241C",
-        border: "1px solid #1E3528",
-        borderRadius: 14,
-        padding: 14,
-        marginBottom: 12,
-      };
+// ============ PROFILE GATE ============
+function ProfileGate({ profiles, newProfileName, setNewProfileName, onPick }) {
+  return (
+    <div style={{ minHeight: "100vh", background: "radial-gradient(circle at 15% 0%, #16301F 0%, #0A1712 45%), radial-gradient(circle at 90% 10%, #14281B 0%, #0A1712 40%)", color: "#EDEFE7", fontFamily: "system-ui,-apple-system,Segoe UI,Roboto,sans-serif", display: "flex", flexDirection: "column", justifyContent: "center", padding: 24, maxWidth: 480, margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <Trophy size={34} color="#D4AF37" style={{ marginBottom: 10 }} />
+        <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 1 }}>PES <span style={{ color: "#D4AF37" }}>MANAGER</span></div>
+        <div style={{ fontSize: 13, color: "#9AAA9F", marginTop: 6 }}>Quem é você? Escolha seu perfil pra entrar na liga.</div>
+      </div>
+      {profiles.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+          {profiles.map((p) => (
+            <button key={p} className="tapbtn" onClick={() => onPick(p)} style={{ ...panelStyle, marginBottom: 0, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", width: "100%", textAlign: "left" }}>
+              <span style={{ fontWeight: 700, fontSize: 15 }}>{p}</span>
+              <ChevronRight size={18} color="#6B7A6F" />
+            </button>
+          ))}
+        </div>
+      )}
+      <label style={lbl}>Ou entre com um nome novo</label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input style={{ ...inputStyle, flex: 1 }} placeholder="Seu nome" value={newProfileName} onChange={(e) => setNewProfileName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && newProfileName.trim()) onPick(newProfileName.trim()); }} />
+        <button className="tapbtn" disabled={!newProfileName.trim()} onClick={() => onPick(newProfileName.trim())}
+          style={{ ...btnPrimary, border: "none", borderRadius: 10, padding: "0 18px", fontSize: 14, cursor: "pointer", opacity: newProfileName.trim() ? 1 : 0.5 }}>Entrar</button>
+      </div>
+      <div style={{ fontSize: 11.5, color: "#6B7A6F", marginTop: 14, textAlign: "center" }}>Sem senha, sem conta — todo mundo mexe no mesmo campeonato.</div>
+    </div>
+  );
+}
 
-      const chip = (active) => ({
-        padding: "6px 12px",
-        borderRadius: 20,
-        fontSize: 12.5,
-        fontWeight: 600,
-        cursor: "pointer",
-
-        background: active ? "#D4AF37" : "#1A2F24",
-        color: active ? "#12241C" : "#9AAA9F",
-        border: active ? "none" : "1px solid #24402F",
-      });
-
-      // ============ PROFILE GATE ============
-
-      function ProfileGate({ profiles, newProfileName, setNewProfileName, onPick }) {
-        return (
-          <div
-            style={{
-              minHeight: "100vh",
-              background:
-                "radial-gradient(circle at 15% 0%, #16301F 0%, #0A1712 45%), radial-gradient(circle at 90% 10%, #14281B 0%, #0A1712 40%)",
-
-              color: "#EDEFE7",
-              fontFamily: "system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
-              display: "flex",
-              flexDirection: "column",
-
-              justifyContent: "center",
-              padding: 24,
-              maxWidth: 480,
-              margin: "0 auto",
-            }}
-          >
-            <div style={{ textAlign: "center", marginBottom: 28 }}>
-              <Trophy size={34} color="#D4AF37" style={{ marginBottom: 10 }} />
-
-              <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 1 }}>
-                PES <span style={{ color: "#D4AF37" }}>MANAGER</span>
-              </div>
-
-              <div style={{ fontSize: 13, color: "#9AAA9F", marginTop: 6 }}>
-                Quem é você? Escolha seu perfil pra entrar na liga.
-              </div>
+// ============ HEADER ============
+function Header({ meta, currentTournament, myProfile, onSwitchProfile }) {
+  return (
+    <div style={{ padding: "22px 16px 16px", position: "sticky", top: 0, zIndex: 5, background: "linear-gradient(180deg,#0A1712 60%, rgba(10,23,18,0))" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: 1.5, color: "#EDEFE7" }}>PES <span style={{ color: "#D4AF37" }}>MANAGER</span></div>
+          <div style={{ fontSize: 11, letterSpacing: 2, color: "#6B7A6F", textTransform: "uppercase", marginTop: 2 }}>Temporada {meta.seasonCounter}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {currentTournament && currentTournament.status === "ongoing" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#1A2F24", padding: "6px 10px", borderRadius: 20, border: "1px solid #2F7A4D" }}>
+              <span style={{ width: 7, height: 7, borderRadius: 99, background: "#2F7A4D", boxShadow: "0 0 6px #2F7A4D", display: "inline-block" }} />
+              <span style={{ fontSize: 11, color: "#8FD6A8", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Em andamento</span>
             </div>
+          )}
+          {myProfile && (
+            <button onClick={onSwitchProfile} style={{ background: "#1A2F24", border: "1px solid #24402F", color: "#EDEFE7", borderRadius: 20, padding: "6px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }} title="Trocar perfil">
+              <Users size={12} color="#D4AF37" /> {myProfile}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
-            {profiles.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
-                {profiles.map((p) => (
-                  <button
-                    key={p}
-                    className="tapbtn"
-                    onClick={() => onPick(p)}
-                    style={{
-                      ...panelStyle,
-                      marginBottom: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      cursor: "pointer",
-                      width: "100%",
-                      textAlign: "left",
-                    }}
-                  >
-                    <span style={{ fontWeight: 700, fontSize: 15 }}>{p}</span>
+// ============ SCOREBOARD / MATCH ROW ============
+function ScoreBox({ value }) {
+  return <span className="scoreboard" style={{ background: "#0A1712", border: "1px solid #2F4A38", borderRadius: 6, padding: "3px 9px", color: "#F2D77A", fontWeight: 800, fontSize: 17, minWidth: 30, textAlign: "center", display: "inline-block" }}>{value}</span>;
+}
+function TeamLine({ team }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span style={{ width: 9, height: 9, borderRadius: 3, background: team?.color || "#555", display: "inline-block", flexShrink: 0 }} />
+      <span style={{ fontSize: 14, fontWeight: 600 }}>{team?.name || "?"}</span>
+    </div>
+  );
+}
+function MatchRow({ match, teamById, onOpen }) {
+  const home = teamById(match.homeId), away = teamById(match.awayId);
+  if (match.bye) {
+    return (
+      <div style={{ ...panelStyle, marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", opacity: 0.75 }}>
+        <span style={{ fontSize: 13.5, color: "#9AAA9F" }}><b style={{ color: "#EDEFE7" }}>{home?.name}</b> avançou de bye</span>
+        <Flag size={14} color="#6B7A6F" />
+      </div>
+    );
+  }
+  return (
+    <button className="tapbtn" onClick={() => onOpen(match)} style={{ ...panelStyle, marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", cursor: "pointer", textAlign: "left", border: match.played ? "1px solid #1E3528" : "1px solid #3A5540" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+        <TeamLine team={home} />
+        <TeamLine team={away} />
+      </div>
+      {match.played ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <ScoreBox value={match.homeScore} />
+          <ScoreBox value={match.awayScore} />
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#D4AF37", fontSize: 12.5, fontWeight: 700 }}>JOGAR <ChevronRight size={16} /></div>
+      )}
+    </button>
+  );
+}
 
-                    <ChevronRight size={18} color="#6B7A6F" />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <label style={lbl}>Ou entre com um nome novo</label>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                style={{ ...inputStyle, flex: 1 }}
-                placeholder="Seu nome"
-                value={newProfileName}
-                onChange={(e) => setNewProfileName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && newProfileName.trim()) onPick(newProfileName.trim());
-                }}
-              />
-
-              <button
-                className="tapbtn"
-                disabled={!newProfileName.trim()}
-                onClick={() => onPick(newProfileName.trim())}
-                style={{
-                  ...btnPrimary,
-                  border: "none",
-                  borderRadius: 10,
-                  padding: "0 18px",
-                  fontSize: 14,
-                  cursor: "pointer",
-                  opacity: newProfileName.trim() ? 1 : 0.5,
-                }}
-              >
-                Entrar
-              </button>
-            </div>
-
-            <div style={{ fontSize: 11.5, color: "#6B7A6F", marginTop: 14, textAlign: "center" }}>
-              Sem senha, sem conta — é só pra identificar quem é quem na liga. Todo mundo mexe no
-              mesmo campeonato.
-            </div>
-          </div>
-        );
-      }
-
-      // ============ HEADER ============
-
-      function Header({ meta, currentTournament, myProfile, onSwitchProfile }) {
-        return (
-          <div
-            style={{
-              padding: "22px 16px 16px",
-              position: "sticky",
-              top: 0,
-              zIndex: 5,
-
-              background: "linear-gradient(180deg,#0A1712 60%, rgba(10,23,18,0))",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+// ============ HOME TAB ============
+function HomeTab({ teams, currentTournament, nextMatches, topScorers, onGoTournament, squadCount, catalogCount }) {
+  return (
+    <div>
+      {!currentTournament ? (
+        <div style={{ ...panelStyle, textAlign: "center", padding: 26 }}>
+          <Trophy size={30} color="#D4AF37" style={{ marginBottom: 10 }} />
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Nenhum campeonato ativo</div>
+          <div style={{ fontSize: 13, color: "#9AAA9F" }}>Contrate jogadores no mercado e depois inicie um campeonato.</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ ...panelStyle, background: "linear-gradient(135deg,#16301F,#12241C)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
-                <div
-                  style={{ fontSize: 22, fontWeight: 900, letterSpacing: 1.5, color: "#EDEFE7" }}
-                >
-                  PES <span style={{ color: "#D4AF37" }}>MANAGER</span>
+                <div style={{ fontSize: 11, color: "#8FD6A8", textTransform: "uppercase", letterSpacing: 1, fontWeight: 700 }}>
+                  {currentTournament.format === "liga" ? "Liga" : currentTournament.format === "mata-mata" ? "Mata-mata" : "Grupos + Mata-mata"}
                 </div>
-
-                <div
-                  style={{
-                    fontSize: 11,
-                    letterSpacing: 2,
-                    color: "#6B7A6F",
-                    textTransform: "uppercase",
-                    marginTop: 2,
-                  }}
-                >
-                  Temporada {meta.seasonCounter}
-                </div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>{currentTournament.name}</div>
               </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {currentTournament && currentTournament.status === "ongoing" && (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      background: "#1A2F24",
-                      padding: "6px 10px",
-                      borderRadius: 20,
-                      border: "1px solid #2F7A4D",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: 99,
-                        background: "#2F7A4D",
-                        boxShadow: "0 0 6px #2F7A4D",
-                        display: "inline-block",
-                      }}
-                    />
-
-                    <span
-                      style={{
-                        fontSize: 11,
-                        color: "#8FD6A8",
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: 0.5,
-                      }}
-                    >
-                      Em andamento
-                    </span>
-                  </div>
-                )}
-
-                {myProfile && (
-                  <button
-                    onClick={onSwitchProfile}
-                    style={{
-                      background: "#1A2F24",
-                      border: "1px solid #24402F",
-                      color: "#EDEFE7",
-                      borderRadius: 20,
-                      padding: "6px 10px",
-
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 5,
-                    }}
-                    title="Trocar perfil"
-                  >
-                    <Users size={12} color="#D4AF37" /> {myProfile}
-                  </button>
-                )}
-              </div>
+              <button className="tapbtn" onClick={onGoTournament} style={{ background: "#1A2F24", border: "1px solid #2F7A4D", color: "#8FD6A8", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Ver <ChevronRight size={13} style={{ verticalAlign: -2 }} /></button>
             </div>
           </div>
-        );
-      }
-
-      // ============ SCOREBOARD ============
-
-      function ScoreBox({ value }) {
-        return (
-          <span
-            className="scoreboard"
-            style={{
-              background: "#0A1712",
-              border: "1px solid #2F4A38",
-              borderRadius: 6,
-              padding: "3px 9px",
-
-              color: "#F2D77A",
-              fontWeight: 800,
-              fontSize: 17,
-              minWidth: 30,
-              textAlign: "center",
-              display: "inline-block",
-            }}
-          >
-            {value}
-          </span>
-        );
-      }
-
-      function MatchRow({ match, teamById, onOpen }) {
-        const home = teamById(match.homeId),
-          away = teamById(match.awayId);
-
-        if (match.bye) {
-          return (
-            <div
-              style={{
-                ...panelStyle,
-                marginBottom: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                opacity: 0.75,
-              }}
-            >
-              <span style={{ fontSize: 13.5, color: "#9AAA9F" }}>
-                <b style={{ color: "#EDEFE7" }}>{home?.name}</b> avançou de bye
-              </span>
-
-              <Flag size={14} color="#6B7A6F" />
-            </div>
-          );
-        }
-
-        return (
-          <button
-            className="tapbtn"
-            onClick={() => onOpen(match)}
-            style={{
-              ...panelStyle,
-              marginBottom: 8,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-
-              width: "100%",
-              cursor: "pointer",
-              textAlign: "left",
-              border: match.played ? "1px solid #1E3528" : "1px solid #3A5540",
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
-              <TeamLine team={home} />
-
-              <TeamLine team={away} />
-            </div>
-
-            {match.played ? (
-              <div
-                style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}
-              >
-                <ScoreBox value={match.homeScore} />
-
-                <ScoreBox value={match.awayScore} />
+          <SectionTitle icon={<Calendar size={15} />} text="Próximas partidas" />
+          {nextMatches.length === 0 ? (
+            <div style={{ fontSize: 13, color: "#6B7A6F", marginBottom: 12 }}>Nenhuma partida pendente. Confira a aba Campeonato.</div>
+          ) : (
+            nextMatches.map((m) => <MatchRow key={m.id} match={m} teamById={(id) => teams.find((t) => t.id === id)} onOpen={onGoTournament} />)
+          )}
+        </>
+      )}
+      {topScorers.length > 0 && (
+        <>
+          <SectionTitle icon={<Target size={15} />} text="Artilheiros" />
+          <div style={panelStyle}>
+            {topScorers.slice(0, 5).map((p, i) => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0", borderBottom: i < 4 ? "1px solid #1E3528" : "none" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: "#6B7A6F", width: 16 }}>{i + 1}</span>
+                  <span style={{ width: 8, height: 8, borderRadius: 3, background: p.teamColor }} />
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
+                  <span style={{ fontSize: 11.5, color: "#6B7A6F" }}>{p.teamName}</span>
+                </div>
+                <span style={{ fontWeight: 800, color: "#D4AF37" }}>{p.goals}</span>
               </div>
-            ) : (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  color: "#D4AF37",
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                }}
-              >
-                JOGAR <ChevronRight size={16} />
+            ))}
+          </div>
+        </>
+      )}
+      <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+        <StatBlock label="Times" value={teams.length} />
+        <StatBlock label="Contratados" value={squadCount} />
+        <StatBlock label="No catálogo" value={catalogCount} />
+      </div>
+    </div>
+  );
+}
+function StatBlock({ label, value }) {
+  return (
+    <div style={{ ...panelStyle, flex: 1, textAlign: "center" }}>
+      <div style={{ fontSize: 20, fontWeight: 900, color: "#D4AF37" }}>{value}</div>
+      <div style={{ fontSize: 10.5, color: "#9AAA9F", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+    </div>
+  );
+}
+function SectionTitle({ icon, text }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, margin: "18px 0 10px", color: "#9AAA9F" }}>
+      {icon}<span style={{ fontSize: 12.5, textTransform: "uppercase", letterSpacing: 1.2, fontWeight: 700 }}>{text}</span>
+    </div>
+  );
+}
+
+// ============ TEAMS TAB ============
+function TeamsTab({ teams, activeTeamId, setActiveTeamId, onNewTeam, onDeleteTeam, squadOf, onOpenSell, onUnlist, onRelease, ownership, onOpenDetail, onGoMarket }) {
+  const activeTeam = teams.find((t) => t.id === activeTeamId);
+
+  if (activeTeam) {
+    const squad = squadOf(activeTeam.id).slice().sort((a, b) => b.overall - a.overall);
+    const avgOvr = squad.length ? Math.round(squad.reduce((s, p) => s + p.overall, 0) / squad.length) : 0;
+    return (
+      <div>
+        <button onClick={() => setActiveTeamId(null)} style={{ background: "none", border: "none", color: "#9AAA9F", fontSize: 13, marginBottom: 10, cursor: "pointer", padding: 0 }}>← Voltar aos times</button>
+        <div style={{ ...panelStyle, display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ width: 40, height: 40, borderRadius: 10, background: activeTeam.color, flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 17 }}>{activeTeam.name}</div>
+            <div style={{ fontSize: 12, color: "#9AAA9F" }}>{squad.length} jogadores · Média {avgOvr} OVR</div>
+          </div>
+          <button onClick={() => onDeleteTeam(activeTeam.id)} style={{ background: "none", border: "none", color: "#C1443D", cursor: "pointer" }}><Trash2 size={18} /></button>
+        </div>
+        <div style={{ ...panelStyle, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 13, color: "#9AAA9F", display: "flex", alignItems: "center", gap: 6 }}><Coins size={14} color="#D4AF37" /> Orçamento disponível</span>
+          <span style={{ fontWeight: 800, color: "#D4AF37", fontSize: 16 }}>{fmtValue(activeTeam.budget)}</span>
+        </div>
+        <button className="tapbtn" onClick={onGoMarket} style={{ ...bigBtn, ...btnPrimary, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Plus size={16} /> Contratar no mercado</button>
+
+        <div style={{ marginTop: 12 }}>
+          {squad.length === 0 && <div style={{ color: "#6B7A6F", fontSize: 13, textAlign: "center", padding: 20 }}>Elenco vazio. Contrate jogadores no mercado.</div>}
+          {squad.map((p) => {
+            const o = ownership[p.id];
+            return (
+              <div key={p.id} style={{ ...panelStyle, padding: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 800, background: "#1A2F24", color: "#8FD6A8", padding: "3px 6px", borderRadius: 6, border: "1px solid #2F7A4D", minWidth: 34, textAlign: "center" }}>{p.position}</span>
+                  <button onClick={() => onOpenDetail(p)} style={{ flex: 1, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0, color: "#EDEFE7" }}>
+                    <div style={{ fontWeight: 700, fontSize: 14.5 }}>{p.name}</div>
+                    <div style={{ fontSize: 11.5, color: "#6B7A6F" }}>{p.age} anos · valor {fmtValue(p.value)}</div>
+                  </button>
+                  <span style={{ fontWeight: 800, color: "#D4AF37", fontSize: 15 }}>{p.overall}</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  {o && o.forSale ? (
+                    <button onClick={() => onUnlist(p, activeTeam.id)} style={{ flex: 1, background: "#1A2F24", border: "1px solid #C1443D", color: "#F0A8A3", borderRadius: 8, padding: "7px 0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Cancelar venda ({fmtValue(o.price)})</button>
+                  ) : (
+                    <button onClick={() => onOpenSell(p, activeTeam.id)} style={{ flex: 1, background: "#1A2F24", border: "1px solid #2F7A4D", color: "#8FD6A8", borderRadius: 8, padding: "7px 0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Colocar à venda</button>
+                  )}
+                  <button onClick={() => onRelease(p)} style={{ background: "none", border: "1px solid #24402F", color: "#9AAA9F", borderRadius: 8, padding: "7px 10px", fontSize: 12, cursor: "pointer" }}>Liberar</button>
+                </div>
               </div>
-            )}
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <button className="tapbtn" onClick={onNewTeam} style={{ ...bigBtn, ...btnPrimary, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 14 }}><Plus size={16} /> Criar novo time</button>
+      {teams.length === 0 && <div style={{ color: "#6B7A6F", fontSize: 13, textAlign: "center", padding: 30 }}>Nenhum time cadastrado ainda.</div>}
+      {teams.map((t) => {
+        const squad = squadOf(t.id);
+        return (
+          <button key={t.id} className="tapbtn" onClick={() => setActiveTeamId(t.id)} style={{ ...panelStyle, width: "100%", display: "flex", alignItems: "center", gap: 12, cursor: "pointer", textAlign: "left" }}>
+            <span style={{ width: 34, height: 34, borderRadius: 9, background: t.color, flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{t.name}</div>
+              <div style={{ fontSize: 11.5, color: "#6B7A6F" }}>{squad.length} jogadores · {fmtValue(t.budget)} disponível</div>
+            </div>
+            <ChevronRight size={18} color="#6B7A6F" />
           </button>
         );
-      }
+      })}
+    </div>
+  );
+}
 
-      function TeamLine({ team }) {
+// ============ MARKET TAB ============
+function MarketTab({ catalog, ownership, teamById, teams, statusOf, onBuy, onOpenDetail, transfers }) {
+  const [q, setQ] = useState("");
+  const [pos, setPos] = useState("all");
+  const [sort, setSort] = useState("overall");
+  const [limit, setLimit] = useState(30);
+
+  const positions = useMemo(() => [...new Set(catalog.map((p) => p.position))].sort(), [catalog]);
+
+  const filtered = useMemo(() => {
+    let list = catalog;
+    if (pos !== "all") list = list.filter((p) => p.position === pos);
+    if (q.trim()) { const s = q.trim().toLowerCase(); list = list.filter((p) => p.name.toLowerCase().includes(s)); }
+    list = list.slice();
+    if (sort === "overall") list.sort((a, b) => b.overall - a.overall);
+    else if (sort === "value") list.sort((a, b) => b.value - a.value);
+    else if (sort === "name") list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [catalog, pos, q, sort]);
+
+  const visible = filtered.slice(0, limit);
+
+  return (
+    <div>
+      <SectionTitle icon={<ArrowLeftRight size={15} />} text="Mercado de transferências" />
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <input style={{ ...inputStyle, paddingLeft: 34 }} placeholder="Buscar jogador..." value={q} onChange={(e) => { setQ(e.target.value); setLimit(30); }} />
+        <span style={{ position: "absolute", left: 10, top: 12 }}><Search size={15} color="#6B7A6F" /></span>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <span onClick={() => { setPos("all"); setLimit(30); }} style={chip(pos === "all")}>Todas</span>
+        {positions.map((p) => <span key={p} onClick={() => { setPos(p); setLimit(30); }} style={chip(pos === p)}>{p}</span>)}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {[{ k: "overall", l: "Overall" }, { k: "value", l: "Valor" }, { k: "name", l: "Nome" }].map((s) => (
+          <span key={s.k} onClick={() => setSort(s.k)} style={chip(sort === s.k)}>{s.l}</span>
+        ))}
+      </div>
+
+      {visible.map((p) => {
+        const st = statusOf(p);
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
-              style={{
-                width: 9,
-                height: 9,
-                borderRadius: 3,
-                background: team?.color || "#555",
-                display: "inline-block",
-                flexShrink: 0,
-              }}
-            />
-
-            <span style={{ fontSize: 14, fontWeight: 600 }}>{team?.name || "?"}</span>
-          </div>
-        );
-      }
-
-      // ============ HOME TAB ============
-
-      function HomeTab({ teams, currentTournament, nextMatches, topScorers, onGoTournament }) {
-        return (
-          <div>
-            {!currentTournament ? (
-              <div style={{ ...panelStyle, textAlign: "center", padding: 26 }}>
-                <Trophy size={30} color="#D4AF37" style={{ marginBottom: 10 }} />
-
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
-                  Nenhum campeonato ativo
-                </div>
-
-                <div style={{ fontSize: 13, color: "#9AAA9F", marginBottom: 16 }}>
-                  Crie times no elenco e depois inicie um campeonato na aba Campeonato.
-                </div>
+          <div key={p.id} style={{ ...panelStyle, display: "flex", alignItems: "center", gap: 10, padding: 12 }}>
+            <span style={{ fontSize: 10.5, fontWeight: 800, background: "#1A2F24", color: "#8FD6A8", padding: "3px 6px", borderRadius: 6, border: "1px solid #2F7A4D", minWidth: 34, textAlign: "center" }}>{p.position}</span>
+            <button onClick={() => onOpenDetail(p)} style={{ flex: 1, background: "none", border: "none", textAlign: "left", cursor: "pointer", padding: 0, color: "#EDEFE7" }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name} <span style={{ fontWeight: 800, color: "#D4AF37", fontSize: 12.5 }}>{p.overall}</span></div>
+              <div style={{ fontSize: 11.5, color: "#6B7A6F" }}>
+                {st.kind === "free" && <>Livre no mercado</>}
+                {st.kind === "owned" && <>{teamById(st.teamId)?.name || "Time"}</>}
+                {st.kind === "listed" && <>À venda por {teamById(st.teamId)?.name}</>}
               </div>
-            ) : (
-              <>
-                <div
-                  style={{ ...panelStyle, background: "linear-gradient(135deg,#16301F,#12241C)" }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: "#8FD6A8",
-                          textTransform: "uppercase",
-                          letterSpacing: 1,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {currentTournament.format === "liga"
-                          ? "Liga"
-                          : currentTournament.format === "mata-mata"
-                            ? "Mata-mata"
-                            : "Grupos + Mata-mata"}
-                      </div>
-
-                      <div style={{ fontSize: 18, fontWeight: 800 }}>{currentTournament.name}</div>
-                    </div>
-
-                    <button
-                      className="tapbtn"
-                      onClick={onGoTournament}
-                      style={{
-                        background: "#1A2F24",
-                        border: "1px solid #2F7A4D",
-                        color: "#8FD6A8",
-                        borderRadius: 10,
-                        padding: "8px 12px",
-                        fontSize: 12.5,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Ver <ChevronRight size={13} style={{ verticalAlign: -2 }} />
-                    </button>
-                  </div>
-                </div>
-
-                <SectionTitle icon={<Calendar size={15} />} text="Próximas partidas" />
-
-                {nextMatches.length === 0 ? (
-                  <div style={{ fontSize: 13, color: "#6B7A6F", marginBottom: 12 }}>
-                    Nenhuma partida pendente. Confira a aba Campeonato.
-                  </div>
-                ) : (
-                  nextMatches.map((m) => (
-                    <MatchRow
-                      key={m.id}
-                      match={m}
-                      teamById={(id) => teams.find((t) => t.id === id)}
-                      onOpen={onGoTournament}
-                    />
-                  ))
-                )}
-              </>
-            )}
-
-            {topScorers.length > 0 && (
-              <>
-                <SectionTitle icon={<Target size={15} />} text="Artilheiros" />
-
-                <div style={panelStyle}>
-                  {topScorers.slice(0, 5).map((p, i) => (
-                    <div
-                      key={p.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "6px 0",
-                        borderBottom: i < 4 ? "1px solid #1E3528" : "none",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 12, color: "#6B7A6F", width: 16 }}>{i + 1}</span>
-
-                        <span
-                          style={{ width: 8, height: 8, borderRadius: 3, background: p.teamColor }}
-                        />
-
-                        <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
-
-                        <span style={{ fontSize: 11.5, color: "#6B7A6F" }}>{p.teamName}</span>
-                      </div>
-
-                      <span style={{ fontWeight: 800, color: "#D4AF37" }}>{p.goals}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
-              <StatBlock label="Times" value={teams.length} />
-
-              <StatBlock
-                label="Jogadores"
-                value={teams.reduce((s, t) => s + t.players.length, 0)}
-              />
-            </div>
-          </div>
-        );
-      }
-
-      function StatBlock({ label, value }) {
-        return (
-          <div style={{ ...panelStyle, flex: 1, textAlign: "center" }}>
-            <div style={{ fontSize: 22, fontWeight: 900, color: "#D4AF37" }}>{value}</div>
-
-            <div
-              style={{
-                fontSize: 11,
-                color: "#9AAA9F",
-                textTransform: "uppercase",
-                letterSpacing: 1,
-              }}
-            >
-              {label}
-            </div>
-          </div>
-        );
-      }
-
-      function SectionTitle({ icon, text }) {
-        return (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              margin: "18px 0 10px",
-              color: "#9AAA9F",
-            }}
-          >
-            {icon}
-
-            <span
-              style={{
-                fontSize: 12.5,
-                textTransform: "uppercase",
-                letterSpacing: 1.2,
-                fontWeight: 700,
-              }}
-            >
-              {text}
-            </span>
-          </div>
-        );
-      }
-
-      // ============ TEAMS TAB ============
-
-      function TeamsTab({
-        teams,
-        activeTeamId,
-        setActiveTeamId,
-        onNewTeam,
-        onDeleteTeam,
-        onNewPlayer,
-        onEditPlayer,
-        onDeletePlayer,
-      }) {
-        const activeTeam = teams.find((t) => t.id === activeTeamId);
-
-        if (activeTeam) {
-          const avgOvr = activeTeam.players.length
-            ? Math.round(
-                activeTeam.players.reduce((s, p) => s + (p.ovr || 0), 0) /
-                  activeTeam.players.length,
-              )
-            : 0;
-
-          return (
-            <div>
-              <button
-                onClick={() => setActiveTeamId(null)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#9AAA9F",
-                  fontSize: 13,
-                  marginBottom: 10,
-                  cursor: "pointer",
-                  padding: 0,
-                }}
-              >
-                ← Voltar aos times
-              </button>
-
-              <div style={{ ...panelStyle, display: "flex", alignItems: "center", gap: 12 }}>
-                <span
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 10,
-                    background: activeTeam.color,
-                    flexShrink: 0,
-                  }}
-                />
-
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 800, fontSize: 17 }}>{activeTeam.name}</div>
-
-                  <div style={{ fontSize: 12, color: "#9AAA9F" }}>
-                    {activeTeam.players.length} jogadores · Média {avgOvr} OVR
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => onDeleteTeam(activeTeam.id)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#C1443D",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
-
-              <button
-                className="tapbtn"
-                onClick={() => onNewPlayer(activeTeam.id)}
-                style={{
-                  ...bigBtn,
-                  ...btnPrimary,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                }}
-              >
-                <Plus size={16} /> Adicionar jogador
-              </button>
-
-              <div style={{ marginTop: 12 }}>
-                {activeTeam.players.length === 0 && (
-                  <div style={{ color: "#6B7A6F", fontSize: 13, textAlign: "center", padding: 20 }}>
-                    Elenco vazio. Adicione jogadores.
-                  </div>
-                )}
-
-                {activeTeam.players
-
-                  .slice()
-
-                  .sort((a, b) => (b.ovr || 0) - (a.ovr || 0))
-
-                  .map((p) => (
-                    <div
-                      key={p.id}
-                      style={{
-                        ...panelStyle,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: 12,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: 10.5,
-                          fontWeight: 800,
-                          background: "#1A2F24",
-                          color: "#8FD6A8",
-                          padding: "3px 6px",
-                          borderRadius: 6,
-                          border: "1px solid #2F7A4D",
-                          minWidth: 34,
-                          textAlign: "center",
-                        }}
-                      >
-                        {p.pos}
-                      </span>
-
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: 14.5 }}>{p.name}</div>
-
-                        <div style={{ fontSize: 11.5, color: "#6B7A6F" }}>
-                          {p.age} anos · {p.goals || 0} gols
-                        </div>
-                      </div>
-
-                      <span style={{ fontWeight: 800, color: "#D4AF37", fontSize: 15 }}>
-                        {p.ovr}
-                      </span>
-
-                      <button
-                        onClick={() => onEditPlayer(activeTeam.id, p)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#9AAA9F",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <Edit2 size={15} />
-                      </button>
-
-                      <button
-                        onClick={() => onDeletePlayer(activeTeam.id, p.id)}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#C1443D",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          );
-        }
-
-        return (
-          <div>
-            <button
-              className="tapbtn"
-              onClick={onNewTeam}
-              style={{
-                ...bigBtn,
-                ...btnPrimary,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 6,
-                marginBottom: 14,
-              }}
-            >
-              <Plus size={16} /> Criar novo time
             </button>
-
-            {teams.length === 0 && (
-              <div style={{ color: "#6B7A6F", fontSize: 13, textAlign: "center", padding: 30 }}>
-                Nenhum time cadastrado ainda.
-              </div>
-            )}
-
-            {teams.map((t) => (
-              <button
-                key={t.id}
-                className="tapbtn"
-                onClick={() => setActiveTeamId(t.id)}
-                style={{
-                  ...panelStyle,
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <span
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 9,
-                    background: t.color,
-                    flexShrink: 0,
-                  }}
-                />
-
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>{t.name}</div>
-
-                  <div style={{ fontSize: 11.5, color: "#6B7A6F" }}>
-                    {t.players.length} jogadores
-                  </div>
-                </div>
-
-                <ChevronRight size={18} color="#6B7A6F" />
-              </button>
-            ))}
+            <div style={{ textAlign: "right" }}>
+              {(st.kind === "free" || st.kind === "listed") && (
+                <>
+                  <div style={{ fontWeight: 800, color: "#D4AF37", fontSize: 13, marginBottom: 4 }}>{fmtValue(st.kind === "free" ? p.value : st.price)}</div>
+                  <button className="tapbtn" onClick={() => onBuy(p)} style={{ background: "#1A2F24", border: "1px solid #2F7A4D", color: "#8FD6A8", borderRadius: 8, padding: "6px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+                    {st.kind === "free" ? "Contratar" : "Comprar"}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         );
-      }
+      })}
+      {filtered.length > limit && (
+        <button className="tapbtn" onClick={() => setLimit((l) => l + 30)} style={{ ...bigBtn, background: "#1A2F24", color: "#EDEFE7", border: "1px solid #2F7A4D" }}>
+          Mostrar mais ({filtered.length - limit} restantes)
+        </button>
+      )}
 
-      // ============ TOURNAMENT TAB ============
-
-      function TournamentTab({
-        tournament,
-        teamById,
-        onNewTournament,
-        onOpenMatch,
-        groupTab,
-        setGroupTab,
-        advanceKnockout,
-        advanceFromGroups,
-        archiveSeason,
-        finishTournament,
-      }) {
-        if (!tournament) {
-          return (
-            <div style={{ textAlign: "center", padding: "10px 0" }}>
-              <div style={{ ...panelStyle, padding: 24 }}>
-                <Trophy size={28} color="#D4AF37" style={{ marginBottom: 8 }} />
-
-                <div style={{ fontWeight: 700, marginBottom: 4 }}>Sem campeonato ativo</div>
-
-                <div style={{ fontSize: 13, color: "#9AAA9F", marginBottom: 16 }}>
-                  Escolha o formato e os times participantes.
-                </div>
-              </div>
-
-              <button
-                className="tapbtn"
-                onClick={onNewTournament}
-                style={{ ...bigBtn, ...btnPrimary }}
-              >
-                Criar campeonato
-              </button>
+      {transfers.length > 0 && (
+        <>
+          <SectionTitle icon={<History size={15} />} text="Últimas negociações" />
+          {transfers.slice(0, 12).map((tr) => (
+            <div key={tr.id} style={{ ...panelStyle, padding: 10, fontSize: 12.5 }}>
+              <b>{tr.playerName}</b>: {tr.fromTeamId ? (teamById(tr.fromTeamId)?.name || "Time") : "Mercado"} <ArrowRight size={12} style={{ verticalAlign: -2, margin: "0 3px" }} /> {teamById(tr.toTeamId)?.name || "Time"}
+              <div style={{ fontSize: 10.5, color: "#6B7A6F", marginTop: 2 }}>{fmtValue(tr.price)} · {tr.date}</div>
             </div>
-          );
-        }
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
 
-        if (tournament.status === "finished") {
-          const champ = teamById(tournament.champion);
+// ============ PLAYER DETAIL MODAL ============
+function AttrBar({ label, value }) {
+  const color = value >= 85 ? "#8FD6A8" : value >= 70 ? "#D4AF37" : value >= 50 ? "#C98A3E" : "#C1443D";
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#9AAA9F", marginBottom: 3 }}>
+        <span>{label}</span><span style={{ fontWeight: 700, color: "#EDEFE7" }}>{value}</span>
+      </div>
+      <div style={{ height: 6, background: "#0E1E16", borderRadius: 4, overflow: "hidden" }}>
+        <div style={{ width: `${value}%`, height: "100%", background: color, borderRadius: 4 }} />
+      </div>
+    </div>
+  );
+}
+function PlayerDetailModal({ player, onClose }) {
+  const a = player.attrs || {};
+  return (
+    <Modal title={player.name} onClose={onClose}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <Tagline label={POS_LABELS[player.position] || player.position} />
+        <Tagline label={player.nationality} />
+        <Tagline label={`${player.age} anos`} />
+        <Tagline label={`${player.height}cm / ${player.weight}kg`} />
+        <Tagline label={`Pé ${player.foot === "Right" ? "direito" : player.foot === "Left" ? "esquerdo" : "ambos"}`} />
+      </div>
+      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+        <div style={{ ...panelStyle, flex: 1, textAlign: "center", marginBottom: 0 }}>
+          <div style={{ fontSize: 24, fontWeight: 900, color: "#D4AF37" }}>{player.overall}</div>
+          <div style={{ fontSize: 10.5, color: "#9AAA9F", textTransform: "uppercase" }}>Overall</div>
+        </div>
+        <div style={{ ...panelStyle, flex: 1, textAlign: "center", marginBottom: 0 }}>
+          <div style={{ fontSize: 24, fontWeight: 900, color: "#EDEFE7" }}>{fmtValue(player.value)}</div>
+          <div style={{ fontSize: 10.5, color: "#9AAA9F", textTransform: "uppercase" }}>Valor</div>
+        </div>
+      </div>
+      <AttrBar label="Ataque" value={player.attack} />
+      <AttrBar label="Defesa" value={player.defense} />
+      <AttrBar label="Velocidade" value={a.topSpeed} />
+      <AttrBar label="Aceleração" value={a.acceleration} />
+      <AttrBar label="Drible" value={a.dribbleAccuracy} />
+      <AttrBar label="Finalização" value={a.shotAccuracy} />
+      <AttrBar label="Força do chute" value={a.shotPower} />
+      <AttrBar label="Passe curto" value={a.shortPassAccuracy} />
+      <AttrBar label="Passe longo" value={a.longPassAccuracy} />
+      <AttrBar label="Cabeceio" value={a.heading} />
+      <AttrBar label="Fôlego" value={a.stamina} />
+      <AttrBar label="Reação" value={a.response} />
+      {player.position === "GK" && <AttrBar label="Habilidade de goleiro" value={a.goalKeepingSkills} />}
+    </Modal>
+  );
+}
+function Tagline({ label }) {
+  return <span style={{ fontSize: 11.5, color: "#9AAA9F", background: "#1A2F24", border: "1px solid #24402F", borderRadius: 20, padding: "4px 10px" }}>{label}</span>;
+}
 
-          return (
-            <div>
-              <div
-                style={{
-                  ...panelStyle,
-                  textAlign: "center",
-                  padding: 28,
-                  background: "linear-gradient(160deg,#20351F,#12241C)",
-                }}
-              >
-                <Crown size={34} color="#D4AF37" style={{ marginBottom: 10 }} />
+// ============ BUY / SELL MODALS ============
+function BuyModal({ data, teams, onClose, onConfirm }) {
+  const { player, status } = data;
+  const [buyer, setBuyer] = useState(null);
+  const price = status.kind === "free" ? player.value : status.price;
+  const eligible = teams.filter((t) => (status.kind === "listed" ? t.id !== status.teamId : true));
+  const buyerTeam = teams.find((t) => t.id === buyer);
+  const insufficient = buyerTeam && buyerTeam.budget < price;
+  return (
+    <Modal title={`Contratar ${player.name}`} onClose={onClose}>
+      <div style={{ ...panelStyle }}>
+        <div style={{ fontWeight: 700, fontSize: 15 }}>{player.name} · {player.overall} OVR</div>
+        <div style={{ fontSize: 12, color: "#9AAA9F", marginTop: 2 }}>{POS_LABELS[player.position] || player.position}</div>
+        <div style={{ fontWeight: 800, color: "#D4AF37", fontSize: 18, marginTop: 8 }}>{fmtValue(price)}</div>
+      </div>
+      <label style={lbl}>Qual time está contratando?</label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+        {eligible.map((t) => (
+          <button key={t.id} onClick={() => setBuyer(t.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, cursor: "pointer", background: buyer === t.id ? "rgba(212,175,55,0.12)" : "#0E1E16", border: buyer === t.id ? "1px solid #D4AF37" : "1px solid #24402F", color: "#EDEFE7" }}>
+            <span style={{ width: 8, height: 8, borderRadius: 3, background: t.color }} />
+            <span style={{ flex: 1, textAlign: "left", fontSize: 14 }}>{t.name}</span>
+            <span style={{ fontSize: 12, color: "#9AAA9F" }}>{fmtValue(t.budget)}</span>
+            {buyer === t.id && <Check size={16} color="#D4AF37" />}
+          </button>
+        ))}
+        {eligible.length === 0 && <div style={{ fontSize: 12.5, color: "#6B7A6F" }}>Crie outro time pra poder comprar.</div>}
+      </div>
+      {insufficient && <div style={{ fontSize: 12.5, color: "#C1443D", marginBottom: 10, display: "flex", gap: 6, alignItems: "center" }}><AlertCircle size={14} /> Orçamento insuficiente.</div>}
+      <button className="tapbtn" disabled={!buyer || insufficient} onClick={() => onConfirm(player, status, buyer)} style={{ ...bigBtn, ...btnPrimary, opacity: buyer && !insufficient ? 1 : 0.5 }}>Confirmar contratação</button>
+    </Modal>
+  );
+}
+function SellModal({ data, onClose, onConfirm }) {
+  const { player, teamId, price } = data;
+  const [val, setVal] = useState(price);
+  return (
+    <Modal title={`Vender ${player.name}`} onClose={onClose}>
+      <label style={lbl}>Preço de venda (em milhões)</label>
+      <input type="number" min={1} style={inputStyle} value={val} onChange={(e) => setVal(e.target.value)} />
+      <div style={{ fontSize: 11.5, color: "#6B7A6F", marginTop: 6, marginBottom: 16 }}>Valor de referência da tabela: {fmtValue(player.value)}</div>
+      <button className="tapbtn" style={{ ...bigBtn, ...btnPrimary }} onClick={() => onConfirm(player, teamId, val)}>Colocar à venda</button>
+    </Modal>
+  );
+}
 
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#8FD6A8",
-                    textTransform: "uppercase",
-                    letterSpacing: 1.5,
-                    fontWeight: 700,
-                  }}
-                >
-                  Campeão
-                </div>
-
-                <div style={{ fontSize: 22, fontWeight: 900, marginTop: 4 }}>{champ?.name}</div>
-
-                <div style={{ fontSize: 12.5, color: "#9AAA9F", marginTop: 4 }}>
-                  {tournament.name}
-                </div>
-              </div>
-
-              <button
-                className="tapbtn"
-                onClick={archiveSeason}
-                style={{ ...bigBtn, ...btnPrimary }}
-              >
-                Encerrar temporada e começar outra
-              </button>
-
-              <button
-                className="tapbtn"
-                onClick={onNewTournament}
-                style={{
-                  ...bigBtn,
-                  background: "#1A2F24",
-                  color: "#EDEFE7",
-                  border: "1px solid #2F7A4D",
-                }}
-              >
-                Novo campeonato agora
-              </button>
-            </div>
-          );
-        }
-
-        if (tournament.format === "liga") {
-          const standings = computeStandings(tournament.teamIds, tournament.matches);
-
-          const rounds = [...new Set(tournament.matches.map((m) => m.round))].sort((a, b) => a - b);
-
-          const allPlayed = tournament.matches.every((m) => m.played);
-
-          return (
-            <div>
-              <StandingsTable standings={standings} teamById={teamById} />
-
-              {allPlayed && (
-                <button
-                  className="tapbtn"
-                  onClick={() => finishTournament(standings[0].id)}
-                  style={{ ...bigBtn, ...btnPrimary, marginBottom: 14 }}
-                >
-                  🏆 Encerrar liga ({teamById(standings[0].id)?.name} campeão)
-                </button>
-              )}
-
-              <SectionTitle icon={<Calendar size={15} />} text="Rodadas" />
-
-              {rounds.map((r) => (
+// ============ TOURNAMENT TAB ============
+function TournamentTab({ tournament, teamById, onNewTournament, onOpenMatch, groupTab, setGroupTab, advanceKnockout, advanceFromGroups, archiveSeason, finishTournament }) {
+  if (!tournament) {
+    return (
+      <div style={{ textAlign: "center", padding: "10px 0" }}>
+        <div style={{ ...panelStyle, padding: 24 }}>
+          <Trophy size={28} color="#D4AF37" style={{ marginBottom: 8 }} />
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>Sem campeonato ativo</div>
+          <div style={{ fontSize: 13, color: "#9AAA9F", marginBottom: 16 }}>Escolha o formato e os times participantes.</div>
+        </div>
+        <button className="tapbtn" onClick={onNewTournament} style={{ ...bigBtn, ...btnPrimary }}>Criar campeonato</button>
+      </div>
+    );
+  }
+  if (tournament.status === "finished") {
+    const champ = teamById(tournament.champion);
+    return (
+      <div>
+        <div style={{ ...panelStyle, textAlign: "center", padding: 28, background: "linear-gradient(160deg,#20351F,#12241C)" }}>
+          <Crown size={34} color="#D4AF37" style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 12, color: "#8FD6A8", textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 700 }}>Campeão</div>
+          <div style={{ fontSize: 22, fontWeight: 900, marginTop: 4 }}>{champ?.name}</div>
+          <div style={{ fontSize: 12.5, color: "#9AAA9F", marginTop: 4 }}>{tournament.name}</div>
+        </div>
+        <button className="tapbtn" onClick={archiveSeason} style={{ ...bigBtn, ...btnPrimary }}>Encerrar temporada e começar outra</button>
+        <button className="tapbtn" onClick={onNewTournament} style={{ ...bigBtn, background: "#1A2F24", color: "#EDEFE7", border: "1px solid #2F7A4D" }}>Novo campeonato agora</button>
+      </div>
+    );
+  }
+  if (tournament.format === "liga") {
+    const standings = computeStandings(tournament.teamIds, tournament.matches);
+    const rounds = [...new Set(tournament.matches.map((m) => m.round))].sort((a, b) => a - b);
+    const allPlayed = tournament.matches.every((m) => m.played);
+    return (
+      <div>
+        <StandingsTable standings={standings} teamById={teamById} />
+        {allPlayed && (
+          <button className="tapbtn" onClick={() => finishTournament(standings[0].id)} style={{ ...bigBtn, ...btnPrimary, marginBottom: 14 }}>🏆 Encerrar liga ({teamById(standings[0].id)?.name} campeão)</button>
+        )}
+        <SectionTitle icon={<Calendar size={15} />} text="Rodadas" />
+        {rounds.map((r) => (
+          <div key={r} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: "#6B7A6F", marginBottom: 6, fontWeight: 700 }}>RODADA {r}</div>
+            {tournament.matches.filter((m) => m.round === r).map((m) => <MatchRow key={m.id} match={m} teamById={teamById} onOpen={onOpenMatch} />)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (tournament.format === "mata-mata") {
+    return <KnockoutView tournament={tournament} teamById={teamById} onOpenMatch={onOpenMatch} advanceKnockout={advanceKnockout} />;
+  }
+  const groups = tournament.groups;
+  const hasKnockout = tournament.matches.some((m) => m.stage === "knockout");
+  const groupsComplete = groups.every((g) => tournament.matches.filter((m) => m.stage === "group" && m.groupName === g.name).every((m) => m.played));
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        {groups.map((g, i) => <span key={g.name} onClick={() => setGroupTab(i)} style={chip(groupTab === i)}>{g.name}</span>)}
+        {hasKnockout && <span onClick={() => setGroupTab(-1)} style={chip(groupTab === -1)}>Mata-mata</span>}
+      </div>
+      {groupTab === -1 ? (
+        <KnockoutView tournament={tournament} teamById={teamById} onOpenMatch={onOpenMatch} advanceKnockout={advanceKnockout} />
+      ) : (
+        <>
+          {groups[groupTab] && (
+            <>
+              <StandingsTable standings={computeStandings(groups[groupTab].teamIds, tournament.matches.filter((m) => m.groupName === groups[groupTab].name))} teamById={teamById} highlightTop={2} />
+              {[...new Set(tournament.matches.filter((m) => m.groupName === groups[groupTab].name).map((m) => m.round))].sort((a, b) => a - b).map((r) => (
                 <div key={r} style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, color: "#6B7A6F", marginBottom: 6, fontWeight: 700 }}>
-                    RODADA {r}
-                  </div>
-
-                  {tournament.matches
-                    .filter((m) => m.round === r)
-                    .map((m) => (
-                      <MatchRow key={m.id} match={m} teamById={teamById} onOpen={onOpenMatch} />
-                    ))}
+                  <div style={{ fontSize: 12, color: "#6B7A6F", marginBottom: 6, fontWeight: 700 }}>RODADA {r}</div>
+                  {tournament.matches.filter((m) => m.groupName === groups[groupTab].name && m.round === r).map((m) => <MatchRow key={m.id} match={m} teamById={teamById} onOpen={onOpenMatch} />)}
                 </div>
               ))}
-            </div>
-          );
-        }
-
-        if (tournament.format === "mata-mata") {
-          return (
-            <KnockoutView
-              tournament={tournament}
-              teamById={teamById}
-              onOpenMatch={onOpenMatch}
-              advanceKnockout={advanceKnockout}
-            />
-          );
-        }
-
-        // grupos + mata-mata
-
-        const groups = tournament.groups;
-
-        const hasKnockout = tournament.matches.some((m) => m.stage === "knockout");
-
-        const groupsComplete = groups.every((g) =>
-          tournament.matches
-            .filter((m) => m.stage === "group" && m.groupName === g.name)
-            .every((m) => m.played),
-        );
-
-        return (
-          <div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-              {groups.map((g, i) => (
-                <span key={g.name} onClick={() => setGroupTab(i)} style={chip(groupTab === i)}>
-                  {g.name}
-                </span>
-              ))}
-
-              {hasKnockout && (
-                <span onClick={() => setGroupTab(-1)} style={chip(groupTab === -1)}>
-                  Mata-mata
-                </span>
+            </>
+          )}
+          {groupsComplete && !hasKnockout && <button className="tapbtn" onClick={advanceFromGroups} style={{ ...bigBtn, ...btnPrimary }}>Gerar fase eliminatória (top 2 de cada grupo)</button>}
+        </>
+      )}
+    </div>
+  );
+}
+function KnockoutView({ tournament, teamById, onOpenMatch, advanceKnockout }) {
+  const knockoutMatches = tournament.matches.filter((m) => m.stage === "knockout");
+  const rounds = [...new Set(knockoutMatches.map((m) => m.round))].sort((a, b) => a - b);
+  const maxRound = Math.max(...rounds);
+  const roundLabel = (r) => {
+    const teamsInRound = knockoutMatches.filter((m) => m.round === r).length * 2;
+    if (teamsInRound <= 2) return "FINAL";
+    if (teamsInRound <= 4) return "SEMIFINAL";
+    if (teamsInRound <= 8) return "QUARTAS DE FINAL";
+    return `FASE DE ${teamsInRound}`;
+  };
+  const currentRoundMatches = knockoutMatches.filter((m) => m.round === maxRound);
+  const currentComplete = currentRoundMatches.every((m) => m.played);
+  const winnersCount = currentComplete ? currentRoundMatches.length : null;
+  return (
+    <div>
+      {rounds.map((r) => (
+        <div key={r} style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: "#6B7A6F", marginBottom: 6, fontWeight: 700, letterSpacing: 1 }}>{roundLabel(r)}</div>
+          {knockoutMatches.filter((m) => m.round === r).map((m) => (
+            <div key={m.id}>
+              <MatchRow match={m} teamById={teamById} onOpen={onOpenMatch} />
+              {m.played && !m.bye && m.homeScore === m.awayScore && m.penaltyWinner && (
+                <div style={{ fontSize: 11.5, color: "#9AAA9F", marginTop: -4, marginBottom: 8, paddingLeft: 4 }}>Pênaltis: {teamById(m.penaltyWinner)?.name} venceu</div>
               )}
             </div>
+          ))}
+        </div>
+      ))}
+      {currentComplete && winnersCount > 1 && <button className="tapbtn" onClick={advanceKnockout} style={{ ...bigBtn, ...btnPrimary }}>Gerar próxima fase</button>}
+      {currentComplete && winnersCount === 1 && <button className="tapbtn" onClick={advanceKnockout} style={{ ...bigBtn, ...btnPrimary }}>🏆 Coroar campeão</button>}
+    </div>
+  );
+}
+function StandingsTable({ standings, teamById, highlightTop }) {
+  return (
+    <div style={{ ...panelStyle, padding: 10, marginBottom: 16, overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+        <thead>
+          <tr style={{ color: "#6B7A6F", textTransform: "uppercase", fontSize: 10.5 }}>
+            <th style={{ textAlign: "left", padding: "4px 4px" }}>#</th>
+            <th style={{ textAlign: "left", padding: "4px 4px" }}>Time</th>
+            <th style={thNum}>PJ</th><th style={thNum}>V</th><th style={thNum}>E</th><th style={thNum}>D</th><th style={thNum}>SG</th><th style={thNum}>Pts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {standings.map((s, i) => (
+            <tr key={s.id} style={{ borderTop: "1px solid #1E3528", background: highlightTop && i < highlightTop ? "rgba(47,122,77,0.15)" : "transparent" }}>
+              <td style={{ padding: "6px 4px", color: "#6B7A6F" }}>{i + 1}</td>
+              <td style={{ padding: "6px 4px", fontWeight: 600, whiteSpace: "nowrap" }}><span style={{ width: 7, height: 7, borderRadius: 2, background: teamById(s.id)?.color, display: "inline-block", marginRight: 6 }} />{teamById(s.id)?.name}</td>
+              <td style={thNum}>{s.pj}</td><td style={thNum}>{s.v}</td><td style={thNum}>{s.e}</td><td style={thNum}>{s.d}</td><td style={thNum}>{s.sg}</td>
+              <td style={{ ...thNum, fontWeight: 800, color: "#D4AF37" }}>{s.pts}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-            {groupTab === -1 ? (
-              <KnockoutView
-                tournament={tournament}
-                teamById={teamById}
-                onOpenMatch={onOpenMatch}
-                advanceKnockout={advanceKnockout}
-              />
-            ) : (
-              <>
-                {groups[groupTab] && (
-                  <>
-                    <StandingsTable
-                      standings={computeStandings(
-                        groups[groupTab].teamIds,
-                        tournament.matches.filter((m) => m.groupName === groups[groupTab].name),
-                      )}
-                      teamById={teamById}
-                      highlightTop={2}
-                    />
-
-                    {[
-                      ...new Set(
-                        tournament.matches
-                          .filter((m) => m.groupName === groups[groupTab].name)
-                          .map((m) => m.round),
-                      ),
-                    ]
-                      .sort((a, b) => a - b)
-                      .map((r) => (
-                        <div key={r} style={{ marginBottom: 14 }}>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              color: "#6B7A6F",
-                              marginBottom: 6,
-                              fontWeight: 700,
-                            }}
-                          >
-                            RODADA {r}
-                          </div>
-
-                          {tournament.matches
-                            .filter((m) => m.groupName === groups[groupTab].name && m.round === r)
-                            .map((m) => (
-                              <MatchRow
-                                key={m.id}
-                                match={m}
-                                teamById={teamById}
-                                onOpen={onOpenMatch}
-                              />
-                            ))}
-                        </div>
-                      ))}
-                  </>
-                )}
-
-                {groupsComplete && !hasKnockout && (
-                  <button
-                    className="tapbtn"
-                    onClick={advanceFromGroups}
-                    style={{ ...bigBtn, ...btnPrimary }}
-                  >
-                    Gerar fase eliminatória (top 2 de cada grupo)
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        );
-      }
-
-      function KnockoutView({ tournament, teamById, onOpenMatch, advanceKnockout }) {
-        const knockoutMatches = tournament.matches.filter((m) => m.stage === "knockout");
-
-        const rounds = [...new Set(knockoutMatches.map((m) => m.round))].sort((a, b) => a - b);
-
-        const maxRound = Math.max(...rounds);
-
-        const roundLabel = (r, total) => {
-          const remaining = total - r + 1;
-
-          const teamsInRound = knockoutMatches.filter((m) => m.round === r).length * 2;
-
-          if (teamsInRound <= 2) return "FINAL";
-
-          if (teamsInRound <= 4) return "SEMIFINAL";
-
-          if (teamsInRound <= 8) return "QUARTAS DE FINAL";
-
-          return `FASE DE ${teamsInRound}`;
-        };
-
-        const currentRoundMatches = knockoutMatches.filter((m) => m.round === maxRound);
-
-        const currentComplete = currentRoundMatches.every((m) => m.played);
-
-        const winnersCount = currentComplete ? currentRoundMatches.length : null;
-
+// ============ HISTORY TAB ============
+function HistoryTab({ tournaments, teamById, historyOpen, setHistoryOpen }) {
+  if (tournaments.length === 0) return <div style={{ color: "#6B7A6F", fontSize: 13, textAlign: "center", padding: 30 }}>Nenhuma temporada encerrada ainda.</div>;
+  return (
+    <div>
+      <SectionTitle icon={<History size={15} />} text="Histórico de temporadas" />
+      {tournaments.slice().reverse().map((t) => {
+        const open = historyOpen === t.id;
         return (
-          <div>
-            {rounds.map((r) => (
-              <div key={r} style={{ marginBottom: 16 }}>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#6B7A6F",
-                    marginBottom: 6,
-                    fontWeight: 700,
-                    letterSpacing: 1,
-                  }}
-                >
-                  {roundLabel(r, maxRound)}
-                </div>
-
-                {knockoutMatches
-                  .filter((m) => m.round === r)
-                  .map((m) => (
-                    <div key={m.id}>
-                      <MatchRow match={m} teamById={teamById} onOpen={onOpenMatch} />
-
-                      {m.played && !m.bye && m.homeScore === m.awayScore && m.penaltyWinner && (
-                        <div
-                          style={{
-                            fontSize: 11.5,
-                            color: "#9AAA9F",
-                            marginTop: -4,
-                            marginBottom: 8,
-                            paddingLeft: 4,
-                          }}
-                        >
-                          Pênaltis: {teamById(m.penaltyWinner)?.name} venceu
-                        </div>
-                      )}
-                    </div>
-                  ))}
+          <div key={t.id} style={panelStyle}>
+            <button onClick={() => setHistoryOpen(open ? null : t.id)} style={{ background: "none", border: "none", width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", padding: 0, color: "#EDEFE7" }}>
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontSize: 11, color: "#8FD6A8", fontWeight: 700 }}>TEMPORADA {t.season}</div>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>{t.name}</div>
+                <div style={{ fontSize: 12, color: "#9AAA9F", display: "flex", alignItems: "center", gap: 4, marginTop: 2 }}><Crown size={12} color="#D4AF37" /> {teamById(t.champion)?.name}</div>
               </div>
-            ))}
-
-            {currentComplete && winnersCount > 1 && (
-              <button
-                className="tapbtn"
-                onClick={advanceKnockout}
-                style={{ ...bigBtn, ...btnPrimary }}
-              >
-                Gerar próxima fase
-              </button>
-            )}
-
-            {currentComplete && winnersCount === 1 && (
-              <button
-                className="tapbtn"
-                onClick={advanceKnockout}
-                style={{ ...bigBtn, ...btnPrimary }}
-              >
-                🏆 Coroar campeão
-              </button>
-            )}
-          </div>
-        );
-      }
-
-      function StandingsTable({ standings, teamById, highlightTop }) {
-        return (
-          <div style={{ ...panelStyle, padding: 10, marginBottom: 16, overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-              <thead>
-                <tr style={{ color: "#6B7A6F", textTransform: "uppercase", fontSize: 10.5 }}>
-                  <th style={{ textAlign: "left", padding: "4px 4px" }}>#</th>
-
-                  <th style={{ textAlign: "left", padding: "4px 4px" }}>Time</th>
-
-                  <th style={thNum}>PJ</th>
-
-                  <th style={thNum}>V</th>
-
-                  <th style={thNum}>E</th>
-
-                  <th style={thNum}>D</th>
-
-                  <th style={thNum}>SG</th>
-
-                  <th style={thNum}>Pts</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {standings.map((s, i) => (
-                  <tr
-                    key={s.id}
-                    style={{
-                      borderTop: "1px solid #1E3528",
-                      background:
-                        highlightTop && i < highlightTop ? "rgba(47,122,77,0.15)" : "transparent",
-                    }}
-                  >
-                    <td style={{ padding: "6px 4px", color: "#6B7A6F" }}>{i + 1}</td>
-
-                    <td style={{ padding: "6px 4px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                      <span
-                        style={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: 2,
-                          background: teamById(s.id)?.color,
-                          display: "inline-block",
-                          marginRight: 6,
-                        }}
-                      />
-
-                      {teamById(s.id)?.name}
-                    </td>
-
-                    <td style={thNum}>{s.pj}</td>
-
-                    <td style={thNum}>{s.v}</td>
-
-                    <td style={thNum}>{s.e}</td>
-
-                    <td style={thNum}>{s.d}</td>
-
-                    <td style={thNum}>{s.sg}</td>
-
-                    <td style={{ ...thNum, fontWeight: 800, color: "#D4AF37" }}>{s.pts}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        );
-      }
-
-      const thNum = { textAlign: "center", padding: "4px 4px" };
-
-      // ============ MARKET TAB ============
-
-      function MarketTab({ teams, transfers, onPick }) {
-        const [filterTeam, setFilterTeam] = useState("all");
-
-        const players = [];
-
-        teams.forEach((t) =>
-          t.players.forEach((p) =>
-            players.push({ ...p, teamId: t.id, teamName: t.name, teamColor: t.color }),
-          ),
-        );
-
-        const filtered =
-          filterTeam === "all" ? players : players.filter((p) => p.teamId === filterTeam);
-
-        return (
-          <div>
-            <SectionTitle icon={<ArrowLeftRight size={15} />} text="Mercado de transferências" />
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-              <span onClick={() => setFilterTeam("all")} style={chip(filterTeam === "all")}>
-                Todos
-              </span>
-
-              {teams.map((t) => (
-                <span
-                  key={t.id}
-                  onClick={() => setFilterTeam(t.id)}
-                  style={chip(filterTeam === t.id)}
-                >
-                  {t.name}
-                </span>
-              ))}
-            </div>
-
-            {filtered.length === 0 && (
-              <div style={{ color: "#6B7A6F", fontSize: 13, textAlign: "center", padding: 20 }}>
-                Nenhum jogador encontrado.
-              </div>
-            )}
-
-            {filtered.map((p) => (
-              <div
-                key={p.id}
-                style={{
-                  ...panelStyle,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: 12,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 10.5,
-                    fontWeight: 800,
-                    background: "#1A2F24",
-                    color: "#8FD6A8",
-                    padding: "3px 6px",
-                    borderRadius: 6,
-                    border: "1px solid #2F7A4D",
-                    minWidth: 34,
-                    textAlign: "center",
-                  }}
-                >
-                  {p.pos}
-                </span>
-
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
-
-                  <div style={{ fontSize: 11.5, color: "#6B7A6F" }}>
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: 2,
-                        background: p.teamColor,
-                        display: "inline-block",
-                        marginRight: 4,
-                      }}
-                    />
-                    {p.teamName} · OVR {p.ovr}
-                  </div>
-                </div>
-
-                <button
-                  className="tapbtn"
-                  onClick={() => onPick(p, p.teamId)}
-                  style={{
-                    background: "#1A2F24",
-                    border: "1px solid #2F7A4D",
-                    color: "#8FD6A8",
-                    borderRadius: 8,
-                    padding: "7px 10px",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Transferir
-                </button>
-              </div>
-            ))}
-
-            {transfers.length > 0 && (
-              <>
-                <SectionTitle icon={<History size={15} />} text="Últimas transferências" />
-
-                {transfers.slice(0, 12).map((tr) => (
-                  <div key={tr.id} style={{ ...panelStyle, padding: 10, fontSize: 12.5 }}>
-                    <b>{tr.playerName}</b>: {tr.fromTeamName}{" "}
-                    <ArrowRight size={12} style={{ verticalAlign: -2, margin: "0 3px" }} />{" "}
-                    {tr.toTeamName}
-                    <div style={{ fontSize: 10.5, color: "#6B7A6F", marginTop: 2 }}>{tr.date}</div>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-        );
-      }
-
-      // ============ HISTORY TAB ============
-
-      function HistoryTab({ tournaments, teamById, historyOpen, setHistoryOpen }) {
-        if (tournaments.length === 0) {
-          return (
-            <div style={{ color: "#6B7A6F", fontSize: 13, textAlign: "center", padding: 30 }}>
-              Nenhuma temporada encerrada ainda.
-            </div>
-          );
-        }
-
-        return (
-          <div>
-            <SectionTitle icon={<History size={15} />} text="Histórico de temporadas" />
-
-            {tournaments
-              .slice()
-              .reverse()
-              .map((t) => {
-                const open = historyOpen === t.id;
-
-                const standings =
-                  t.format !== "mata-mata"
-                    ? computeStandings(
-                        t.format === "grupos" ? t.groups?.[0]?.teamIds || [] : t.teamIds,
-                        t.matches,
-                      )
-                    : null;
-
-                return (
-                  <div key={t.id} style={panelStyle}>
-                    <button
-                      onClick={() => setHistoryOpen(open ? null : t.id)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        width: "100%",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        cursor: "pointer",
-                        padding: 0,
-                        color: "#EDEFE7",
-                      }}
-                    >
-                      <div style={{ textAlign: "left" }}>
-                        <div style={{ fontSize: 11, color: "#8FD6A8", fontWeight: 700 }}>
-                          TEMPORADA {t.season}
-                        </div>
-
-                        <div style={{ fontWeight: 800, fontSize: 15 }}>{t.name}</div>
-
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: "#9AAA9F",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                            marginTop: 2,
-                          }}
-                        >
-                          <Crown size={12} color="#D4AF37" /> {teamById(t.champion)?.name}
-                        </div>
-                      </div>
-
-                      <ChevronDown
-                        size={18}
-                        style={{
-                          transform: open ? "rotate(180deg)" : "none",
-                          transition: "transform 0.15s",
-                        }}
-                        color="#6B7A6F"
-                      />
-                    </button>
-
-                    {open && (
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{ fontSize: 12, color: "#6B7A6F", marginBottom: 6 }}>
-                          Formato:{" "}
-                          {t.format === "liga"
-                            ? "Liga"
-                            : t.format === "mata-mata"
-                              ? "Mata-mata"
-                              : "Grupos + Mata-mata"}
-                        </div>
-
-                        <div style={{ fontSize: 12, color: "#6B7A6F" }}>
-                          {t.matches.filter((m) => m.played).length} partidas disputadas
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        );
-      }
-
-      // ============ BOTTOM NAV ============
-
-      function BottomNav({ tab, setTab }) {
-        const items = [
-          { key: "home", icon: Home, label: "Início" },
-
-          { key: "teams", icon: Shield, label: "Elenco" },
-
-          { key: "tournament", icon: Trophy, label: "Campeonato" },
-
-          { key: "market", icon: ArrowLeftRight, label: "Mercado" },
-
-          { key: "history", icon: History, label: "Histórico" },
-        ];
-
-        return (
-          <div
-            style={{
-              position: "fixed",
-              bottom: 0,
-              left: "50%",
-              transform: "translateX(-50%)",
-              width: "100%",
-              maxWidth: 480,
-
-              background: "#0E1E16",
-              borderTop: "1px solid #1E3528",
-              display: "flex",
-              padding: "8px 4px 10px",
-              zIndex: 10,
-            }}
-          >
-            {items.map(({ key, icon: Icon, label }) => {
-              const active = tab === key;
-
-              return (
-                <button
-                  key={key}
-                  onClick={() => setTab(key)}
-                  className="tapbtn"
-                  style={{
-                    flex: 1,
-                    background: "none",
-                    border: "none",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 3,
-                    cursor: "pointer",
-                    padding: "4px 0",
-                  }}
-                >
-                  <Icon size={20} color={active ? "#D4AF37" : "#6B7A6F"} />
-
-                  <span
-                    style={{
-                      fontSize: 10,
-                      color: active ? "#D4AF37" : "#6B7A6F",
-                      fontWeight: active ? 700 : 500,
-                    }}
-                  >
-                    {label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        );
-      }
-
-      // ============ MODAL WRAPPER ============
-
-      function Modal({ title, onClose, children }) {
-        return (
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(5,10,8,0.75)",
-              display: "flex",
-              alignItems: "flex-end",
-              justifyContent: "center",
-              zIndex: 50,
-            }}
-            onClick={onClose}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                background: "#12241C",
-                borderTop: "1px solid #2F4A38",
-                borderRadius: "18px 18px 0 0",
-                padding: 20,
-                width: "100%",
-                maxWidth: 480,
-                maxHeight: "85vh",
-                overflowY: "auto",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 16,
-                }}
-              >
-                <span style={{ fontWeight: 800, fontSize: 16 }}>{title}</span>
-
-                <button
-                  onClick={onClose}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#9AAA9F",
-                    cursor: "pointer",
-                  }}
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              {children}
-            </div>
-          </div>
-        );
-      }
-
-      // ============ PLAYER MODAL ============
-
-      function PlayerModal({ data, onClose, onSave }) {
-        const editing = !!data.player;
-
-        const [form, setForm] = useState(
-          data.player || {
-            id: uid(),
-            name: "",
-            pos: "ATA",
-            ovr: 70,
-            age: 22,
-            goals: 0,
-            assists: 0,
-          },
-        );
-
-        return (
-          <Modal title={editing ? "Editar jogador" : "Novo jogador"} onClose={onClose}>
-            <label style={lbl}>Nome</label>
-
-            <input
-              style={inputStyle}
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Nome do jogador"
-              autoFocus
-            />
-
-            <label style={{ ...lbl, marginTop: 14 }}>Posição</label>
-
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
-              {POSITIONS.map((p) => (
-                <span
-                  key={p}
-                  onClick={() => setForm({ ...form, pos: p })}
-                  style={chip(form.pos === p)}
-                >
-                  {p}
-                </span>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", gap: 12, marginTop: 14 }}>
-              <div style={{ flex: 1 }}>
-                <label style={lbl}>Overall (1-99)</label>
-
-                <input
-                  type="number"
-                  min={1}
-                  max={99}
-                  style={inputStyle}
-                  value={form.ovr}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      ovr: Math.max(1, Math.min(99, parseInt(e.target.value) || 0)),
-                    })
-                  }
-                />
-              </div>
-
-              <div style={{ flex: 1 }}>
-                <label style={lbl}>Idade</label>
-
-                <input
-                  type="number"
-                  min={15}
-                  max={45}
-                  style={inputStyle}
-                  value={form.age}
-                  onChange={(e) => setForm({ ...form, age: parseInt(e.target.value) || 0 })}
-                />
-              </div>
-            </div>
-
-            <button
-              className="tapbtn"
-              style={{ ...bigBtn, ...btnPrimary, marginTop: 18 }}
-              disabled={!form.name.trim()}
-              onClick={() => onSave(data.teamId, form)}
-            >
-              {editing ? "Salvar alterações" : "Adicionar ao elenco"}
+              <ChevronDown size={18} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} color="#6B7A6F" />
             </button>
-          </Modal>
-        );
-      }
-
-      // ============ NEW TOURNAMENT MODAL ============
-
-      function NewTournamentModal({
-        teams,
-        tourForm,
-        setTourForm,
-        onClose,
-        onToggleTeam,
-        onCreate,
-      }) {
-        const canCreate =
-          tourForm.name.trim() &&
-          tourForm.teamIds.length >= 2 &&
-          (tourForm.format !== "grupos" || tourForm.teamIds.length >= 4);
-
-        return (
-          <Modal title="Novo campeonato" onClose={onClose}>
-            <label style={lbl}>Nome do campeonato</label>
-
-            <input
-              style={inputStyle}
-              value={tourForm.name}
-              onChange={(e) => setTourForm({ ...tourForm, name: e.target.value })}
-              placeholder="Ex: Copa Retrô 2007"
-              autoFocus
-            />
-
-            <label style={{ ...lbl, marginTop: 14 }}>Formato</label>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 4 }}>
-              {[
-                {
-                  k: "liga",
-                  t: "Liga (pontos corridos)",
-                  d: "Todos contra todos, tabela de classificação.",
-                },
-
-                {
-                  k: "mata-mata",
-                  t: "Mata-mata (eliminatória)",
-                  d: "Jogo único, perdeu está fora. Empate decide nos pênaltis.",
-                },
-
-                {
-                  k: "grupos",
-                  t: "Grupos + Mata-mata",
-                  d: "Fase de grupos e depois eliminatórias com os classificados.",
-                },
-              ].map((f) => (
-                <button
-                  key={f.k}
-                  onClick={() => setTourForm({ ...tourForm, format: f.k })}
-                  style={{
-                    textAlign: "left",
-                    padding: 12,
-                    borderRadius: 10,
-                    cursor: "pointer",
-
-                    background: tourForm.format === f.k ? "rgba(212,175,55,0.12)" : "#0E1E16",
-
-                    border: tourForm.format === f.k ? "1px solid #D4AF37" : "1px solid #24402F",
-                    color: "#EDEFE7",
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{f.t}</div>
-
-                  <div style={{ fontSize: 11.5, color: "#9AAA9F", marginTop: 2 }}>{f.d}</div>
-                </button>
-              ))}
-            </div>
-
-            {tourForm.format === "grupos" && (
-              <>
-                <label style={{ ...lbl, marginTop: 10 }}>Número de grupos</label>
-
-                <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
-                  {[2, 4].map((n) => (
-                    <span
-                      key={n}
-                      onClick={() => setTourForm({ ...tourForm, numGroups: n })}
-                      style={chip(tourForm.numGroups === n)}
-                    >
-                      {n} grupos
-                    </span>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <label style={{ ...lbl, marginTop: 14 }}>
-              Times participantes ({tourForm.teamIds.length} selecionados)
-            </label>
-
-            {teams.length === 0 && (
-              <div style={{ fontSize: 12.5, color: "#C1443D", marginBottom: 8 }}>
-                Crie times na aba Elenco primeiro.
-              </div>
-            )}
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
-              {teams.map((t) => {
-                const selected = tourForm.teamIds.includes(t.id);
-
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => onToggleTeam(t.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: 10,
-                      borderRadius: 10,
-                      cursor: "pointer",
-
-                      background: selected ? "rgba(47,122,77,0.15)" : "#0E1E16",
-                      border: selected ? "1px solid #2F7A4D" : "1px solid #24402F",
-                      color: "#EDEFE7",
-                    }}
-                  >
-                    <span style={{ width: 8, height: 8, borderRadius: 3, background: t.color }} />
-
-                    <span style={{ flex: 1, textAlign: "left", fontSize: 14, fontWeight: 600 }}>
-                      {t.name}
-                    </span>
-
-                    {selected && <Check size={16} color="#8FD6A8" />}
-                  </button>
-                );
-              })}
-            </div>
-
-            {tourForm.format === "grupos" &&
-              tourForm.teamIds.length > 0 &&
-              tourForm.teamIds.length < 4 && (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#C1443D",
-                    marginBottom: 10,
-                    display: "flex",
-                    gap: 6,
-                    alignItems: "center",
-                  }}
-                >
-                  <AlertCircle size={14} /> Selecione pelo menos 4 times para grupos.
-                </div>
-              )}
-
-            <button
-              className="tapbtn"
-              disabled={!canCreate}
-              onClick={onCreate}
-              style={{ ...bigBtn, ...btnPrimary, opacity: canCreate ? 1 : 0.5 }}
-            >
-              Iniciar campeonato
-            </button>
-          </Modal>
-        );
-      }
-
-      // ============ MATCH MODAL ============
-
-      function MatchModal({
-        match,
-        teamById,
-        scoreDraft,
-        setScoreDraft,
-        onClose,
-        onSave,
-        addScorer,
-        removeScorer,
-      }) {
-        const home = teamById(match.homeId),
-          away = teamById(match.awayId);
-
-        const isDraw =
-          scoreDraft.home !== "" &&
-          scoreDraft.away !== "" &&
-          parseInt(scoreDraft.home) === parseInt(scoreDraft.away);
-
-        const needsPenalties = match.stage === "knockout" && isDraw;
-
-        return (
-          <Modal title="Resultado da partida" onClose={onClose}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 16,
-                marginBottom: 18,
-              }}
-            >
-              <div style={{ textAlign: "center", flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{home?.name}</div>
-
-                <input
-                  type="number"
-                  min={0}
-                  style={{
-                    ...inputStyle,
-                    textAlign: "center",
-                    fontSize: 22,
-                    fontWeight: 800,
-                    padding: "10px 0",
-                  }}
-                  value={scoreDraft.home}
-                  onChange={(e) => setScoreDraft({ ...scoreDraft, home: e.target.value })}
-                />
-              </div>
-
-              <span style={{ fontSize: 18, color: "#6B7A6F", marginTop: 20 }}>×</span>
-
-              <div style={{ textAlign: "center", flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{away?.name}</div>
-
-                <input
-                  type="number"
-                  min={0}
-                  style={{
-                    ...inputStyle,
-                    textAlign: "center",
-                    fontSize: 22,
-                    fontWeight: 800,
-                    padding: "10px 0",
-                  }}
-                  value={scoreDraft.away}
-                  onChange={(e) => setScoreDraft({ ...scoreDraft, away: e.target.value })}
-                />
-              </div>
-            </div>
-
-            {needsPenalties && (
-              <div style={{ marginBottom: 16 }}>
-                <label style={lbl}>Empate — vencedor nos pênaltis</label>
-
-                <div style={{ display: "flex", gap: 8 }}>
-                  <span
-                    onClick={() => setScoreDraft({ ...scoreDraft, penaltyWinner: match.homeId })}
-                    style={{
-                      ...chip(scoreDraft.penaltyWinner === match.homeId),
-                      flex: 1,
-                      textAlign: "center",
-                    }}
-                  >
-                    {home?.name}
-                  </span>
-
-                  <span
-                    onClick={() => setScoreDraft({ ...scoreDraft, penaltyWinner: match.awayId })}
-                    style={{
-                      ...chip(scoreDraft.penaltyWinner === match.awayId),
-                      flex: 1,
-                      textAlign: "center",
-                    }}
-                  >
-                    {away?.name}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <label style={lbl}>Gols marcados (opcional)</label>
-
-            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-              <PlayerScorerPicker
-                team={home}
-                onPick={(pid, pname) => addScorer(match.homeId, pid, pname)}
-              />
-
-              <PlayerScorerPicker
-                team={away}
-                onPick={(pid, pname) => addScorer(match.awayId, pid, pname)}
-              />
-            </div>
-
-            {scoreDraft.scorers.length > 0 && (
-              <div style={{ marginBottom: 14 }}>
-                {scoreDraft.scorers.map((s, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      fontSize: 13,
-                      padding: "5px 0",
-                      borderBottom:
-                        i < scoreDraft.scorers.length - 1 ? "1px solid #1E3528" : "none",
-                    }}
-                  >
-                    <span>
-                      <Target
-                        size={12}
-                        style={{ verticalAlign: -1, marginRight: 5 }}
-                        color="#D4AF37"
-                      />
-                      {s.playerName}
-                    </span>
-
-                    <button
-                      onClick={() => removeScorer(i)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        color: "#C1443D",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <button className="tapbtn" onClick={onSave} style={{ ...bigBtn, ...btnPrimary }}>
-              Salvar resultado
-            </button>
-          </Modal>
-        );
-      }
-
-      function PlayerScorerPicker({ team, onPick }) {
-        const [open, setOpen] = useState(false);
-
-        if (!team) return <div style={{ flex: 1 }} />;
-
-        return (
-          <div style={{ position: "relative", flex: 1 }}>
-            <button
-              onClick={() => setOpen((o) => !o)}
-              style={{
-                width: "100%",
-                padding: "9px 10px",
-                borderRadius: 8,
-                background: "#0E1E16",
-                border: "1px solid #24402F",
-                color: "#9AAA9F",
-                fontSize: 12,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              + Gol {team.name} <ChevronDown size={13} />
-            </button>
-
             {open && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "105%",
-                  left: 0,
-                  right: 0,
-                  background: "#182B20",
-                  border: "1px solid #2F4A38",
-                  borderRadius: 8,
-                  zIndex: 5,
-                  maxHeight: 160,
-                  overflowY: "auto",
-                }}
-              >
-                {team.players.length === 0 && (
-                  <div style={{ padding: 10, fontSize: 12, color: "#6B7A6F" }}>Sem jogadores</div>
-                )}
-
-                {team.players.map((p) => (
-                  <div
-                    key={p.id}
-                    onClick={() => {
-                      onPick(p.id, p.name);
-                      setOpen(false);
-                    }}
-                    style={{
-                      padding: "8px 10px",
-                      fontSize: 12.5,
-                      cursor: "pointer",
-                      borderBottom: "1px solid #1E3528",
-                    }}
-                  >
-                    {p.name}
-                  </div>
-                ))}
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, color: "#6B7A6F", marginBottom: 6 }}>Formato: {t.format === "liga" ? "Liga" : t.format === "mata-mata" ? "Mata-mata" : "Grupos + Mata-mata"}</div>
+                <div style={{ fontSize: 12, color: "#6B7A6F" }}>{t.matches.filter((m) => m.played).length} partidas disputadas</div>
               </div>
             )}
           </div>
         );
-      }
+      })}
+    </div>
+  );
+}
 
-      // ============ TRANSFER MODAL ============
-
-      function TransferModal({ pick, teams, onClose, onConfirm }) {
-        const { player, fromTeamId } = pick;
-
-        const from = teams.find((t) => t.id === fromTeamId);
-
-        const [dest, setDest] = useState(null);
-
+// ============ BOTTOM NAV ============
+function BottomNav({ tab, setTab }) {
+  const items = [
+    { key: "home", icon: Home, label: "Início" },
+    { key: "teams", icon: Shield, label: "Elenco" },
+    { key: "tournament", icon: Trophy, label: "Campeonato" },
+    { key: "market", icon: ArrowLeftRight, label: "Mercado" },
+    { key: "history", icon: History, label: "Histórico" },
+  ];
+  return (
+    <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "#0E1E16", borderTop: "1px solid #1E3528", display: "flex", padding: "8px 4px 10px", zIndex: 10 }}>
+      {items.map(({ key, icon: Icon, label }) => {
+        const active = tab === key;
         return (
-          <Modal title="Transferir jogador" onClose={onClose}>
-            <div style={{ ...panelStyle, marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>{player.name}</div>
-
-              <div style={{ fontSize: 12, color: "#9AAA9F" }}>
-                {from?.name} · OVR {player.ovr} · {POS_LABELS[player.pos]}
-              </div>
-            </div>
-
-            <label style={lbl}>Destino</label>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18 }}>
-              {teams
-                .filter((t) => t.id !== fromTeamId)
-                .map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setDest(t.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: 10,
-                      borderRadius: 10,
-                      cursor: "pointer",
-
-                      background: dest === t.id ? "rgba(212,175,55,0.12)" : "#0E1E16",
-                      border: dest === t.id ? "1px solid #D4AF37" : "1px solid #24402F",
-                      color: "#EDEFE7",
-                    }}
-                  >
-                    <span style={{ width: 8, height: 8, borderRadius: 3, background: t.color }} />
-
-                    <span style={{ flex: 1, textAlign: "left", fontSize: 14 }}>{t.name}</span>
-
-                    {dest === t.id && <Check size={16} color="#D4AF37" />}
-                  </button>
-                ))}
-
-              {teams.length <= 1 && (
-                <div style={{ fontSize: 12.5, color: "#6B7A6F" }}>
-                  Crie outro time para transferir.
-                </div>
-              )}
-            </div>
-
-            <button
-              className="tapbtn"
-              disabled={!dest}
-              onClick={() => onConfirm(player, fromTeamId, dest)}
-              style={{ ...bigBtn, ...btnPrimary, opacity: dest ? 1 : 0.5 }}
-            >
-              Confirmar transferência
-            </button>
-          </Modal>
+          <button key={key} onClick={() => setTab(key)} className="tapbtn" style={{ flex: 1, background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer", padding: "4px 0" }}>
+            <Icon size={20} color={active ? "#D4AF37" : "#6B7A6F"} />
+            <span style={{ fontSize: 10, color: active ? "#D4AF37" : "#6B7A6F", fontWeight: active ? 700 : 500 }}>{label}</span>
+          </button>
         );
-      }
+      })}
+    </div>
+  );
+}
 
-      const root = ReactDOM.createRoot(document.getElementById("root"));
+// ============ MODAL WRAPPER ============
+function Modal({ title, onClose, children }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(5,10,8,0.75)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#12241C", borderTop: "1px solid #2F4A38", borderRadius: "18px 18px 0 0", padding: 20, width: "100%", maxWidth: 480, maxHeight: "85vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <span style={{ fontWeight: 800, fontSize: 16 }}>{title}</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#9AAA9F", cursor: "pointer" }}><X size={20} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
-      root.render(<App />);
-    </script>
-  </body>
+// ============ NEW TOURNAMENT MODAL ============
+function NewTournamentModal({ teams, tourForm, setTourForm, onClose, onToggleTeam, onCreate }) {
+  const canCreate = tourForm.name.trim() && tourForm.teamIds.length >= 2 && (tourForm.format !== "grupos" || tourForm.teamIds.length >= 4);
+  return (
+    <Modal title="Novo campeonato" onClose={onClose}>
+      <label style={lbl}>Nome do campeonato</label>
+      <input style={inputStyle} value={tourForm.name} onChange={(e) => setTourForm({ ...tourForm, name: e.target.value })} placeholder="Ex: Copa Retrô 2007" autoFocus />
+      <label style={{ ...lbl, marginTop: 14 }}>Formato</label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 4 }}>
+        {[{ k: "liga", t: "Liga (pontos corridos)", d: "Todos contra todos, tabela de classificação." },
+          { k: "mata-mata", t: "Mata-mata (eliminatória)", d: "Jogo único, perdeu está fora. Empate decide nos pênaltis." },
+          { k: "grupos", t: "Grupos + Mata-mata", d: "Fase de grupos e depois eliminatórias com os classificados." }].map((f) => (
+          <button key={f.k} onClick={() => setTourForm({ ...tourForm, format: f.k })} style={{ textAlign: "left", padding: 12, borderRadius: 10, cursor: "pointer", background: tourForm.format === f.k ? "rgba(212,175,55,0.12)" : "#0E1E16", border: tourForm.format === f.k ? "1px solid #D4AF37" : "1px solid #24402F", color: "#EDEFE7" }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{f.t}</div>
+            <div style={{ fontSize: 11.5, color: "#9AAA9F", marginTop: 2 }}>{f.d}</div>
+          </button>
+        ))}
+      </div>
+      {tourForm.format === "grupos" && (
+        <>
+          <label style={{ ...lbl, marginTop: 10 }}>Número de grupos</label>
+          <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+            {[2, 4].map((n) => <span key={n} onClick={() => setTourForm({ ...tourForm, numGroups: n })} style={chip(tourForm.numGroups === n)}>{n} grupos</span>)}
+          </div>
+        </>
+      )}
+      <label style={{ ...lbl, marginTop: 14 }}>Times participantes ({tourForm.teamIds.length} selecionados)</label>
+      {teams.length === 0 && <div style={{ fontSize: 12.5, color: "#C1443D", marginBottom: 8 }}>Crie times na aba Elenco primeiro.</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }}>
+        {teams.map((t) => {
+          const selected = tourForm.teamIds.includes(t.id);
+          return (
+            <button key={t.id} onClick={() => onToggleTeam(t.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, cursor: "pointer", background: selected ? "rgba(47,122,77,0.15)" : "#0E1E16", border: selected ? "1px solid #2F7A4D" : "1px solid #24402F", color: "#EDEFE7" }}>
+              <span style={{ width: 8, height: 8, borderRadius: 3, background: t.color }} />
+              <span style={{ flex: 1, textAlign: "left", fontSize: 14, fontWeight: 600 }}>{t.name}</span>
+              {selected && <Check size={16} color="#8FD6A8" />}
+            </button>
+          );
+        })}
+      </div>
+      {tourForm.format === "grupos" && tourForm.teamIds.length > 0 && tourForm.teamIds.length < 4 && (
+        <div style={{ fontSize: 12, color: "#C1443D", marginBottom: 10, display: "flex", gap: 6, alignItems: "center" }}><AlertCircle size={14} /> Selecione pelo menos 4 times para grupos.</div>
+      )}
+      <button className="tapbtn" disabled={!canCreate} onClick={onCreate} style={{ ...bigBtn, ...btnPrimary, opacity: canCreate ? 1 : 0.5 }}>Iniciar campeonato</button>
+    </Modal>
+  );
+}
+
+// ============ MATCH MODAL ============
+function MatchModal({ match, teamById, squadOf, catalogMap, scoreDraft, setScoreDraft, onClose, onSave, addScorer, removeScorer }) {
+  const home = teamById(match.homeId), away = teamById(match.awayId);
+  const isDraw = scoreDraft.home !== "" && scoreDraft.away !== "" && parseInt(scoreDraft.home, 10) === parseInt(scoreDraft.away, 10);
+  const needsPenalties = match.stage === "knockout" && isDraw;
+  const homeSquad = squadOf(match.homeId);
+  const awaySquad = squadOf(match.awayId);
+
+  return (
+    <Modal title="Resultado da partida" onClose={onClose}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16, marginBottom: 18 }}>
+        <div style={{ textAlign: "center", flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{home?.name}</div>
+          <input type="number" min={0} style={{ ...inputStyle, textAlign: "center", fontSize: 22, fontWeight: 800, padding: "10px 0" }} value={scoreDraft.home} onChange={(e) => setScoreDraft({ ...scoreDraft, home: e.target.value })} />
+        </div>
+        <span style={{ fontSize: 18, color: "#6B7A6F", marginTop: 20 }}>×</span>
+        <div style={{ textAlign: "center", flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>{away?.name}</div>
+          <input type="number" min={0} style={{ ...inputStyle, textAlign: "center", fontSize: 22, fontWeight: 800, padding: "10px 0" }} value={scoreDraft.away} onChange={(e) => setScoreDraft({ ...scoreDraft, away: e.target.value })} />
+        </div>
+      </div>
+      {needsPenalties && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={lbl}>Empate — vencedor nos pênaltis</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <span onClick={() => setScoreDraft({ ...scoreDraft, penaltyWinner: match.homeId })} style={{ ...chip(scoreDraft.penaltyWinner === match.homeId), flex: 1, textAlign: "center" }}>{home?.name}</span>
+            <span onClick={() => setScoreDraft({ ...scoreDraft, penaltyWinner: match.awayId })} style={{ ...chip(scoreDraft.penaltyWinner === match.awayId), flex: 1, textAlign: "center" }}>{away?.name}</span>
+          </div>
+        </div>
+      )}
+      <label style={lbl}>Gols marcados (opcional)</label>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <PlayerScorerPicker team={home} squad={homeSquad} onPick={(pid) => addScorer(match.homeId, pid)} />
+        <PlayerScorerPicker team={away} squad={awaySquad} onPick={(pid) => addScorer(match.awayId, pid)} />
+      </div>
+      {scoreDraft.scorers.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          {scoreDraft.scorers.map((s, i) => {
+            const p = catalogMap.get(s.playerId);
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13, padding: "5px 0", borderBottom: i < scoreDraft.scorers.length - 1 ? "1px solid #1E3528" : "none" }}>
+                <span><Target size={12} style={{ verticalAlign: -1, marginRight: 5 }} color="#D4AF37" />{p ? p.name : "?"}</span>
+                <button onClick={() => removeScorer(i)} style={{ background: "none", border: "none", color: "#C1443D", cursor: "pointer" }}><X size={14} /></button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <button className="tapbtn" onClick={onSave} style={{ ...bigBtn, ...btnPrimary }}>Salvar resultado</button>
+    </Modal>
+  );
+}
+function PlayerScorerPicker({ team, squad, onPick }) {
+  const [open, setOpen] = useState(false);
+  if (!team) return <div style={{ flex: 1 }} />;
+  return (
+    <div style={{ position: "relative", flex: 1 }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ width: "100%", padding: "9px 10px", borderRadius: 8, background: "#0E1E16", border: "1px solid #24402F", color: "#9AAA9F", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        + Gol {team.name} <ChevronDown size={13} />
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "105%", left: 0, right: 0, background: "#182B20", border: "1px solid #2F4A38", borderRadius: 8, zIndex: 5, maxHeight: 160, overflowY: "auto" }}>
+          {squad.length === 0 && <div style={{ padding: 10, fontSize: 12, color: "#6B7A6F" }}>Sem jogadores no elenco</div>}
+          {squad.map((p) => (
+            <div key={p.id} onClick={() => { onPick(p.id); setOpen(false); }} style={{ padding: "8px 10px", fontSize: 12.5, cursor: "pointer", borderBottom: "1px solid #1E3528" }}>{p.name}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
 </html>
