@@ -1880,7 +1880,7 @@
                       Y === "table" &&
                         React.createElement(TableArea, {
                           tournament: R, tournaments: m.filter((item) => item.status !== "finished"), teams: p,
-                          teamById: $, profiles: x, onSelectTournament: viewTournament, onDeleteMatch: deleteQuickMatch, currentProfile: te,
+                          teamById: $, profiles: x, onSelectTournament: viewTournament, onDeleteMatch: deleteQuickMatch, currentProfile: te, isAdmin: isAdminProfile(te),
                           onOpenTeam: (teamId) => setViewedTeamId(teamId),
                         }),
                       Y === "teams" &&
@@ -4571,7 +4571,7 @@
           );
         }
 
-        function TableArea({ tournament, tournaments, teams, teamById, profiles, onSelectTournament, onDeleteMatch, currentProfile, onOpenTeam }) {
+        function TableArea({ tournament, tournaments, teams, teamById, profiles, onSelectTournament, onDeleteMatch, currentProfile, isAdmin, onOpenTeam }) {
           let [visibleCount, setVisibleCount] = b(20), sentinel = React.useRef(null);
           He(() => { setVisibleCount(20); }, [tournament && tournament.id]);
           let allMatches = tournament && Array.isArray(tournament.matches) ? tournament.matches.filter((match) => match && match.played && !match.bye && match.status !== "voided") : [];
@@ -4612,7 +4612,7 @@
               )) : React.createElement("div", { style:{ color:"var(--muted)", fontSize:14 } }, "A classificação aparecerá quando houver participantes.")
             ),
             React.createElement("div", { style:{ marginTop:28, marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"end" } }, React.createElement("div", null, React.createElement("div", { style:{ fontSize:12, color:"var(--muted)" } }, "Resultados"), React.createElement("div", { style:{ fontSize:21, fontWeight:750 } }, "Histórico de partidas")), React.createElement("div", { style:{ fontSize:12, color:"var(--muted)" } }, history.length + " partidas")),
-            history.length === 0 ? React.createElement("div", { style:{ ...E, textAlign:"center", color:"var(--muted)" } }, "Nenhuma partida registrada ainda. Use o botão + para adicionar a primeira.") : Object.entries(groups).map(([label,matches])=>React.createElement("section", { key:label, style:{ marginBottom:22 } }, React.createElement("div", { style:{ fontSize:13, fontWeight:700, marginBottom:8, color:"var(--muted)" } }, label), matches.map((match)=>React.createElement(HistoryMatchCard, { key:match.id, match, teamById, avatarForTeam, onDelete:onDeleteMatch, canDelete: !!(currentProfile && (isAdminProfile(currentProfile) || match.createdByProfileId === currentProfile.id)) })) )),
+            history.length === 0 ? React.createElement("div", { style:{ ...E, textAlign:"center", color:"var(--muted)" } }, "Nenhuma partida registrada ainda. Use o botão + para adicionar a primeira.") : Object.entries(groups).map(([label,matches])=>React.createElement("section", { key:label, style:{ marginBottom:22 } }, React.createElement("div", { style:{ fontSize:13, fontWeight:700, marginBottom:8, color:"var(--muted)" } }, label), matches.map((match)=>React.createElement(HistoryMatchCard, { key:match.id, match, teamById, avatarForTeam, onDelete:onDeleteMatch, canDelete: !!(currentProfile && (isAdmin || match.createdByProfileId === currentProfile.id)) })) )),
             visibleCount < history.length && React.createElement("div", { ref:sentinel, style:{ textAlign:"center", color:"var(--muted)", padding:20, fontSize:13 } }, "Carregando mais partidas...")
           );
         }
