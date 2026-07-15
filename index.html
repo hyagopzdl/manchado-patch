@@ -200,10 +200,10 @@
             CF: "Centroavante",
           },
           se = [
-            "#00C978",
+            "var(--green)",
             "#4A7FC1",
-            "#FF2B3A",
-            "#58CC02",
+            "var(--danger)",
+            "var(--green)",
             "#9B59B6",
             "#E67E22",
             "#1ABC9C",
@@ -2620,34 +2620,45 @@
               ),
           );
         }
-        function N({ label: e, value: t }) {
-          let l =
-            t >= 85
-              ? "var(--green)"
-              : t >= 70
-                ? "var(--green)"
-                : t >= 50
-                  ? "#FF9600"
-                  : "var(--danger)";
+        function N({ label: e, value: t, max: l = 99 }) {
+          let a = Number(t),
+            n = Number.isFinite(a) ? a : 0,
+            r = Math.max(0, Math.min(100, (n / l) * 100)),
+            f =
+              l <= 10
+                ? n >= 7
+                  ? "var(--green)"
+                  : n >= 5
+                    ? "#FF9600"
+                    : "var(--danger)"
+                : n >= 85
+                  ? "var(--green)"
+                  : n >= 70
+                    ? "var(--green)"
+                    : n >= 50
+                      ? "#FF9600"
+                      : "var(--danger)";
           return React.createElement(
             "div",
-            { style: { marginBottom: 8 } },
+            { style: { marginBottom: 10 } },
             React.createElement(
               "div",
               {
                 style: {
                   display: "flex",
                   justifyContent: "space-between",
+                  gap: 12,
                   fontSize: 11.5,
                   color: "var(--muted)",
-                  marginBottom: 3,
+                  marginBottom: 4,
                 },
               },
               React.createElement("span", null, e),
               React.createElement(
                 "span",
                 { style: { fontWeight: 700, color: "var(--heading)" } },
-                t,
+                Number.isFinite(a) ? a : "—",
+                l <= 10 ? `/${l}` : "",
               ),
             ),
             React.createElement(
@@ -2655,24 +2666,101 @@
               {
                 style: {
                   height: 6,
-                  background: "var(--surface)",
-                  borderRadius: 4,
+                  background: "var(--surface-soft)",
+                  borderRadius: 999,
                   overflow: "hidden",
                 },
               },
               React.createElement("div", {
                 style: {
-                  width: `${t}%`,
+                  width: `${r}%`,
                   height: "100%",
-                  background: l,
-                  borderRadius: 4,
+                  background: f,
+                  borderRadius: 999,
                 },
               }),
             ),
           );
         }
         function ro({ player: e, onClose: t }) {
-          let l = e.attrs || {};
+          let l = e.attrs || {},
+            a = [
+              ["Ataque", e.attack],
+              ["Defesa", e.defense],
+              ["Resposta", l.response],
+              ["Mentalidade", l.mentality],
+              ["Agressividade", l.aggression],
+              ["Trabalho em equipe", l.teamwork],
+            ],
+            n = [
+              ["Aceleração", l.acceleration],
+              ["Velocidade máxima", l.topSpeed],
+              ["Equilíbrio", l.balance],
+              ["Agilidade", l.agility],
+              ["Impulsão", l.jump],
+              ["Fôlego", l.stamina],
+            ],
+            r = [
+              ["Precisão no drible", l.dribbleAccuracy],
+              ["Velocidade no drible", l.dribbleSpeed],
+              ["Técnica", l.technique],
+              ["Cabeceio", l.heading],
+            ],
+            f = [
+              ["Precisão no passe curto", l.shortPassAccuracy],
+              ["Velocidade do passe curto", l.shortPassSpeed],
+              ["Precisão no passe longo", l.longPassAccuracy],
+              ["Velocidade do passe longo", l.longPassSpeed],
+            ],
+            d = [
+              ["Precisão do chute", l.shotAccuracy],
+              ["Força do chute", l.shotPower],
+              ["Técnica de chute", l.shotTechnique],
+              ["Precisão em cobranças de falta", l.freeKickAccuracy],
+              ["Curva", l.curve],
+            ],
+            p = [
+              ["Habilidade de goleiro", l.goalKeepingSkills],
+              ["Consistência", l.consistency, 8],
+              ["Precisão com o pé ruim", l.weakFootAccuracy, 8],
+              ["Frequência de uso do pé ruim", l.weakFootFrequency, 8],
+              ["Condição física", l.conditionFitness, 8],
+            ],
+            F = (c, v) =>
+              React.createElement(
+                "section",
+                { style: { ...E, padding: 16, marginBottom: 12 } },
+                React.createElement(
+                  "div",
+                  {
+                    style: {
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: "var(--heading)",
+                      marginBottom: 12,
+                    },
+                  },
+                  c,
+                ),
+                React.createElement(
+                  "div",
+                  {
+                    style: {
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+                      columnGap: 20,
+                    },
+                  },
+                  v.map((s) =>
+                    React.createElement(N, {
+                      key: s[0],
+                      label: s[0],
+                      value: s[1],
+                      max: s[2] || 99,
+                    }),
+                  ),
+                ),
+              );
           return React.createElement(
             ee,
             { title: e.name, onClose: t },
@@ -2681,121 +2769,77 @@
               {
                 style: {
                   display: "flex",
-                  gap: 10,
-                  marginBottom: 16,
+                  gap: 8,
+                  marginBottom: 14,
                   flexWrap: "wrap",
                 },
               },
               React.createElement(ie, { label: it[e.position] || e.position }),
-              React.createElement(ie, { label: e.nationality }),
+              React.createElement(ie, { label: e.nationality || "Nacionalidade não informada" }),
               React.createElement(ie, { label: `${e.age} anos` }),
+              React.createElement(ie, { label: `${e.height} cm / ${e.weight} kg` }),
               React.createElement(ie, {
-                label: `${e.height}cm / ${e.weight}kg`,
+                label: `Pé ${e.foot === "Right" ? "direito" : e.foot === "Left" ? "esquerdo" : "ambos"}`,
               }),
-              React.createElement(ie, {
-                label: `P\xE9 ${e.foot === "Right" ? "direito" : e.foot === "Left" ? "esquerdo" : "ambos"}`,
+              e.favouredSide && React.createElement(ie, {
+                label: `Lado preferido: ${e.favouredSide === "Right" ? "direito" : e.favouredSide === "Left" ? "esquerdo" : e.favouredSide}`,
               }),
             ),
             React.createElement(
               "div",
-              { style: { display: "flex", gap: 12, marginBottom: 16 } },
-              React.createElement(
-                "div",
-                {
-                  style: {
-                    ...E,
-                    flex: 1,
-                    textAlign: "center",
-                    marginBottom: 0,
-                  },
+              {
+                style: {
+                  ...E,
+                  padding: 16,
+                  marginBottom: 12,
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                  gap: 12,
                 },
+              },
+              [
+                ["Overall", e.overall, "var(--green)"],
+                ["Valor", L(e.value), "var(--heading)"],
+                ["Clube", e.club || "—", "var(--heading)"],
+                ["ID", e.id || "—", "var(--muted)"],
+              ].map((s) =>
                 React.createElement(
                   "div",
-                  {
-                    style: { fontSize: 24, fontWeight: 900, color: "var(--green)" },
-                  },
-                  e.overall,
-                ),
-                React.createElement(
-                  "div",
-                  {
-                    style: {
-                      fontSize: 10.5,
-                      color: "var(--muted)",
-                      textTransform: "uppercase",
+                  { key: s[0], style: { minWidth: 0 } },
+                  React.createElement(
+                    "div",
+                    {
+                      style: {
+                        fontSize: s[0] === "Overall" || s[0] === "Valor" ? 22 : 13,
+                        lineHeight: 1.25,
+                        fontWeight: 800,
+                        color: s[2],
+                        overflowWrap: "anywhere",
+                      },
                     },
-                  },
-                  "Overall",
-                ),
-              ),
-              React.createElement(
-                "div",
-                {
-                  style: {
-                    ...E,
-                    flex: 1,
-                    textAlign: "center",
-                    marginBottom: 0,
-                  },
-                },
-                React.createElement(
-                  "div",
-                  {
-                    style: { fontSize: 24, fontWeight: 900, color: "var(--heading)" },
-                  },
-                  L(e.value),
-                ),
-                React.createElement(
-                  "div",
-                  {
-                    style: {
-                      fontSize: 10.5,
-                      color: "var(--muted)",
-                      textTransform: "uppercase",
+                    s[1],
+                  ),
+                  React.createElement(
+                    "div",
+                    {
+                      style: {
+                        fontSize: 10.5,
+                        color: "var(--muted)",
+                        textTransform: "uppercase",
+                        marginTop: 3,
+                      },
                     },
-                  },
-                  "Valor",
+                    s[0],
+                  ),
                 ),
               ),
             ),
-            React.createElement(N, { label: "Ataque", value: e.attack }),
-            React.createElement(N, { label: "Defesa", value: e.defense }),
-            React.createElement(N, { label: "Velocidade", value: l.topSpeed }),
-            React.createElement(N, {
-              label: "Acelera\xE7\xE3o",
-              value: l.acceleration,
-            }),
-            React.createElement(N, {
-              label: "Drible",
-              value: l.dribbleAccuracy,
-            }),
-            React.createElement(N, {
-              label: "Finaliza\xE7\xE3o",
-              value: l.shotAccuracy,
-            }),
-            React.createElement(N, {
-              label: "For\xE7a do chute",
-              value: l.shotPower,
-            }),
-            React.createElement(N, {
-              label: "Passe curto",
-              value: l.shortPassAccuracy,
-            }),
-            React.createElement(N, {
-              label: "Passe longo",
-              value: l.longPassAccuracy,
-            }),
-            React.createElement(N, { label: "Cabeceio", value: l.heading }),
-            React.createElement(N, { label: "F\xF4lego", value: l.stamina }),
-            React.createElement(N, {
-              label: "Rea\xE7\xE3o",
-              value: l.response,
-            }),
-            e.position === "GK" &&
-              React.createElement(N, {
-                label: "Habilidade de goleiro",
-                value: l.goalKeepingSkills,
-              }),
+            F("Visão geral e mental", a),
+            F("Velocidade e físico", n),
+            F("Drible e técnica", r),
+            F("Passes", f),
+            F("Finalização e bola parada", d),
+            F("Atributos especiais", p),
           );
         }
         function ie({ label: e }) {
@@ -3512,9 +3556,9 @@
             ),
             React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 900, marginBottom: 14 } }, "Campeonatos"),
-              tournaments.length ? tournaments.map((tournament) => React.createElement("div", { key: tournament.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--border)" } },
-                React.createElement("button", { onClick: () => onSelectTournament(tournament.id), style: { flex: 1, background: tournament.id === (currentTournament && currentTournament.id) ? "var(--surface-sand)" : "var(--surface)", border: tournament.id === (currentTournament && currentTournament.id) ? "2px solid var(--ink)" : "1px solid var(--border)", borderRadius: 10, padding: 10, textAlign: "left", fontWeight: 800, cursor: "pointer" } }, tournament.name),
-                React.createElement("button", { onClick: () => onDeleteTournament(tournament.id), style: { background: "var(--surface)", color: "var(--danger)", border: "1px solid var(--danger)", borderRadius: 9999, padding: "9px 12px", cursor: "pointer" } }, "Excluir")
+              tournaments.length ? tournaments.map((tournament) => React.createElement("div", { key: tournament.id, style: { display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid #DEDEDE" } },
+                React.createElement("button", { onClick: () => onSelectTournament(tournament.id), style: { flex: 1, background: tournament.id === (currentTournament && currentTournament.id) ? "#D7FFB8" : "var(--surface-soft)", border: "2px solid #DEDEDE", borderRadius: 12, padding: 10, textAlign: "left", fontWeight: 800, cursor: "pointer" } }, tournament.name),
+                React.createElement("button", { onClick: () => onDeleteTournament(tournament.id), style: { background: "#FFF", color: "var(--danger)", border: "2px solid #EA2B2B", borderRadius: 12, padding: "9px 12px", cursor: "pointer" } }, "Excluir")
               )) : React.createElement("div", { style: { color: "var(--muted)" } }, "Nenhum campeonato criado.")
             ),
             currentTournament && React.createElement("div", { style: E },
@@ -3523,7 +3567,7 @@
               React.createElement("label", { style: P }, "Nome"),
               React.createElement("input", { style: q, value: profileName, onChange: (event) => setProfileName(event.target.value), placeholder: "Nome do jogador" }),
               React.createElement("label", { style: { ...P, marginTop: 14 } }, "Cor"),
-              React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 } }, se.map((color) => React.createElement("button", { key: color, onClick: () => setProfileColor(color), style: { width: 32, height: 32, borderRadius: 8, background: color, border: profileColor === color ? "3px solid var(--ink)" : "2px solid transparent", cursor: "pointer" } }))),
+              React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 } }, se.map((color) => React.createElement("button", { key: color, onClick: () => setProfileColor(color), style: { width: 32, height: 32, borderRadius: 8, background: color, border: profileColor === color ? "3px solid #4B4B4B" : "2px solid transparent", cursor: "pointer" } }))),
               React.createElement("label", { style: P }, "Moedas iniciais"),
               React.createElement("input", { type: "number", min: 0, style: q, value: profileBudget, onChange: (event) => setProfileBudget(event.target.value) }),
               React.createElement("button", { style: { ...M, ...W }, disabled: !profileName.trim(), onClick: onCreateProfile }, "Criar perfil")
@@ -4280,7 +4324,7 @@
                             padding: "8px 10px",
                             fontSize: 12.5,
                             cursor: "pointer",
-                            borderBottom: "1px solid var(--border)",
+                            borderBottom: "1px solid #DEDEDE",
                           },
                         },
                         r.name,
