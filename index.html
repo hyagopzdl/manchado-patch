@@ -495,10 +495,10 @@
               () => m.find((o) => o.id === selectedTournamentId) || null,
               [m, selectedTournamentId],
             ),
-            p = (R && R.context && R.context.teams) || baseTeams,
-            c = (R && R.context && R.context.ownership) || baseOwnership,
-            s = (R && R.context && R.context.playerStats) || baseStats,
-            k = (R && R.context && R.context.transfers) || baseTransfers;
+            p = R && R.context ? (Array.isArray(R.context.teams) ? R.context.teams : []) : (Array.isArray(baseTeams) ? baseTeams : []),
+            c = R && R.context ? (R.context.ownership && typeof R.context.ownership === "object" ? R.context.ownership : {}) : (baseOwnership && typeof baseOwnership === "object" ? baseOwnership : {}),
+            s = R && R.context ? (R.context.playerStats && typeof R.context.playerStats === "object" ? R.context.playerStats : {}) : (baseStats && typeof baseStats === "object" ? baseStats : {}),
+            k = R && R.context ? (Array.isArray(R.context.transfers) ? R.context.transfers : []) : (Array.isArray(baseTransfers) ? baseTransfers : []);
 
           function saveContextField(field, value) {
             if (!R) return false;
@@ -556,10 +556,12 @@
             let keepAdmin = isAdminProfile(te);
             setSelectedTournamentId(o || null);
             qe("pes-selected-tournament", o || null);
-            if (!keepAdmin) {
+            De(null);
+            if (keepAdmin) {
+              oe("admin");
+            } else {
               me(null);
               qe("pes-my-profile", null);
-              De(null);
               oe("home");
             }
           }
@@ -728,6 +730,11 @@
             setAdminTournamentName("");
             setSelectedTournamentId(tournament.id);
             qe("pes-selected-tournament", tournament.id);
+            De(null);
+            he(null);
+            Ae(null);
+            ve(null);
+            oe("admin");
           }
           function deleteAdminTournament(id) {
             if (!window.confirm("Excluir este campeonato e todos os dados dele?")) return;
@@ -1035,7 +1042,7 @@
             }, [s, xe, c, $]),
             Gt = X(
               () =>
-                R
+                R && Array.isArray(R.matches)
                   ? R.matches.filter((o) => !o.played && !o.bye).slice(0, 6)
                   : [],
               [R],
