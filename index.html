@@ -931,6 +931,65 @@
               me(next); qe("pes-my-profile", next);
             }
           }
+          function deleteGlobalProfile(profileId) {
+            let profile = x.find((item) => item && typeof item === "object" && item.id === profileId);
+            if (!profile || isAdminProfile(profile)) {
+              window.alert("O perfil administrador não pode ser excluído por esta ação.");
+              return;
+            }
+            let confirmation = window.prompt(`Para excluir o perfil global ${profile.name}, digite EXCLUIR.`);
+            if (confirmation !== "EXCLUIR") return;
+            let updatedProfiles = x.filter((item) => !(item && typeof item === "object" && item.id === profileId));
+            let updatedTournaments = m.map((tournament) => {
+              let participants = Array.isArray(tournament.participants) ? tournament.participants.filter((id) => id !== profileId) : tournament.participants;
+              let context = tournament.context || {};
+              let teams = Array.isArray(context.teams) ? context.teams.map((team) => team.profileId === profileId ? { ...team, active: false, archivedProfileName: profile.name } : team) : [];
+              let affectedTeamIds = teams.filter((team) => team.profileId === profileId).map((team) => team.id);
+              let tradeOffers = { ...(context.tradeOffers || {}) };
+              Object.keys(tradeOffers).forEach((offerId) => {
+                let offer = tradeOffers[offerId];
+                if (offer && ["pending", "countered"].includes(offer.status) && (affectedTeamIds.includes(offer.buyerTeamId) || affectedTeamIds.includes(offer.sellerTeamId))) {
+                  tradeOffers[offerId] = { ...offer, status: "cancelled", updatedAt: Date.now(), closedReason: "profile_deleted" };
+                }
+              });
+              return {
+                ...tournament,
+                participants,
+                teamIds: teams.filter((team) => team.active !== false && (!Array.isArray(participants) || participants.includes(team.profileId))).map((team) => team.id),
+                context: { ...context, teams, tradeOffers },
+              };
+            });
+            T(updatedProfiles); U("profiles", updatedProfiles);
+            ae(updatedTournaments);
+          }
+          function resetCurrentTournament() {
+            if (!R) return;
+            let confirmation = window.prompt(`Esta ação apagará partidas, elencos, mercado, propostas, transferências e estatísticas de ${R.name}. Os participantes serão mantidos. Digite RESETAR para continuar.`);
+            if (confirmation !== "RESETAR") return;
+            let resetBudgetRaw = window.prompt("Informe o saldo que cada participante deverá receber após o reset:", String(Math.max(0, Number(adminProfileBudget) || 300)));
+            if (resetBudgetRaw === null) return;
+            let resetBudget = Number(resetBudgetRaw);
+            if (!Number.isFinite(resetBudget) || resetBudget < 0) {
+              window.alert("Informe um saldo válido, igual ou maior que zero.");
+              return;
+            }
+            let context = R.context || {};
+            let teams = Array.isArray(context.teams) ? context.teams.map((team) => ({ ...team, budget: resetBudget })) : [];
+            let resetTournament = {
+              ...R,
+              matches: [],
+              champion: null,
+              status: "ongoing",
+              groups: null,
+              teamIds: teams.filter((team) => team.active !== false && (!Array.isArray(R.participants) || R.participants.includes(team.profileId))).map((team) => team.id),
+              resetAt: Date.now(),
+              resetByProfileId: te && typeof te === "object" ? te.id : null,
+              context: { ...context, teams, ownership: {}, playerStats: {}, transfers: [], tradeOffers: {} },
+            };
+            ae(m.map((item) => item.id === R.id ? resetTournament : item));
+            he(null); Ae(null); ve(null); setMatchWizard(null);
+            window.alert("Campeonato resetado com sucesso.");
+          }
           function updateCurrentTeamName(teamId, name) {
             let clean = String(name || "").trim();
             if (!clean || !teamId) return;
@@ -1495,6 +1554,7 @@
                           onCreateProfile: createAdminProfile, onCreateTournament: createAdminTournament,
                           onDeleteTournament: deleteAdminTournament, onSelectTournament: selectTournament,
                           onUpdateBudget: updateAdminBudget, onToggleParticipant: toggleTournamentParticipant,
+                          onDeleteProfile: deleteGlobalProfile, onResetTournament: resetCurrentTournament,
                         }),
                       Y === "profile" &&
                         React.createElement(ProfileArea, {
@@ -3889,7 +3949,7 @@
             ].map((o) => React.createElement("button", { key: o.key, onClick: () => t(o.key), className: "settings-theme-card" + (e === o.key ? " is-active" : "") }, React.createElement("div", { className: "theme-preview " + o.key }, React.createElement("span"), React.createElement("span"), React.createElement("span")), React.createElement("strong", { style: { color: "var(--heading)", fontSize: 14 } }, o.label))))
           );
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.role !== "admin" && String(profile.name || "").trim().toLowerCase() !== "admin");
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           return React.createElement("div", null,
@@ -3902,7 +3962,7 @@
               React.createElement("label", { style: { ...P, marginTop: 14 } }, "Cor"),
               React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 } }, se.map((color) => React.createElement("button", { key: color, onClick: () => setProfileColor(color), style: { width: 32, height: 32, borderRadius: 999, background: color, border: profileColor === color ? "3px solid var(--heading)" : "2px solid transparent", cursor: "pointer" } }))),
               React.createElement("button", { style: { ...M, ...W }, disabled: !profileName.trim(), onClick: onCreateProfile }, "Criar perfil global"),
-              globalProfiles.length ? React.createElement("div", { style: { marginTop: 18, display: "grid", gap: 8 } }, globalProfiles.map((profile) => React.createElement("div", { key: profile.id, style: { display: "flex", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, background: "var(--surface-soft)" } }, React.createElement("div", { style: { width: 34, height: 34, borderRadius: 999, background: profile.color, overflow: "hidden", display: "grid", placeItems: "center", fontWeight: 700 } }, profile.avatar ? React.createElement("img", { src: profile.avatar, style: { width: "100%", height: "100%", objectFit: "cover" } }) : profile.name.charAt(0).toUpperCase()), React.createElement("strong", null, profile.name)))) : null
+              globalProfiles.length ? React.createElement("div", { style: { marginTop: 18, display: "grid", gap: 8 } }, globalProfiles.map((profile) => React.createElement("div", { key: profile.id, style: { display: "flex", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, background: "var(--surface-soft)" } }, React.createElement("div", { style: { width: 34, height: 34, borderRadius: 999, background: profile.color, overflow: "hidden", display: "grid", placeItems: "center", fontWeight: 700 } }, profile.avatar ? React.createElement("img", { src: profile.avatar, style: { width: "100%", height: "100%", objectFit: "cover" } }) : profile.name.charAt(0).toUpperCase()), React.createElement("strong", { style: { flex: 1 } }, profile.name), React.createElement("button", { onClick: () => onDeleteProfile(profile.id), style: { background: "transparent", color: "var(--danger)", border: "1px solid var(--danger)", borderRadius: 999, padding: "7px 10px", cursor: "pointer", fontSize: 12, fontWeight: 700 } }, "Excluir")))) : null
             ),
             React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 14 } }, "Criar campeonato"),
@@ -3930,6 +3990,11 @@
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Moedas dos participantes"),
               React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", marginBottom: 14 } }, currentTournament.name),
               teams.filter((team) => team.active !== false).length ? teams.filter((team) => team.active !== false).map((team) => React.createElement("div", { key: team.id, style: { display: "grid", gridTemplateColumns: "1fr 120px", gap: 10, alignItems: "center", marginBottom: 10 } }, React.createElement("div", { style: { fontWeight: 700 } }, team.name), React.createElement("input", { type: "number", min: 0, style: { ...q, padding: "9px 10px" }, value: team.budget, onChange: (event) => onUpdateBudget(team.id, event.target.value) }))) : React.createElement("div", { style: { color: "var(--muted)" } }, "Nenhum participante ativo.")
+            ),
+            currentTournament && React.createElement("div", { style: { ...E, border: "1px solid color-mix(in srgb, var(--danger) 40%, var(--border))" } },
+              React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: "var(--danger)", marginBottom: 4 } }, "Zona de perigo"),
+              React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "O reset mantém o campeonato e seus participantes, mas apaga partidas, tabela, elencos, mercado, propostas, transferências e estatísticas. Esta ação não pode ser desfeita."),
+              React.createElement("button", { onClick: onResetTournament, style: { width: "100%", background: "transparent", color: "var(--danger)", border: "1px solid var(--danger)", borderRadius: 999, padding: "11px 14px", cursor: "pointer", fontWeight: 700 } }, "Resetar campeonato")
             )
           );
         }
