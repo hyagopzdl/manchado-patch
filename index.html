@@ -952,6 +952,12 @@
           function kt(o) {
             let status = Pe(o);
             if (!ProfileTeam) return;
+            let maxPlayers = Math.max(1, Number(R && R.rosterSettings && R.rosterSettings.maxPlayers != null ? R.rosterSettings.maxPlayers : 30) || 30);
+            let currentSize = Oe(ProfileTeam.id).length;
+            if (status.kind === "free" && currentSize >= maxPlayers) {
+              window.alert(`Seu elenco atingiu o limite de ${maxPlayers} jogadores. Venda alguém antes de comprar.`);
+              return;
+            }
             if (status.kind === "free") {
               he({ player: o, status });
               return;
@@ -1028,6 +1034,20 @@
               let teams = Array.isArray(context.teams) ? context.teams.map((team) => ({ ...team })) : [];
               let buyer = teams.find((team) => team.id === offer.buyerTeamId), seller = teams.find((team) => team.id === offer.sellerTeamId);
               if (!buyer || !seller) return;
+              let minPlayers = Math.max(0, Number(tournament.rosterSettings && tournament.rosterSettings.minPlayers != null ? tournament.rosterSettings.minPlayers : 23) || 0);
+              let maxPlayers = Math.max(minPlayers, Number(tournament.rosterSettings && tournament.rosterSettings.maxPlayers != null ? tournament.rosterSettings.maxPlayers : 30) || 30);
+              let buyerSize = Object.values(ownership).filter((item) => item && item.teamId === buyer.id).length;
+              let sellerSize = Object.values(ownership).filter((item) => item && item.teamId === seller.id).length;
+              if (buyerSize >= maxPlayers) {
+                offers[offerId] = { ...offer, status: "invalid", invalidReason: "buyer_roster_full", updatedAt: Date.now() };
+                list[index] = { ...tournament, context: { ...context, tradeOffers: offers } };
+                return list;
+              }
+              if (sellerSize <= minPlayers) {
+                offers[offerId] = { ...offer, status: "invalid", invalidReason: "seller_min_roster", updatedAt: Date.now() };
+                list[index] = { ...tournament, context: { ...context, tradeOffers: offers } };
+                return list;
+              }
               if ((buyer.budget || 0) < offer.currentAmount) {
                 offers[offerId] = { ...offer, status: "insufficient_funds", updatedAt: Date.now() };
                 list[index] = { ...tournament, context: { ...context, tradeOffers: offers } };
@@ -1052,6 +1072,8 @@
           function Ft(o, i, y) {
             let D = $(y);
             if (!D) return;
+            let maxPlayers = Math.max(1, Number(R && R.rosterSettings && R.rosterSettings.maxPlayers != null ? R.rosterSettings.maxPlayers : 30) || 30);
+            if (Oe(y).length >= maxPlayers) { window.alert(`Este elenco atingiu o limite de ${maxPlayers} jogadores.`); return; }
             let S = i.kind === "free" ? o.value : i.price;
             if (D.budget < S) return;
             let A = p.map((z) =>
@@ -1091,6 +1113,11 @@
           }
           function It(o) {
             if (!R || !ProfileTeam || !o) return;
+            let minPlayers = Math.max(0, Number(R.rosterSettings && R.rosterSettings.minPlayers != null ? R.rosterSettings.minPlayers : 23) || 0);
+            if (Oe(ProfileTeam.id).length <= minPlayers) {
+              window.alert(`Você precisa manter no mínimo ${minPlayers} jogadores no elenco.`);
+              return;
+            }
             let depreciationPct = Math.min(100, Math.max(0, Number(R.marketSettings && R.marketSettings.depreciationPct != null ? R.marketSettings.depreciationPct : 10) || 0));
             let amount = Math.ceil((Number(o.value) || 0) * (1 - depreciationPct / 100));
             setSaleModal({ player: o, depreciationPct, amount });
@@ -1105,6 +1132,9 @@
               let ownership = { ...(context.ownership || {}) };
               let current = ownership[o.id];
               if (!current || current.teamId !== teamId) return null;
+              let minPlayers = Math.max(0, Number(tournament.rosterSettings && tournament.rosterSettings.minPlayers != null ? tournament.rosterSettings.minPlayers : 23) || 0);
+              let rosterSize = Object.values(ownership).filter((item) => item && item.teamId === teamId).length;
+              if (rosterSize <= minPlayers) return null;
               let teams = Array.isArray(context.teams) ? context.teams.map((team) => team.id === teamId ? { ...team, budget: (Number(team.budget) || 0) + amount } : team) : [];
               delete ownership[o.id];
               let tradeOffers = { ...(context.tradeOffers || {}) };
@@ -1198,6 +1228,7 @@
               teamIds: [], participants: [], groups: null, matches: [], status: "ongoing",
               champion: null, createdAt: Date.now(),
               marketSettings: { depreciationPct: 10 },
+              rosterSettings: { minPlayers: 23, maxPlayers: 30 },
               context: { teams: [], ownership: {}, playerStats: {}, transfers: [], tradeOffers: {} },
             };
             ae([...m, tournament]);
@@ -1335,6 +1366,13 @@
             if (!R) return;
             let pct = Math.min(100, Math.max(0, Math.round(Number(value) || 0)));
             ae(m.map((item) => item.id === R.id ? { ...item, marketSettings: { ...(item.marketSettings || {}), depreciationPct: pct } } : item));
+          }
+          function updateRosterRules(minValue, maxValue) {
+            if (!R) return;
+            let minPlayers = Math.max(0, Math.round(Number(minValue) || 0));
+            let maxPlayers = Math.max(1, Math.round(Number(maxValue) || 0));
+            if (maxPlayers < minPlayers) maxPlayers = minPlayers;
+            ae(m.map((item) => item.id === R.id ? { ...item, rosterSettings: { minPlayers, maxPlayers } } : item));
           }
           function viewTournament(tournamentId) {
             setSelectedTournamentId(tournamentId || null);
@@ -1836,7 +1874,7 @@
                       Y === "table" &&
                         React.createElement(TableArea, {
                           tournament: R, tournaments: m.filter((item) => item.status !== "finished"), teams: p,
-                          teamById: $, onSelectTournament: viewTournament, onOpenMatch: Tt,
+                          teamById: $, profiles: x, onSelectTournament: viewTournament, onOpenMatch: Tt,
                         }),
                       Y === "teams" &&
                         React.createElement(io, {
@@ -1851,6 +1889,7 @@
                           ownership: c,
                           onOpenDetail: be,
                           onGoMarket: () => oe("market"),
+                          rosterSettings: R && R.rosterSettings ? R.rosterSettings : { minPlayers: 23, maxPlayers: 30 },
                         }),
 
                       Y === "market" &&
@@ -1882,6 +1921,7 @@
                           onUpdateBudget: updateAdminBudget, onToggleParticipant: toggleTournamentParticipant,
                           onDeleteProfile: deleteGlobalProfile, onResetTournament: resetCurrentTournament,
                           onUpdateMarketDepreciation: updateMarketDepreciation,
+                          onUpdateRosterRules: updateRosterRules,
                           catalog: n, onImportRosters: importRosterPlan,
                         }),
                       Y === "profile" &&
@@ -2610,327 +2650,66 @@
           ownership: F,
           onOpenDetail: c,
           onGoMarket: v,
+          rosterSettings,
         }) {
           let s = e.find((h) => h.id === t);
-          if (s) {
-            let h = r(s.id)
-                .slice()
-                .sort((g, k) => k.overall - g.overall),
-              m = h.length
-                ? Math.round(h.reduce((g, k) => g + k.overall, 0) / h.length)
-                : 0;
-            return React.createElement(
-              "div",
-              null,
-              React.createElement(
-                "button",
-                {
-                  onClick: () => l(null),
-                  style: {
-                    background: "none",
-                    border: "none",
-                    color: "var(--muted)",
-                    fontSize: 13,
-                    marginBottom: 10,
-                    cursor: "pointer",
-                    padding: 0,
-                  },
-                },
-                "\u2190 Voltar aos times",
-              ),
-              React.createElement(
-                "div",
-                {
-                  style: {
-                    ...E,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                  },
-                },
-                React.createElement("span", {
-                  style: {
-                    width: 40,
-                    height: 40,
-                    borderRadius: 10,
-                    background: s.color,
-                    flexShrink: 0,
-                  },
-                }),
-                React.createElement(
-                  "div",
-                  { style: { flex: 1 } },
-                  React.createElement(
-                    "div",
-                    { style: { fontWeight: 800, fontSize: 17 } },
-                    s.name,
-                  ),
-                  React.createElement(
-                    "div",
-                    { style: { fontSize: 12, color: "var(--muted)" } },
-                    h.length,
-                    " jogadores \xB7 M\xE9dia ",
-                    m,
-                    " OVR",
-                  ),
-                ),
-                React.createElement(
-                  "button",
-                  {
-                    onClick: () => n(s.id),
-                    style: {
-                      background: "none",
-                      border: "none",
-                      color: "var(--danger)",
-                      cursor: "pointer",
-                    },
-                  },
-                  React.createElement($t, { size: 18 }),
-                ),
-              ),
-              React.createElement(
-                "div",
-                {
-                  style: {
-                    ...E,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  },
-                },
-                React.createElement(
-                  "span",
-                  {
-                    style: {
-                      fontSize: 13,
-                      color: "var(--muted)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    },
-                  },
-                  React.createElement(Qt, { size: 14, color: "var(--green)" }),
-                  " Or\xE7amento dispon\xEDvel",
-                ),
-                React.createElement(
-                  "span",
-                  {
-                    style: { fontWeight: 800, color: "var(--green)", fontSize: 16 },
-                  },
-                  L(s.budget),
-                ),
-              ),
-              React.createElement(
-                "button",
-                {
-                  className: "tapbtn",
-                  onClick: v,
-                  style: {
-                    ...M,
-                    ...W,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                  },
-                },
-                React.createElement(_e, { size: 16 }),
-                " Contratar no mercado",
-              ),
-              React.createElement(
-                "div",
-                { style: { marginTop: 12 } },
-                h.length === 0 &&
-                  React.createElement(
-                    "div",
-                    {
-                      style: {
-                        color: "var(--muted)",
-                        fontSize: 13,
-                        textAlign: "center",
-                        padding: 20,
-                      },
-                    },
-                    "Elenco vazio. Contrate jogadores no mercado.",
-                  ),
-                h.map((g) => {
-                  let k = F[g.id];
-                  return React.createElement(
-                    "div",
-                    { key: g.id, style: { ...E, padding: 12 } },
-                    React.createElement(
-                      "div",
-                      {
-                        style: {
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                        },
-                      },
-                      React.createElement(
-                        "span",
-                        {
-                          style: {
-                            fontSize: 10.5,
-                            fontWeight: 800,
-                            background: positionColor(g.position),
-                            color: "#ffffff",
-                            padding: "3px 6px",
-                            borderRadius: 6,
-                            border: "1px solid transparent",
-                            minWidth: 34,
-                            textAlign: "center",
-                          },
-                        },
-                        g.position,
-                      ),
-                      React.createElement(
-                        "button",
-                        {
-                          onClick: () => c(g),
-                          style: {
-                            flex: 1,
-                            background: "none",
-                            border: "none",
-                            textAlign: "left",
-                            cursor: "pointer",
-                            padding: 0,
-                            color: "var(--heading)",
-                          },
-                        },
-                        React.createElement(
-                          "div",
-                          { style: { fontWeight: 700, fontSize: 14.5 } },
-                          g.name,
-                        ),
-                        React.createElement(
-                          "div",
-                          { style: { fontSize: 11.5, color: "var(--muted)" } },
-                          g.age,
-                          " anos \xB7 valor ",
-                          L(g.value),
-                        ),
-                      ),
-                      React.createElement(
-                        "span",
-                        {
-                          style: {
-                            fontWeight: 800,
-                            color: overallColor(g.overall),
-                            fontSize: 15,
-                          },
-                        },
-                        g.overall,
-                      ),
-                    ),
-                    React.createElement(
-                      "div",
-                      { style: { marginTop: 10 } },
-                      React.createElement(
-                        "button",
-                        {
-                          onClick: () => p(g),
-                          style: {
-                            width: "100%",
-                            background: "var(--surface-soft)",
-                            border: "1px solid var(--border)",
-                            color: "var(--heading)",
-                            borderRadius: 999,
-                            padding: "9px 12px",
-                            fontSize: 12,
-                            fontWeight: 750,
-                            cursor: "pointer",
-                          },
-                        },
-                        "Vender ao mercado",
-                      ),
-                    ),
-                  );
-                }),
-              ),
+          if (!s) return React.createElement("div", { style: E }, "Nenhum time selecionado.");
+          let squad = r(s.id).slice();
+          let minPlayers = Math.max(0, Number(rosterSettings && rosterSettings.minPlayers != null ? rosterSettings.minPlayers : 23) || 0);
+          let maxPlayers = Math.max(minPlayers, Number(rosterSettings && rosterSettings.maxPlayers != null ? rosterSettings.maxPlayers : 30) || 30);
+          let groups = {
+            goalkeepers: { label: "Goleiros", positions: ["GK"], players: [] },
+            defense: { label: "Defesa", positions: ["CBT","CB","SB_D","SB_E","RB","LB","SW"], players: [] },
+            midfield: { label: "Meio-campo", positions: ["DMF","CMF","AMF","SMF","RMF","LMF"], players: [] },
+            attack: { label: "Ataque", positions: ["SS","CF","ATA_LEVE","WF","RWF","LWF"], players: [] },
+          };
+          function groupOf(position) {
+            let pos = String(position || "").toUpperCase();
+            return Object.keys(groups).find((key) => groups[key].positions.includes(pos)) || "midfield";
+          }
+          squad.forEach((player) => groups[groupOf(player.position)].players.push(player));
+          Object.values(groups).forEach((group) => group.players.sort((x,y) => (y.overall||0)-(x.overall||0) || String(x.name).localeCompare(String(y.name))));
+          function average(players) { return players.length ? Math.round((players.reduce((sum,player)=>sum+(Number(player.overall)||0),0)/players.length)*10)/10 : 0; }
+          let overall = average(squad), totalValue = squad.reduce((sum,player)=>sum+(Number(player.value)||0),0);
+          let sectorData = Object.entries(groups).map(([key,group]) => ({ key, label:group.label, average:average(group.players), count:group.players.length }));
+          let weakest = sectorData.filter((item)=>item.count).sort((x,y)=>x.average-y.average || x.count-y.count)[0];
+          let tip = squad.length <= minPlayers
+            ? `Seu elenco está no mínimo permitido de ${minPlayers} jogadores. Contrate antes de vender.`
+            : weakest
+              ? `${weakest.label} é o setor com menor média (${weakest.average.toFixed(1)}). Veja reforços recomendados para equilibrar o time.`
+              : "Monte seu elenco para receber análises e recomendações personalizadas.";
+          function statCard(label,value,accent) {
+            return React.createElement("div", { style:{ padding:16, borderRadius:16, background:"var(--surface)", border:"1px solid var(--border)", minWidth:0 } },
+              React.createElement("div", { style:{ fontSize:11, color:"var(--muted)", marginBottom:6 } }, label),
+              React.createElement("strong", { style:{ fontSize:20, color:accent||"var(--heading)", letterSpacing:"-.4px" } }, value)
             );
           }
-          return React.createElement(
-            "div",
-            null,
-            React.createElement(
-              "button",
-              {
-                className: "tapbtn",
-                onClick: a,
-                style: {
-                  ...M,
-                  ...W,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  marginBottom: 14,
-                },
-              },
-              React.createElement(_e, { size: 16 }),
-              " Criar novo time",
-            ),
-            e.length === 0 &&
-              React.createElement(
-                "div",
-                {
-                  style: {
-                    color: "var(--muted)",
-                    fontSize: 13,
-                    textAlign: "center",
-                    padding: 30,
-                  },
-                },
-                "Nenhum time cadastrado ainda.",
-              ),
-            e.map((h) => {
-              let m = r(h.id);
-              return React.createElement(
-                "button",
-                {
-                  key: h.id,
-                  className: "tapbtn",
-                  onClick: () => l(h.id),
-                  style: {
-                    ...E,
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    cursor: "pointer",
-                    textAlign: "left",
-                  },
-                },
-                React.createElement("span", {
-                  style: {
-                    width: 34,
-                    height: 34,
-                    borderRadius: 9,
-                    background: h.color,
-                    flexShrink: 0,
-                  },
-                }),
-                React.createElement(
-                  "div",
-                  { style: { flex: 1 } },
-                  React.createElement(
-                    "div",
-                    { style: { fontWeight: 700, fontSize: 15 } },
-                    h.name,
-                  ),
-                  React.createElement(
-                    "div",
-                    { style: { fontSize: 11.5, color: "var(--muted)" } },
-                    m.length,
-                    " jogadores \xB7 ",
-                    L(h.budget),
-                    " dispon\xEDvel",
-                  ),
+          function playerCard(player) {
+            let cannotSell = squad.length <= minPlayers;
+            return React.createElement("article", { key:player.id, className:"tapbtn", style:{ ...E, padding:16, display:"grid", gap:14, background:"linear-gradient(145deg, color-mix(in srgb, "+overallColor(player.overall)+" 8%, var(--surface)), var(--surface))" } },
+              React.createElement("button", { onClick:()=>c(player), style:{ display:"grid", gridTemplateColumns:"auto 1fr auto", alignItems:"center", gap:12, width:"100%", background:"none", border:0, padding:0, textAlign:"left", color:"var(--heading)", cursor:"pointer" } },
+                React.createElement("div", { style:{ width:50, height:58, borderRadius:14, display:"grid", placeItems:"center", background:`linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 25%, var(--surface-soft)), var(--surface-soft))`, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 45%, var(--border))` } },
+                  React.createElement("div", { style:{ textAlign:"center" } }, React.createElement("strong", { style:{ display:"block", fontSize:20, color:overallColor(player.overall) } }, player.overall), React.createElement("span", { style:{ fontSize:9.5, fontWeight:800, color:"white", background:positionColor(player.position), borderRadius:5, padding:"2px 5px" } }, player.position))
                 ),
-                React.createElement(ue, { size: 18, color: "var(--muted)" }),
-              );
-            }),
+                React.createElement("div", { style:{ minWidth:0 } }, React.createElement("div", { style:{ fontWeight:800, fontSize:15.5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.name), React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.club || "Clube não informado"), React.createElement("div", { style:{ fontSize:11, color:"var(--muted)", marginTop:3 } }, `${player.age || "—"} anos · ${L(player.value)}`)),
+                React.createElement("span", { style:{ color:"var(--muted)", fontSize:18 } }, "›")
+              ),
+              React.createElement("button", { disabled:cannotSell, onClick:()=>!cannotSell&&p(player), style:{ width:"100%", padding:"10px 12px", borderRadius:999, border:"1px solid var(--border)", background:cannotSell?"var(--surface-soft)":"transparent", color:cannotSell?"var(--muted)":"var(--heading)", fontSize:12, fontWeight:750, cursor:cannotSell?"not-allowed":"pointer", opacity:cannotSell ? .65 : 1 } }, cannotSell ? `Mínimo de ${minPlayers} jogadores` : "Vender ao mercado")
+            );
+          }
+          return React.createElement("div", null,
+            React.createElement("div", { style:{ textAlign:"center", marginBottom:20 } }, React.createElement("div", { style:{ fontSize:12, color:"var(--muted)", marginBottom:5 } }, "Meu elenco"), React.createElement("h1", { style:{ margin:0, fontSize:"clamp(28px,5vw,42px)", lineHeight:1, letterSpacing:"-.045em" } }, s.name), React.createElement("div", { style:{ color:"var(--muted)", fontSize:12.5, marginTop:8 } }, `${squad.length}/${maxPlayers} jogadores · ${L(s.budget)} disponíveis`)),
+            React.createElement("div", { style:{ ...E, padding:18, marginBottom:16, border:"1px solid color-mix(in srgb, var(--green) 28%, var(--border))", background:"linear-gradient(135deg, color-mix(in srgb, var(--green) 12%, var(--surface)), var(--surface) 60%, color-mix(in srgb, var(--accent) 7%, var(--surface)))" } }, React.createElement("div", { style:{ fontSize:10.5, fontWeight:800, color:"var(--green)", textTransform:"uppercase", letterSpacing:".08em", marginBottom:6 } }, "Análise do time"), React.createElement("div", { style:{ fontSize:14, lineHeight:1.5, color:"var(--heading)" } }, tip), React.createElement("button", { onClick:v, style:{ marginTop:12, background:"none", border:0, color:"var(--green)", fontWeight:800, padding:0, cursor:"pointer" } }, "Ver recomendações →")),
+            React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(135px,1fr))", gap:10, marginBottom:24 } },
+              statCard("Overall do elenco", overall ? overall.toFixed(1) : "—", overall?overallColor(overall):null),
+              statCard("Valor do elenco", L(totalValue)),
+              ...sectorData.map((item)=>statCard(item.label, item.count ? item.average.toFixed(1) : "—", item.count?overallColor(item.average):null))
+            ),
+            squad.length===0 && React.createElement("div", { style:{ ...E, textAlign:"center", color:"var(--muted)", padding:28 } }, "Elenco vazio. Vá ao mercado para contratar jogadores."),
+            Object.values(groups).map((group)=>group.players.length ? React.createElement("section", { key:group.label, style:{ marginBottom:26 } },
+              React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"end", marginBottom:10 } }, React.createElement("div", null, React.createElement("h2", { style:{ margin:0, fontSize:19 } }, group.label), React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:3 } }, `${group.players.length} jogadores · média ${average(group.players).toFixed(1)}`))),
+              React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))", gap:10 } }, group.players.map(playerCard))
+            ) : null)
           );
         }
         function lo({
@@ -3193,6 +2972,7 @@
             "div",
             null,
             React.createElement(Z, { icon: React.createElement(Xe, { size: 15 }), text: "Mercado" }),
+            activeTeam && React.createElement("div", { style:{ ...E, padding:"14px 16px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, background:"linear-gradient(135deg, color-mix(in srgb, var(--green) 10%, var(--surface)), var(--surface))" } }, React.createElement("div", null, React.createElement("div", { style:{ fontSize:11, color:"var(--muted)" } }, "Orçamento disponível"), React.createElement("strong", { style:{ display:"block", fontSize:22, color:"var(--green)", marginTop:3 } }, L(activeTeam.budget))), React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", textAlign:"right" } }, `${(teams || []).length ? "Campeonato atual" : ""}`)),
             React.createElement(
               "div",
               { style: { display: "flex", gap: 4, padding: 4, marginBottom: 18, background: "var(--surface-soft)", border: "1px solid var(--border)", borderRadius: 999, overflowX: "auto" } },
@@ -3677,46 +3457,45 @@
         function MarketSaleModal({ data, onClose, onConfirm }) {
           let player = data && data.player;
           if (!player) return null;
-          let modal = React.createElement(
-            "div",
-            {
-              className: "sports-modal-overlay",
-              onClick: onClose,
-              style: {
-                position: "fixed",
-                inset: 0,
-                zIndex: 1000,
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "flex-end",
-                padding: 0,
-                background: "var(--overlay)",
-              },
-            },
+          return ReactDOM.createPortal(
             React.createElement(
               "div",
               {
-                className: "sports-modal",
-                role: "dialog",
-                "aria-modal": "true",
-                "aria-labelledby": "market-sale-modal-title",
-                onClick: (event) => event.stopPropagation(),
+                className: "sports-modal-overlay",
+                onClick: onClose,
                 style: {
-                  width: "100%",
-                  maxWidth: 480,
-                  maxHeight: "90vh",
-                  overflowY: "auto",
-                  background: "var(--surface)",
-                  borderRadius: "26px 26px 0 0",
-                  padding: 20,
+                  position: "fixed",
+                  inset: 0,
+                  zIndex: 1000,
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "flex-end",
+                  padding: 0,
+                  background: "var(--overlay)",
                 },
               },
               React.createElement(
                 "div",
+                {
+                  className: "sports-modal",
+                  role: "dialog",
+                  "aria-modal": "true",
+                  "aria-labelledby": "market-sale-modal-title",
+                  onClick: (event) => event.stopPropagation(),
+                  style: {
+                    width: "100%",
+                    maxWidth: 480,
+                    maxHeight: "90vh",
+                    overflowY: "auto",
+                    background: "var(--surface)",
+                    borderRadius: "26px 26px 0 0",
+                    padding: 20,
+                  },
+                },
+              React.createElement(
+                "div",
                 { style: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 22 } },
-                React.createElement(
-                  "div",
-                  null,
+                React.createElement("div", null,
                   React.createElement("div", { style: { fontSize: 12, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 750, marginBottom: 7 } }, "Venda imediata"),
                   React.createElement("h2", { id: "market-sale-modal-title", style: { margin: 0, color: "var(--heading)", fontSize: 24, lineHeight: 1.15 } }, "Vender ao mercado?"),
                   React.createElement("p", { style: { margin: "8px 0 0", color: "var(--muted)", fontSize: 13.5, lineHeight: 1.5 } }, player.name, " voltará a ficar disponível para contratação."),
@@ -3740,15 +3519,14 @@
                 ),
               ),
               React.createElement("div", { style: { padding: "12px 14px", borderRadius: 14, background: "color-mix(in srgb, var(--danger) 9%, transparent)", color: "var(--muted)", fontSize: 12.5, lineHeight: 1.45, marginBottom: 20 } }, "A venda é imediata e não pode ser desfeita. Propostas abertas por este jogador serão encerradas."),
-              React.createElement(
-                "div",
-                { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
+              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
                 React.createElement("button", { className: "tapbtn", onClick: onClose, style: { ...M, margin: 0, background: "var(--surface-soft)", border: "1px solid var(--border)", color: "var(--heading)" } }, "Cancelar"),
                 React.createElement("button", { className: "tapbtn", onClick: onConfirm, style: { ...M, ...W, margin: 0 } }, "Confirmar venda"),
               ),
             ),
+            ),
+            document.body,
           );
-          return ReactDOM.createPortal(modal, document.body);
         }
 
         function TradeOfferModal({ data, activeTeam, sellerTeam, onClose, onConfirm }) {
@@ -4485,7 +4263,7 @@
           return { owners, entries, total: entries.length };
         }
 
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onUpdateMarketDepreciation, catalog, onImportRosters }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onUpdateMarketDepreciation, onUpdateRosterRules, catalog, onImportRosters }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let [importText, setImportText] = b("");
@@ -4559,6 +4337,15 @@
                 React.createElement("div", { style: { minWidth: 68, textAlign: "center", padding: "9px 10px", borderRadius: 10, background: "var(--surface-soft)", fontWeight: 800 } }, (currentTournament.marketSettings && currentTournament.marketSettings.depreciationPct != null ? currentTournament.marketSettings.depreciationPct : 10), "%")
               ),
               React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10 } }, "Exemplo: um jogador de 15 moedas rende ", Math.ceil(15 * (1 - (currentTournament.marketSettings && currentTournament.marketSettings.depreciationPct != null ? currentTournament.marketSettings.depreciationPct : 10) / 100)), " moedas.")
+            ),
+            currentTournament && React.createElement("div", { style: E },
+              React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Regras do elenco"),
+              React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Define quantos jogadores cada time precisa manter e o limite para novas contratações."),
+              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
+                React.createElement("div", null, React.createElement("label", { style: P }, "Mínimo"), React.createElement("input", { type: "number", min: 0, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, onChange: (event) => onUpdateRosterRules(event.target.value, currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30) })),
+                React.createElement("div", null, React.createElement("label", { style: P }, "Máximo"), React.createElement("input", { type: "number", min: 1, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30, onChange: (event) => onUpdateRosterRules(currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, event.target.value) }))
+              ),
+              React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10 } }, "Times fora do novo limite mantêm seus jogadores, mas ficam impedidos de comprar ou vender até regularizarem o elenco.")
             ),
             currentTournament && React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Moedas dos participantes"),
@@ -4742,7 +4529,7 @@
                   }),
               );
         }
-        function TableArea({ tournament, tournaments, teams, teamById, onSelectTournament, onOpenMatch }) {
+        function TableArea({ tournament, tournaments, teams, teamById, profiles, onSelectTournament, onOpenMatch }) {
           let [visibleCount, setVisibleCount] = b(20), sentinel = React.useRef(null);
           He(() => { setVisibleCount(20); }, [tournament && tournament.id]);
           let allMatches = tournament && Array.isArray(tournament.matches) ? tournament.matches.filter((match) => match && match.played && !match.bye && match.status !== "voided") : [];
@@ -4756,6 +4543,11 @@
           if (!tournament) return React.createElement("div", { style: E }, React.createElement("div", { style: { fontWeight: 700, marginBottom: 6 } }, "Nenhum campeonato selecionado"), React.createElement("div", { style: { color: "var(--muted)", fontSize: 14 } }, "Selecione um campeonato para visualizar a tabela."));
           let activeIds = Array.isArray(tournament.teamIds) && tournament.teamIds.length ? tournament.teamIds : teams.filter((team) => team.active !== false).map((team) => team.id);
           let standings = we(activeIds, allMatches);
+          function avatarForTeam(team, size) {
+            let profile = team && (profiles || []).find((item) => item && typeof item === "object" && item.id === team.profileId);
+            let name = profile && profile.name ? profile.name : team && team.name ? team.name : "?";
+            return React.createElement("span", { style:{ width:size, height:size, borderRadius:999, overflow:"hidden", flexShrink:0, display:"inline-grid", placeItems:"center", background:(profile&&profile.color)||(team&&team.color)||"var(--surface-soft)", color:"white", fontSize:Math.max(10,size*.38), fontWeight:800, border:"1px solid var(--border)" } }, profile&&profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"", style:{ width:"100%", height:"100%", objectFit:"cover" } }) : String(name).charAt(0).toUpperCase());
+          }
           function dayLabel(timestamp) {
             let date = new Date(timestamp || Date.now()), now = new Date(), yesterday = new Date(); yesterday.setDate(now.getDate()-1);
             let key = date.toDateString();
@@ -4774,15 +4566,15 @@
               React.createElement("div", { style:{ fontSize:19, fontWeight:700, marginBottom:16 } }, "Classificação"),
               standings.length ? React.createElement("div", { style:{ overflowX:"auto" } }, React.createElement("table", { style:{ width:"100%", borderCollapse:"collapse", minWidth:460 } },
                 React.createElement("thead", null, React.createElement("tr", null, ["#","Time","J","V","E","D","SG","PTS"].map((label)=>React.createElement("th", { key:label, style:{ textAlign: label==="Time"?"left":"center", fontSize:11, color:"var(--muted)", padding:"8px 6px", borderBottom:"1px solid var(--border)" } }, label)))),
-                React.createElement("tbody", null, standings.map((row,index)=>{ let team=teamById(row.id); return React.createElement("tr", { key:row.id }, React.createElement("td", { style:{ padding:"12px 6px", fontWeight:700, textAlign:"center" } }, index+1), React.createElement("td", { style:{ padding:"12px 6px", fontWeight:650 } }, team ? team.name : "Time removido"), [row.pj,row.v,row.e,row.d,row.sg,row.pts].map((value,i)=>React.createElement("td", { key:i, style:{ padding:"12px 6px", textAlign:"center", fontWeight:i===5?800:500 } }, value))); }))
+                React.createElement("tbody", null, standings.map((row,index)=>{ let team=teamById(row.id); return React.createElement("tr", { key:row.id }, React.createElement("td", { style:{ padding:"12px 6px", fontWeight:700, textAlign:"center" } }, index+1), React.createElement("td", { style:{ padding:"12px 6px", fontWeight:650 } }, React.createElement("div", { style:{ display:"flex", alignItems:"center", gap:9 } }, avatarForTeam(team,30), React.createElement("span", null, team ? team.name : "Time removido"))), [row.pj,row.v,row.e,row.d,row.sg,row.pts].map((value,i)=>React.createElement("td", { key:i, style:{ padding:"12px 6px", textAlign:"center", fontWeight:i===5?800:500 } }, value))); }))
               )) : React.createElement("div", { style:{ color:"var(--muted)", fontSize:14 } }, "A classificação aparecerá quando houver participantes.")
             ),
             React.createElement("div", { style:{ marginTop:28, marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"end" } }, React.createElement("div", null, React.createElement("div", { style:{ fontSize:12, color:"var(--muted)" } }, "Resultados"), React.createElement("div", { style:{ fontSize:21, fontWeight:750 } }, "Histórico de partidas")), React.createElement("div", { style:{ fontSize:12, color:"var(--muted)" } }, history.length + " partidas")),
-            history.length === 0 ? React.createElement("div", { style:{ ...E, textAlign:"center", color:"var(--muted)" } }, "Nenhuma partida registrada ainda. Use o botão + para adicionar a primeira.") : Object.entries(groups).map(([label,matches])=>React.createElement("section", { key:label, style:{ marginBottom:22 } }, React.createElement("div", { style:{ fontSize:13, fontWeight:700, marginBottom:8, color:"var(--muted)" } }, label), matches.map((match)=>React.createElement(HistoryMatchCard, { key:match.id, match, teamById, onOpen:onOpenMatch })) )),
+            history.length === 0 ? React.createElement("div", { style:{ ...E, textAlign:"center", color:"var(--muted)" } }, "Nenhuma partida registrada ainda. Use o botão + para adicionar a primeira.") : Object.entries(groups).map(([label,matches])=>React.createElement("section", { key:label, style:{ marginBottom:22 } }, React.createElement("div", { style:{ fontSize:13, fontWeight:700, marginBottom:8, color:"var(--muted)" } }, label), matches.map((match)=>React.createElement(HistoryMatchCard, { key:match.id, match, teamById, avatarForTeam, onOpen:onOpenMatch })) )),
             visibleCount < history.length && React.createElement("div", { ref:sentinel, style:{ textAlign:"center", color:"var(--muted)", padding:20, fontSize:13 } }, "Carregando mais partidas...")
           );
         }
-        function HistoryMatchCard({ match, teamById, onOpen }) {
+        function HistoryMatchCard({ match, teamById, avatarForTeam, onOpen }) {
           let home = teamById(match.homeId), away = teamById(match.awayId);
           let homeName = match.homeTeamNameSnapshot || (home && home.name) || "Time removido", awayName = match.awayTeamNameSnapshot || (away && away.name) || "Time removido";
           let leftName=homeName,rightName=awayName,leftScore=match.homeScore,rightScore=match.awayScore,leftId=match.homeId,rightId=match.awayId;
@@ -4790,9 +4582,9 @@
           let scorers = Array.isArray(match.scorers) ? match.scorers : [];
           function scorerText(teamId) { let counts={}; scorers.filter((item)=>item.teamId===teamId).forEach((item)=>{ let name=item.playerNameSnapshot || item.playerName || "Autor desconhecido"; counts[name]=(counts[name]||0)+1; }); return Object.entries(counts).map(([name,qty])=>name+(qty>1?` ${qty}`:"")).join(", "); }
           return React.createElement("button", { onClick:()=>onOpen && onOpen(match), className:"tapbtn", style:{ ...E, width:"100%", textAlign:"left", cursor:onOpen?"pointer":"default", display:"grid", gridTemplateColumns:"1fr auto 1fr", alignItems:"center", gap:12, padding:18 } },
-            React.createElement("div", null, React.createElement("div", { style:{ fontWeight:750 } }, leftName), scorerText(leftId) && React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:4 } }, scorerText(leftId))),
+            React.createElement("div", { style:{ display:"flex", alignItems:"center", gap:9, minWidth:0 } }, avatarForTeam(teamById(leftId),32), React.createElement("div", { style:{ minWidth:0 } }, React.createElement("div", { style:{ fontWeight:750, overflow:"hidden", textOverflow:"ellipsis" } }, leftName), scorerText(leftId) && React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:4, overflow:"hidden", textOverflow:"ellipsis" } }, scorerText(leftId)))),
             React.createElement("div", { className:"scoreboard", style:{ fontSize:23, fontWeight:850, whiteSpace:"nowrap" } }, leftScore, " × ", rightScore),
-            React.createElement("div", { style:{ textAlign:"right" } }, React.createElement("div", { style:{ fontWeight:650, color:leftScore>rightScore?"var(--muted)":"var(--heading)" } }, rightName), scorerText(rightId) && React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:4 } }, scorerText(rightId)))
+            React.createElement("div", { style:{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:9, minWidth:0, textAlign:"right" } }, React.createElement("div", { style:{ minWidth:0 } }, React.createElement("div", { style:{ fontWeight:650, color:leftScore>rightScore?"var(--muted)":"var(--heading)", overflow:"hidden", textOverflow:"ellipsis" } }, rightName), scorerText(rightId) && React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:4, overflow:"hidden", textOverflow:"ellipsis" } }, scorerText(rightId))), avatarForTeam(teamById(rightId),32))
           );
         }
         function MatchWizard({ data, setData, teams, profiles, squadOf, catalog, onClose, onSave }) {
