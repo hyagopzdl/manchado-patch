@@ -10,7 +10,7 @@
     <link rel="icon" href="data:," />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
       :root {
         color-scheme: light;
@@ -58,7 +58,7 @@
         --shadow-soft: 0 1px 8px rgba(0,0,0,.18);
       }
       html, body { margin: 0; padding: 0; background: var(--canvas); }
-      body { color: var(--body); font-family: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; transition: background .2s ease, color .2s ease; }
+      body { color: var(--body); font-family: "Manrope", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; transition: background .2s ease, color .2s ease; }
       * { box-sizing: border-box; }
       ::-webkit-scrollbar { display: none; }
       button, input, select, textarea { font: inherit; }
@@ -94,6 +94,119 @@
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       .animate-spin { animation: spin 1s linear infinite; }
       @media (max-width: 560px) { body { background: var(--canvas); } }
+      /* Sports premium responsive system */
+      :root {
+        --canvas: #f4f6f8;
+        --surface: rgba(255,255,255,.92);
+        --surface-soft: #edf1f4;
+        --surface-sand: #e7ebef;
+        --ink: #07110d;
+        --heading: #101916;
+        --body: #33413c;
+        --muted: #75817c;
+        --border: rgba(15,35,27,.10);
+        --green: #10d981;
+        --green-strong: #00b968;
+        --blue: #2088ff;
+        --overlay: rgba(4,10,8,.56);
+        --shadow-inset: inset 0 0 0 1px var(--border);
+        --shadow-soft: 0 18px 50px rgba(12,28,21,.08), inset 0 0 0 1px var(--border);
+        --shadow-float: 0 22px 70px rgba(4,12,9,.18), 0 0 0 1px rgba(255,255,255,.45) inset;
+      }
+      html[data-theme="dark"] {
+        --canvas: #050807;
+        --surface: rgba(15,20,18,.88);
+        --surface-soft: #151b18;
+        --surface-sand: #1b221f;
+        --ink: #f7fbf9;
+        --heading: #f4faf7;
+        --body: #c5d0cb;
+        --muted: #7f8d87;
+        --border: rgba(226,255,241,.09);
+        --green: #21e493;
+        --green-strong: #0bc87b;
+        --blue: #5aa7ff;
+        --overlay: rgba(0,0,0,.76);
+        --shadow-soft: 0 18px 55px rgba(0,0,0,.32), inset 0 0 0 1px var(--border);
+        --shadow-float: 0 24px 80px rgba(0,0,0,.52), 0 0 0 1px rgba(255,255,255,.08) inset;
+      }
+      html { min-height: 100%; background: var(--canvas); }
+      body {
+        min-height: 100vh;
+        background:
+          radial-gradient(900px 540px at 15% -10%, color-mix(in srgb, var(--green) 11%, transparent), transparent 64%),
+          radial-gradient(720px 500px at 95% 8%, color-mix(in srgb, var(--blue) 8%, transparent), transparent 62%),
+          var(--canvas);
+        background-attachment: fixed;
+      }
+      html[data-theme="dark"] body {
+        background:
+          radial-gradient(850px 520px at 12% -8%, rgba(33,228,147,.12), transparent 64%),
+          radial-gradient(760px 520px at 100% 4%, rgba(43,116,255,.10), transparent 64%),
+          linear-gradient(180deg, #050807 0%, #080d0b 100%);
+      }
+      button { -webkit-tap-highlight-color: transparent; }
+      @media (hover:hover) {
+        button:hover { opacity: 1; transform: translateY(-1px); }
+        .family-card:hover, .sports-hover:hover { transform: translateY(-2px); box-shadow: 0 20px 54px rgba(7,18,13,.10), inset 0 0 0 1px color-mix(in srgb, var(--green) 28%, var(--border)); }
+        html[data-theme="dark"] .family-card:hover, html[data-theme="dark"] .sports-hover:hover { box-shadow: 0 22px 58px rgba(0,0,0,.42), 0 0 34px rgba(33,228,147,.06), inset 0 0 0 1px rgba(33,228,147,.2); }
+      }
+      button:active { transform: scale(.975); }
+      .family-card { transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, background .2s ease !important; backdrop-filter: blur(18px); }
+      .app-shell {
+        width: 100%; max-width: 1480px; margin: 0 auto; min-height: 100vh;
+        position: relative; padding-bottom: 112px;
+      }
+      .app-content { width: min(100%, 1280px); margin: 0 auto; padding: 34px 28px 130px; }
+      .sports-dock {
+        position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+        width: min(calc(100% - 32px), 620px); height: 70px; padding: 8px;
+        display: flex; align-items: center; gap: 4px; z-index: 40;
+        border-radius: 26px; background: color-mix(in srgb, var(--surface) 88%, transparent);
+        border: 1px solid var(--border); box-shadow: var(--shadow-float);
+        backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%);
+      }
+      .sports-tab { min-width: 68px; flex: 1; height: 54px; position: relative; border: 0; border-radius: 19px; background: transparent; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; cursor:pointer; color:var(--muted); transition:background .18s ease,color .18s ease,transform .18s ease; }
+      .sports-tab.is-active { background: color-mix(in srgb, var(--green) 14%, var(--surface-soft)); color:var(--heading); }
+      .sports-tab.is-active::after { content:""; position:absolute; bottom:3px; width:18px; height:3px; border-radius:99px; background:var(--green); box-shadow:0 0 14px color-mix(in srgb,var(--green) 75%,transparent); }
+      .sports-tab-avatar { width:24px; height:24px; border-radius:50%; overflow:hidden; display:grid; place-items:center; font-size:10px; font-weight:800; color:#fff; background:var(--green-strong); box-shadow:0 0 0 2px color-mix(in srgb,var(--surface) 85%,transparent); }
+      .sports-tab-avatar img { width:100%; height:100%; object-fit:cover; }
+      .sports-fab { position:fixed !important; left:50% !important; bottom:78px !important; transform:translateX(-50%) !important; width:62px !important; height:62px !important; border:1px solid rgba(255,255,255,.3) !important; background:linear-gradient(145deg,#29ec9b,#00b968) !important; box-shadow:0 14px 38px rgba(0,201,120,.32),0 0 32px rgba(33,228,147,.18),inset 0 1px 0 rgba(255,255,255,.45) !important; }
+      .sports-fab:hover { transform:translateX(-50%) translateY(-2px) scale(1.03) !important; }
+      .sports-modal-overlay { animation: sportsFadeIn .2s ease both; backdrop-filter: blur(10px); -webkit-backdrop-filter:blur(10px); }
+      .sports-modal { animation: sportsModalIn .28s cubic-bezier(.2,.9,.2,1) both; background:color-mix(in srgb,var(--surface) 94%,transparent) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-float) !important; backdrop-filter:blur(28px) saturate(145%); -webkit-backdrop-filter:blur(28px) saturate(145%); }
+      @keyframes sportsFadeIn { from { opacity:0 } to { opacity:1 } }
+      @keyframes sportsModalIn { from { opacity:0; transform:translateY(24px) scale(.975) } to { opacity:1; transform:translateY(0) scale(1) } }
+      @keyframes sportsPageIn { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } }
+      .app-content > * { animation:sportsPageIn .28s ease both; }
+      #root input, #root select, #root textarea { min-height:46px; border-radius:14px !important; background:color-mix(in srgb,var(--surface) 88%,transparent) !important; transition:border-color .16s ease,box-shadow .16s ease,background .16s ease; }
+      #root table { border-collapse:separate; border-spacing:0; }
+      #root th { font-size:11px !important; letter-spacing:.07em; text-transform:uppercase; }
+      #root h1,#root h2,#root h3 { font-weight:800 !important; letter-spacing:-.035em !important; }
+      @media (min-width: 900px) {
+        .app-shell { padding-bottom: 105px; }
+        .app-content { padding-top: 48px; }
+        .sports-dock { bottom:24px; width:auto; min-width:560px; }
+        .sports-tab { min-width:100px; flex:none; padding:0 18px; flex-direction:row; gap:9px; }
+        .sports-tab span:last-child { font-size:12px !important; }
+        .sports-tab.is-active::after { bottom:6px; }
+        .sports-fab { bottom:96px !important; }
+        .sports-modal-overlay { align-items:center !important; padding:32px !important; }
+        .sports-modal { border-radius:28px !important; width:min(720px,100%) !important; max-height:min(86vh,900px) !important; padding:26px !important; }
+      }
+      @media (min-width: 1200px) {
+        .app-content { padding-left:48px; padding-right:48px; }
+      }
+      @media (max-width: 899px) {
+        .app-content { padding:24px 16px 126px; }
+        .sports-dock { bottom:10px; width:calc(100% - 20px); height:66px; border-radius:24px; }
+        .sports-tab { height:50px; min-width:58px; }
+        .sports-tab-label { font-size:9.5px !important; }
+        .sports-fab { bottom:68px !important; width:58px !important; height:58px !important; }
+        .sports-modal-overlay { align-items:flex-end !important; }
+        .sports-modal { border-radius:26px 26px 0 0 !important; border-bottom:0 !important; width:100% !important; max-height:90vh !important; padding:20px 18px calc(20px + env(safe-area-inset-bottom)) !important; }
+      }
+      @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms !important; transition-duration:.01ms !important; scroll-behavior:auto !important; } }
     </style>
 
     <!-- React via CDN (unpkg) -->
@@ -1516,7 +1629,7 @@
                       color: "var(--heading)",
                       maxWidth: 420,
                       textAlign: "center",
-                      fontFamily: "Inter,system-ui",
+                      fontFamily: "Manrope,system-ui",
                     },
                   },
                   React.createElement(
@@ -1587,7 +1700,7 @@
                       "span",
                       {
                         style: {
-                          fontFamily: "Inter,system-ui",
+                          fontFamily: "Manrope,system-ui",
                           letterSpacing: 2,
                           fontSize: 13,
                           textTransform: "uppercase",
@@ -1620,18 +1733,13 @@
                 : React.createElement(
                     "div",
                     {
+                      className: "app-shell",
                       style: {
                         minHeight: "100vh",
-                        background: "var(--surface)",
                         color: "var(--heading)",
                         fontFamily:
-                          "Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
-                        paddingBottom: 84,
-                        maxWidth: 760,
-                        margin: "0 auto",
+                          "Manrope,system-ui,-apple-system,Segoe UI,Roboto,sans-serif",
                         position: "relative",
-                        borderLeft: "2px solid #F0F0F0",
-                        borderRight: "2px solid #F0F0F0",
                       },
                     },
                     React.createElement(
@@ -1648,12 +1756,6 @@
         .animate-spin { animation: spin 1s linear infinite; }
       `,
                     ),
-                    React.createElement(no, {
-                      meta: B,
-                      currentTournament: R,
-                      myProfile: ProfileName,
-                      onSwitchProfile: ht,
-                    }),
                     f &&
                       React.createElement(
                         "div",
@@ -1674,7 +1776,7 @@
                       ),
                     React.createElement(
                       "div",
-                      { style: { padding: "20px 16px 112px" } },
+                      { className: "app-content" },
                       Y === "table" &&
                         React.createElement(TableArea, {
                           tournament: R, tournaments: m.filter((item) => item.status !== "finished"), teams: p,
@@ -1735,8 +1837,8 @@
                         }),
                     ),
                     R && R.status !== "finished" && (ProfileTeam || isAdminProfile(te)) && p.filter((team) => team && team.active !== false).length >= 2 &&
-                      React.createElement("button", { onClick: openMatchWizard, className: "tapbtn", title: "Adicionar partida", "aria-label": "Adicionar partida", style: { position: "fixed", left: "50%", bottom: 62, transform: "translateX(-50%)", width: 58, height: 58, borderRadius: "50%", border: "5px solid var(--surface)", background: "var(--green)", color: "white", fontSize: 32, lineHeight: 1, display: "grid", placeItems: "center", cursor: "pointer", zIndex: 20, boxShadow: "0 8px 20px rgba(0,0,0,.18)" } }, "+"),
-                    React.createElement(mo, { tab: Y, setTab: oe, isAdmin: isAdminProfile(te), unreadOffers: unreadOfferCount }),
+                      React.createElement("button", { onClick: openMatchWizard, className: "tapbtn sports-fab", title: "Adicionar partida", "aria-label": "Adicionar partida", style: { position: "fixed", left: "50%", bottom: 62, transform: "translateX(-50%)", width: 58, height: 58, borderRadius: "50%", border: "5px solid var(--surface)", background: "var(--green)", color: "white", fontSize: 32, lineHeight: 1, display: "grid", placeItems: "center", cursor: "pointer", zIndex: 20, boxShadow: "0 8px 20px rgba(0,0,0,.18)" } }, "+"),
+                    React.createElement(mo, { tab: Y, setTab: oe, isAdmin: isAdminProfile(te), unreadOffers: unreadOfferCount, profile: te }),
                     matchWizard && React.createElement(MatchWizard, { data: matchWizard, setData: setMatchWizard, teams: p.filter((team) => team && team.active !== false), profiles: x, squadOf: Oe, catalog: xe, onClose: () => setMatchWizard(null), onSave: saveQuickMatch }),
                     ct &&
                       React.createElement(
@@ -1861,7 +1963,7 @@
         }
 
         function InitialSetup({ adminName, setAdminName, tournamentName, setTournamentName, hasTournaments, submitting, onSubmit }) {
-          return React.createElement("div", { style: { minHeight: "100vh", background: "var(--surface)", color: "var(--heading)", fontFamily: "Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif", padding: 24, display: "flex", alignItems: "center", justifyContent: "center" } },
+          return React.createElement("div", { style: { minHeight: "100vh", background: "var(--surface)", color: "var(--heading)", fontFamily: "Manrope,system-ui,-apple-system,Segoe UI,Roboto,sans-serif", padding: 24, display: "flex", alignItems: "center", justifyContent: "center" } },
             React.createElement("div", { style: { width: "100%", maxWidth: 520, background: "var(--card)", borderRadius: 20, padding: 28, boxShadow: "inset 0 0 0 1px var(--border)" } },
               React.createElement("div", { style: { width: 52, height: 52, borderRadius: 18, background: "var(--green)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, fontWeight: 800, marginBottom: 20 } }, "+"),
               React.createElement("h1", { style: { margin: 0, fontSize: 28, lineHeight: 1.15 } }, "Vamos configurar o app"),
@@ -1886,7 +1988,7 @@
             let item = typeof profile === "object" && profile ? profile : { name: String(profile) };
             return { raw: profile, name: String(item.name || "").trim(), color: item.color || se[index % se.length] };
           }).filter((profile) => profile.name && r(profile.raw, selected)) : [];
-          return React.createElement("div", { style: { minHeight: "100vh", background: "var(--surface)", color: "var(--heading)", fontFamily: "Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif", padding: 24, maxWidth: 760, margin: "0 auto" } },
+          return React.createElement("div", { style: { minHeight: "100vh", background: "var(--surface)", color: "var(--heading)", fontFamily: "Manrope,system-ui,-apple-system,Segoe UI,Roboto,sans-serif", padding: 24, maxWidth: 760, margin: "0 auto" } },
             React.createElement("div", { style: { textAlign: "center", paddingTop: 36, marginBottom: 28 } },
               React.createElement("div", { style: { fontSize: 30, fontWeight: 900 } }, "PES ", React.createElement("span", { style: { color: "var(--green)" } }, "MANAGER")),
               React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", marginTop: 6 } }, "Escolha o campeonato e depois seu perfil")
@@ -4166,7 +4268,7 @@
             currentTournament && React.createElement("div", { style: E },
               React.createElement("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 4 } },
                 React.createElement("div", { style: { fontSize: 18, fontWeight: 700 } }, "Importar elencos por TXT"),
-                React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: "var(--orange)", background: "var(--surface-soft)", borderRadius: 999, padding: "5px 8px" } }, "Ferramenta temporária")
+                React.createElement("span", { style: { fontSize: 11, fontWeight: 700, color: "var(--ember)", background: "var(--surface-soft)", borderRadius: 999, padding: "5px 8px" } }, "Ferramenta temporária")
               ),
               React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Use o arquivo do sorteio para preencher os elencos de ", currentTournament.name, ". A importação preserva as moedas e só grava depois da prévia."),
               React.createElement("input", { type: "file", accept: ".txt,text/plain", onChange: readImportFile, style: { ...q, padding: 10, marginBottom: 10 } }),
@@ -4194,7 +4296,7 @@
                     ),
                     (entry.status === "ambiguous" || entry.status === "not_found" || entry.status === "duplicate") && React.createElement("select", { value: entry.playerId || "", onChange: (event) => resolveImportEntry(index, event.target.value), style: { ...q, padding: "8px 10px", fontSize: 12 } },
                       React.createElement("option", { value: "" }, "Selecionar jogador manualmente"),
-                      (entry.candidates && entry.candidates.length ? entry.candidates.map((candidate) => candidate.player) : (catalog || []).filter((player) => normalizeImportPosition(player.position) === normalizeImportPosition(entry.position)).sort((a, b) => { let clubA = normalizeImportText(a.club) === normalizeImportText(entry.club) ? 1 : 0, clubB = normalizeImportText(b.club) === normalizeImportText(entry.club) ? 1 : 0; return clubB - clubA || Math.abs(Number(a.overall) - entry.overall) - Math.abs(Number(b.overall) - entry.overall); }).slice(0, 80)).map((player) => React.createElement("option", { key: player.id, value: player.id }, player.name, " · ", player.position, " · OVR ", player.overall, " · ", player.club))
+                      (entry.candidates && entry.candidates.length ? entry.candidates.map((candidate) => candidate.player) : (catalog || []).filter((player) => importNameVariants(player.name).some((name) => name.includes(normalizeImportText(entry.txtName).split(" ")[0]))).slice(0, 30)).map((player) => React.createElement("option", { key: player.id, value: player.id }, player.name, " · ", player.position, " · OVR ", player.overall, " · ", player.club))
                     ),
                     matched && entry.status === "matched" && React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)" } }, "Vinculado a ", matched.name, " · ", matched.club)
                   );
@@ -4524,29 +4626,41 @@
           );
           return React.createElement(ee, { title, onClose }, stepOne, stepTwo, stepThree, stepFour);
         }
-        function mo({ tab: e, setTab: t, isAdmin: l, unreadOffers }) {
+        function mo({ tab: e, setTab: t, isAdmin: l, unreadOffers, profile }) {
           let items = [
             { key: "table", icon: pe, label: "Tabela" },
             { key: "teams", icon: Vt, label: "Elenco" },
             { key: "market", icon: Xe, label: "Mercado", badge: unreadOffers },
-            { key: "profile", icon: ProfileIcon, label: "Perfil" },
+            { key: "profile", icon: ProfileIcon, label: "Perfil", avatar: true },
           ];
           if (l) items.push({ key: "admin", icon: AdminIcon, label: "Admin" });
-          return React.createElement("div", { style: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 760, background: "var(--surface)", borderTop: "1px solid var(--border)", display: "flex", overflowX: "auto", padding: "8px 4px 10px", zIndex: 10 } },
-            items.map(({ key, icon: Icon, label, badge }) => { let active = e === key; return React.createElement("button", { key, onClick: () => t(key), className: "tapbtn", style: { minWidth: 68, flex: 1, position: "relative", background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer", padding: "4px 2px" } },
-              React.createElement("span", { style: { position: "relative", display: "inline-flex" } }, React.createElement(Icon, { size: 21, color: active ? "var(--ink)" : "var(--muted)" }), badge > 0 && React.createElement("span", { style: { position: "absolute", top: -7, right: -10, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 999, background: "var(--danger)", color: "white", display: "grid", placeItems: "center", fontSize: 9, fontWeight: 700 } }, badge > 9 ? "9+" : badge)),
-              React.createElement("span", { style: { fontSize: 10, color: active ? "var(--ink)" : "var(--muted)", fontWeight: active ? 700 : 500 } }, label)
-            ); })
+          let profileItem = profile && typeof profile === "object" ? profile : { name: String(profile || "") };
+          return React.createElement("nav", { className: "sports-dock", "aria-label": "Navegação principal" },
+            items.map(({ key, icon: Icon, label, badge, avatar }) => {
+              let active = e === key;
+              let visual = avatar
+                ? React.createElement("span", { className: "sports-tab-avatar", style: { background: profileItem.color || "var(--green-strong)" } },
+                    profileItem.avatar
+                      ? React.createElement("img", { src: profileItem.avatar, alt: "" })
+                      : String(profileItem.name || "?").charAt(0).toUpperCase())
+                : React.createElement(Icon, { size: 21, color: "currentColor" });
+              return React.createElement("button", { key, onClick: () => t(key), className: "sports-tab" + (active ? " is-active" : ""), "aria-current": active ? "page" : undefined, "aria-label": label },
+                React.createElement("span", { style: { position: "relative", display: "inline-flex" } }, visual,
+                  badge > 0 && React.createElement("span", { style: { position: "absolute", top: -8, right: -11, minWidth: 17, height: 17, padding: "0 4px", borderRadius: 999, background: "var(--danger)", color: "white", display: "grid", placeItems: "center", fontSize: 9, fontWeight: 800, boxShadow: "0 0 0 2px var(--surface)" } }, badge > 9 ? "9+" : badge)),
+                React.createElement("span", { className: "sports-tab-label", style: { fontSize: 10, color: "currentColor", fontWeight: active ? 800 : 600 } }, label)
+              );
+            })
           );
         }
         function ee({ title: e, onClose: t, children: l }) {
           return React.createElement(
             "div",
             {
+              className: "sports-modal-overlay",
               style: {
                 position: "fixed",
                 inset: 0,
-                background: "rgba(5,10,8,0.75)",
+                background: "var(--overlay)",
                 display: "flex",
                 alignItems: "flex-end",
                 justifyContent: "center",
@@ -4557,15 +4671,15 @@
             React.createElement(
               "div",
               {
+                className: "sports-modal",
                 onClick: (a) => a.stopPropagation(),
                 style: {
                   background: "var(--surface)",
-                  borderTop: "1px solid #D7FFB8",
-                  borderRadius: "18px 18px 0 0",
+                  borderRadius: "24px 24px 0 0",
                   padding: 20,
                   width: "100%",
-                  maxWidth: 760,
-                  maxHeight: "85vh",
+                  maxWidth: 720,
+                  maxHeight: "88vh",
                   overflowY: "auto",
                 },
               },
