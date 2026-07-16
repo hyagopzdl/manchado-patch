@@ -1458,10 +1458,10 @@
           function toggleTournamentParticipant(profileId) {
             if (!R) return;
             let profile = x.find((item) => item && typeof item === "object" && item.id === profileId);
-            if (!profile || isAdminProfile(profile)) return;
+            if (!profile) return;
             let participants = Array.isArray(R.participants)
               ? [...R.participants]
-              : x.filter((candidate) => candidate && typeof candidate === "object" && !isAdminProfile(candidate) && (Array.isArray(candidate.tournamentIds) ? candidate.tournamentIds.includes(R.id) : ((R.context && R.context.teams) || []).some((team) => team.profileId === candidate.id || team.id === candidate.teamId || String(team.name || "").trim().toLowerCase() === String(candidate.name || "").trim().toLowerCase()))).map((candidate) => candidate.id);
+              : x.filter((candidate) => candidate && typeof candidate === "object" && (Array.isArray(candidate.tournamentIds) ? candidate.tournamentIds.includes(R.id) : ((R.context && R.context.teams) || []).some((team) => team.profileId === candidate.id || team.id === candidate.teamId || String(team.name || "").trim().toLowerCase() === String(candidate.name || "").trim().toLowerCase()))).map((candidate) => candidate.id);
             let teams = Array.isArray(R.context && R.context.teams) ? R.context.teams.map((team) => ({ ...team })) : [];
             let team = teams.find((item) => item.profileId === profileId) || teams.find((item) => item.id === profile.teamId);
             let adding = !participants.includes(profileId);
