@@ -921,6 +921,31 @@
             k = effectiveContext ? (Array.isArray(effectiveContext.transfers) ? effectiveContext.transfers : []) : (Array.isArray(baseTransfers) ? baseTransfers : []),
             tradeOffers = effectiveContext && effectiveContext.tradeOffers && typeof effectiveContext.tradeOffers === "object" ? effectiveContext.tradeOffers : {};
 
+          He(() => {
+            if (!R || R.type !== "cup" || !R.id) return;
+            let linked = R.linkedLeagueId ? m.find((item) => item && String(item.id) === String(R.linkedLeagueId)) : null;
+            let linkedTeams = linked && linked.context && Array.isArray(linked.context.teams) ? linked.context.teams.filter(Boolean) : [];
+            let currentGroups = Array.isArray(R.groups) ? R.groups : [];
+            let currentMatches = Array.isArray(R.matches) ? R.matches : [];
+            let participantIds = Array.isArray(R.participants) ? R.participants.map((id) => String(id)) : [];
+            let teamIds = Array.isArray(R.teamIds) ? R.teamIds.map((id) => String(id)) : [];
+            let needsRepair = !Array.isArray(R.groups) || !Array.isArray(R.matches) || participantIds.some((id) => typeof id !== "string") || teamIds.some((id) => typeof id !== "string");
+            if (!needsRepair && currentGroups.length && currentMatches.length) return;
+            if (!linked || linkedTeams.length < 2) return;
+            let selectedTeams = teamIds.length ? linkedTeams.filter((team) => teamIds.includes(String(team.id))) : linkedTeams.filter((team) => participantIds.includes(String(team.profileId)));
+            if (selectedTeams.length < 2) return;
+            let groupCount = Math.max(1, Number(R.cupConfig && R.cupConfig.groupCount) || cupGroupCount(selectedTeams.length));
+            let repairedGroups = currentGroups.length ? currentGroups.map((group, index) => ({ ...group, name: group.name || `Grupo ${String.fromCharCode(65 + index)}`, teamIds: Array.isArray(group.teamIds) ? group.teamIds.map((id) => String(id)) : [] })) : (() => {
+              let shuffled = cupShuffle(selectedTeams.map((team) => String(team.id)));
+              let buckets = Array.from({ length: groupCount }, () => []);
+              shuffled.forEach((teamId, index) => buckets[index % groupCount].push(teamId));
+              return buckets.map((ids, index) => ({ name: `Grupo ${String.fromCharCode(65 + index)}`, teamIds: ids }));
+            })();
+            let repairedMatches = currentMatches.length ? currentMatches.map((match) => ({ ...match, homeId: match.homeId != null ? String(match.homeId) : null, awayId: match.awayId != null ? String(match.awayId) : null })) : repairedGroups.flatMap((group) => cupRoundRobin(group.teamIds, Number(R.cupConfig && R.cupConfig.groupLegs) === 2 ? 2 : 1, group.name));
+            let repaired = { ...R, status: R.status || "ongoing", cupStage: R.cupStage || "groups", participants: selectedTeams.map((team) => String(team.profileId)), teamIds: selectedTeams.map((team) => String(team.id)), groups: repairedGroups, matches: repairedMatches, context: { ...(R.context || {}), teams: selectedTeams.map((team) => ({ ...team })) } };
+            ae(m.map((item) => item && String(item.id) === String(R.id) ? repaired : item));
+          }, [R && R.id]);
+
           function saveContextField(field, value) {
             if (!R) return false;
             let tournamentId = R.id;
@@ -1162,7 +1187,10 @@
             let item = typeof profile === "object" && profile ? profile : { name: String(profile) };
             if (isAdminProfile(item)) return true;
             if (item.active === false) return false;
-            if (Array.isArray(tournament.participants) && item.id) return tournament.participants.includes(item.id);
+            if (Array.isArray(tournament.participants) && item.id) {
+              let participantIds = tournament.participants.map((id) => String(id));
+              return participantIds.includes(String(item.id));
+            }
             if (Array.isArray(item.tournamentIds)) return item.tournamentIds.includes(tournament.id);
             let contextTeams = (tournament.context && tournament.context.teams) || [];
             return !!contextTeams.find((team) => team.profileId === item.id || team.id === item.teamId || String(team.name || "").trim().toLowerCase() === String(item.name || "").trim().toLowerCase());
@@ -1725,7 +1753,7 @@
               let selectedTeams = linkedTeams.filter((team)=>selectedProfiles.includes(String(team.profileId)));
               if (selectedTeams.length < 4) { window.alert("Selecione pelo menos quatro participantes para criar a copa."); return; }
               let groupCount = cupGroupCount(selectedTeams.length);
-              let shuffled = cupShuffle(selectedTeams.map((team)=>team.id));
+              let shuffled = cupShuffle(selectedTeams.map((team)=>String(team.id)));
               let groupBuckets = Array.from({length:groupCount},()=>[]);
               shuffled.forEach((teamId,index)=>groupBuckets[index%groupCount].push(teamId));
               let groups = groupBuckets.map((teamIds,index)=>({name:`Grupo ${String.fromCharCode(65+index)}`,teamIds}));
@@ -1733,12 +1761,38 @@
               let matches = groups.flatMap((group)=>cupRoundRobin(group.teamIds,groupLegs,group.name));
               let cup = {
                 id:_(), type:"cup", format:"grupos", name, status:"ongoing", createdAt:Date.now(), linkedLeagueId:linked.id,
-                participants:selectedTeams.map((team)=>String(team.profileId)), teamIds:selectedTeams.map((team)=>team.id), groups, matches, champion:null, cupStage:"groups",
+                participants:selectedTeams.map((team)=>String(team.profileId)), teamIds:selectedTeams.map((team)=>String(team.id)), groups, matches, champion:null, cupStage:"groups",
                 cupConfig:{groupLegs,groupCount,qualifiersPerGroup:2,knockoutLegs:1,prize:Math.max(0,Number(options.cupPrize)||0)},
                 context:{teams:selectedTeams.map((team)=>({...team})),ownership:{},playerStats:{},transfers:[],tradeOffers:{},financialTransactions:[]}
               };
-              ae([...m,cup]);
-              setAdminTournamentName(""); setSelectedTournamentId(cup.id); qe("pes-selected-tournament",cup.id); oe("table");
+              let db = Ee();
+              let nextList = [...m, cup];
+              if (!db) {
+                g(nextList);
+                setAdminTournamentName("");
+                setSelectedTournamentId(cup.id);
+                qe("pes-selected-tournament", cup.id);
+                oe("table");
+                return;
+              }
+              db.ref("pes/tournaments").transaction((serverList) => {
+                let list = Array.isArray(serverList) ? [...serverList] : [];
+                if (list.some((item) => item && String(item.id) === String(cup.id))) return list;
+                list.push(cup);
+                return list;
+              }, (error, committed, snapshot) => {
+                if (error || !committed) {
+                  console.error("cup creation failed", error);
+                  window.alert("Não foi possível criar a Copa. Nenhum dado foi alterado. Tente novamente.");
+                  return;
+                }
+                let savedList = snapshot && Array.isArray(snapshot.val()) ? snapshot.val() : nextList;
+                g(savedList);
+                setAdminTournamentName("");
+                setSelectedTournamentId(cup.id);
+                qe("pes-selected-tournament", cup.id);
+                oe("table");
+              });
               return;
             }
             let inheritance = {
@@ -5050,12 +5104,12 @@
                 React.createElement("p", { style:{ margin:0,color:"var(--muted)",fontSize:14,lineHeight:1.55,maxWidth:620 } }, "Gerencie pessoas, competições e regras sem misturar tarefas rotineiras com ações sensíveis.")
               ),
               React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(230px,1fr))",gap:12 } },
-                adminHubCard("profiles", React.createElement(ProfileIcon,{size:22}), "Perfis globais", "Crie e gerencie usuários e permissões.", `${globalProfiles.length} perfis ativos`),
-                adminHubCard("competitions", React.createElement(pe,{size:22}), "Competições", "Crie ligas, copas e continue temporadas.", `${activeCompetitions} em andamento · ${finishedCompetitions} encerradas`),
-                adminHubCard("participants", React.createElement(qt,{size:22}), "Participantes e times", "Gerencie participantes, times e carteiras da competição selecionada.", currentTournament ? `${activeTeams} participantes em ${currentTournament.name}` : "Selecione uma competição"),
+                adminHubCard("profiles", React.createElement(UserIcon,{size:22}), "Perfis globais", "Crie e gerencie usuários e permissões.", `${globalProfiles.length} perfis ativos`),
+                adminHubCard("competitions", React.createElement(TrophyIcon,{size:22}), "Competições", "Crie ligas, copas e continue temporadas.", `${activeCompetitions} em andamento · ${finishedCompetitions} encerradas`),
+                adminHubCard("participants", React.createElement(TeamIcon,{size:22}), "Participantes e times", "Gerencie participantes, times e carteiras da competição selecionada.", currentTournament ? `${activeTeams} participantes em ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("rules", React.createElement(SettingsIcon,{size:22}), "Regras e economia", "Defina mercado, limites de elenco, recompensas e premiação.", currentTournament ? `Editando ${currentTournament.name}` : "Selecione uma competição"),
-                adminHubCard("tools", React.createElement(ze,{size:22}), "Dados e ferramentas", "Importe elencos e execute tarefas de manutenção.", "Ferramentas administrativas"),
-                adminHubCard("danger", React.createElement($t,{size:22}), "Zona de perigo", "Resete ou remova dados da competição com confirmação reforçada.", currentTournament ? currentTournament.name : "Nenhuma competição selecionada", true)
+                adminHubCard("tools", React.createElement(DatabaseIcon,{size:22}), "Dados e ferramentas", "Importe elencos e execute tarefas de manutenção.", "Ferramentas administrativas"),
+                adminHubCard("danger", React.createElement(TrashIcon,{size:22}), "Zona de perigo", "Resete ou remova dados da competição com confirmação reforçada.", currentTournament ? currentTournament.name : "Nenhuma competição selecionada", true)
               )
             );
           }
@@ -5063,15 +5117,8 @@
           let sectionInfo=adminSections[adminSection]||adminSections.competitions;
           return React.createElement("div", null,
             React.createElement("div", { style:{ display:"flex",alignItems:"center",gap:12,marginBottom:18 } },
-              React.createElement("button", { onClick:()=>setAdminSection("home"),style:{ width:40,height:40,borderRadius:999,border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)",fontSize:22,cursor:"pointer" } }, "‹"),
+              React.createElement("button", { onClick:()=>setAdminSection("home"),style:{ width:40,height:40,borderRadius:999,border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)",fontSize:22,cursor:"pointer" } },"‹"),
               React.createElement("div", null,React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginBottom:2}},"Administração"),React.createElement("div",{style:{fontSize:24,fontWeight:850}},sectionInfo.title),React.createElement("div",{style:{fontSize:12.5,color:"var(--muted)",marginTop:3}},sectionInfo.description))
-            ),
-            ["participants","rules","tools","danger"].includes(adminSection) && React.createElement("div", { style:{ ...E,padding:14,display:"grid",gridTemplateColumns:"minmax(0,1fr)",gap:7 } },
-              React.createElement("label", { style:{ fontSize:11.5,fontWeight:750,color:"var(--muted)",textTransform:"uppercase",letterSpacing:".06em" } }, "Competição selecionada"),
-              React.createElement("select", { value:currentTournament?currentTournament.id:"",onChange:(event)=>onSelectTournament(event.target.value),style:{ ...q,margin:0 } },
-                !(tournaments||[]).length && React.createElement("option",{value:""},"Nenhuma competição criada"),
-                (tournaments||[]).map((item)=>React.createElement("option",{key:item.id,value:item.id},`${item.name} · ${item.type==="cup"?"Copa":"Liga"}${item.status==="finished"?" · Encerrada":""}`))
-              )
             ),
             adminSection === "profiles" && React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Perfis globais"),
@@ -5110,7 +5157,7 @@
                 return React.createElement("button", { key: profile.id, onClick: () => onToggleParticipant(profile.id), style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 10, border: "1px solid var(--border)", background: checked ? "var(--surface-soft)" : "var(--surface)", color: "var(--heading)", cursor: "pointer" } }, React.createElement("span", { style: { display: "flex", alignItems: "center", gap: 10 } }, React.createElement("span", { style: { width: 30, height: 30, borderRadius: 999, background: profile.color, display: "grid", placeItems: "center", fontWeight: 700 } }, profile.name.charAt(0).toUpperCase()), React.createElement("strong", null, profile.name)), React.createElement("span", { style: { fontWeight: 700, color: checked ? "var(--green)" : "var(--muted)" } }, checked ? "Participando" : "Adicionar"));
               })) : React.createElement("div", { style: { color: "var(--muted)" } }, "Crie um perfil global primeiro.")
             ),
-            adminSection === "participants" && currentTournament && orphanTeams.length > 0 && React.createElement("div", { style: { ...E, border: "1px solid color-mix(in srgb, var(--danger) 35%, var(--border))" } },
+            currentTournament && orphanTeams.length > 0 && React.createElement("div", { style: { ...E, border: "1px solid color-mix(in srgb, var(--danger) 35%, var(--border))" } },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Participantes órfãos"),
               React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Estes times ainda existem no campeonato, mas o perfil global correspondente foi removido. Você pode restaurar o perfil ou retirar o time da classificação ativa sem apagar partidas antigas."),
               React.createElement("div", { style: { display: "grid", gap: 8 } }, orphanTeams.map((team) => React.createElement("div", { key: team.id, style: { display: "grid", gridTemplateColumns: "1fr auto auto", alignItems: "center", gap: 8, padding: 10, borderRadius: 10, background: "var(--surface-soft)" } },
@@ -5503,6 +5550,10 @@
           );
         }
         function CupCompetitionArea({ tournament, teams, teamById, profiles, presence, onOpenMatch, onOpenSummary }) {
+          tournament = tournament && typeof tournament === "object" ? tournament : {};
+          teams = Array.isArray(teams) ? teams : [];
+          profiles = Array.isArray(profiles) ? profiles : [];
+          teamById = typeof teamById === "function" ? teamById : ((id) => teams.find((team) => team && String(team.id) === String(id)));
           let [view,setView]=b(tournament.cupStage==="knockout"||tournament.status==="finished"?"knockout":"groups");
           He(()=>{ if(tournament.cupStage==="knockout"||tournament.status==="finished") setView("knockout"); },[tournament.cupStage,tournament.status]);
           let groups=Array.isArray(tournament.groups)?tournament.groups:[], matches=Array.isArray(tournament.matches)?tournament.matches:[];
@@ -5514,7 +5565,7 @@
           return React.createElement("div",null,
             tournament.status==="finished"&&tournament.finalStandings&&React.createElement("section",{className:"family-card",style:{padding:22,marginBottom:16,textAlign:"center",background:"linear-gradient(145deg,color-mix(in srgb,#ffbb26 12%,var(--surface)),var(--surface))"}},React.createElement("div",{style:{fontSize:42}},"🏆"),React.createElement("div",{style:{fontSize:12,color:"#ffbb26",fontWeight:850,textTransform:"uppercase",letterSpacing:".12em"}},"Campeão da copa"),React.createElement("div",{style:{fontSize:22,fontWeight:900,marginTop:5}},tournament.finalStandings[0].profileNameSnapshot),React.createElement("div",{style:{color:"var(--muted)",fontSize:13,marginTop:3}},`${tournament.finalStandings[0].teamNameSnapshot} · +${L(tournament.finalStandings[0].prize||0)}`),React.createElement("button",{onClick:()=>onOpenSummary&&onOpenSummary(tournament),style:{...M,marginTop:14,background:"var(--surface-soft)",color:"var(--heading)"}},"Ver resumo da copa")),
             React.createElement("div",{style:{display:"flex",justifyContent:"center",marginBottom:16}},React.createElement("div",{style:{display:"inline-flex",padding:4,borderRadius:999,background:"var(--surface-soft)",overflowX:"auto",maxWidth:"100%"}},React.createElement("button",{onClick:()=>setView("groups"),style:{...V(view==="groups"),whiteSpace:"nowrap"}},"Grupos"),knockout.length?React.createElement("button",{onClick:()=>setView("knockout"),style:{...V(view==="knockout"),whiteSpace:"nowrap"}},"Mata-mata"):null)),
-            view==="groups"?React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,360px),1fr))",gap:14}},groups.map((group)=>{let rows=cupStandings(group,matches);let groupMatches=matches.filter((match)=>match.stage==="group"&&match.groupName===group.name);return React.createElement("section",{key:group.name,className:"family-card",style:{padding:14}},React.createElement("div",{style:{fontSize:17,fontWeight:850,marginBottom:10}},group.name),React.createElement("div",{style:{overflowX:"auto"}},React.createElement("table",{style:{width:"100%",borderCollapse:"collapse",minWidth:330}},React.createElement("thead",null,React.createElement("tr",null,["#","Time","J","SG","PTS"].map((label)=>React.createElement("th",{key:label,style:{fontSize:10,color:"var(--muted)",textAlign:label==="Time"?"left":"center",padding:"7px 5px",borderBottom:"1px solid var(--border)"}},label)))),React.createElement("tbody",null,rows.map((row,index)=>{let team=teamById(row.id);return React.createElement("tr",{key:row.id,style:{background:index<2?"color-mix(in srgb,var(--green) 7%,transparent)":"transparent"}},React.createElement("td",{style:{padding:"9px 5px",textAlign:"center",fontWeight:800}},index+1),React.createElement("td",{style:{padding:"9px 5px",fontWeight:750}},team&&team.name||"?"),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center"}},row.played),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center"}},row.gd),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center",fontWeight:900}},row.pts));})))),React.createElement("div",{style:{fontSize:11,color:"var(--muted)",fontWeight:800,textTransform:"uppercase",letterSpacing:".08em",margin:"14px 0 8px"}},"Confrontos"),groupMatches.map(matchCard));})):React.createElement("div",{className:"cup-bracket-scroll",style:{display:"flex",gap:18,overflowX:"auto",padding:"8px 8px 22px",alignItems:"stretch"}},rounds.map((round)=>React.createElement("section",{key:round,className:"family-card",style:{flex:"0 0 min(82vw,330px)",padding:14,display:"flex",flexDirection:"column",justifyContent:"center"}},React.createElement("div",{style:{fontSize:12,color:"var(--muted)",fontWeight:850,textTransform:"uppercase",letterSpacing:".1em",marginBottom:10}},roundName(round)),knockout.filter((match)=>(match.round||1)===round).map(matchCard))))
+            view==="groups"?React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,360px),1fr))",gap:14}},groups.map((group)=>{let rows=cupStandings(group,matches);let groupMatches=matches.filter((match)=>match.stage==="group"&&match.groupName===group.name);return React.createElement("section",{key:group.name,className:"family-card",style:{padding:14}},React.createElement("div",{style:{fontSize:17,fontWeight:850,marginBottom:10}},group.name),React.createElement("div",{style:{overflowX:"auto"}},React.createElement("table",{style:{width:"100%",borderCollapse:"collapse",minWidth:330}},React.createElement("thead",null,React.createElement("tr",null,["#","Time","J","SG","PTS"].map((label)=>React.createElement("th",{key:label,style:{fontSize:10,color:"var(--muted)",textAlign:label==="Time"?"left":"center",padding:"7px 5px",borderBottom:"1px solid var(--border)"}},label)))),React.createElement("tbody",null,rows.map((row,index)=>{let team=teamById(row.id);return React.createElement("tr",{key:row.id,style:{background:index<2?"color-mix(in srgb,var(--green) 7%,transparent)":"transparent"}},React.createElement("td",{style:{padding:"9px 5px",textAlign:"center",fontWeight:800}},index+1),React.createElement("td",{style:{padding:"9px 5px",fontWeight:750}},team&&team.name||"?"),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center"}},row.pj || 0),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center"}},row.sg || 0),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center",fontWeight:900}},row.pts));})))),React.createElement("div",{style:{fontSize:11,color:"var(--muted)",fontWeight:800,textTransform:"uppercase",letterSpacing:".08em",margin:"14px 0 8px"}},"Confrontos"),groupMatches.map(matchCard));})):React.createElement("div",{className:"cup-bracket-scroll",style:{display:"flex",gap:18,overflowX:"auto",padding:"8px 8px 22px",alignItems:"stretch"}},rounds.map((round)=>React.createElement("section",{key:round,className:"family-card",style:{flex:"0 0 min(82vw,330px)",padding:14,display:"flex",flexDirection:"column",justifyContent:"center"}},React.createElement("div",{style:{fontSize:12,color:"var(--muted)",fontWeight:850,textTransform:"uppercase",letterSpacing:".1em",marginBottom:10}},roundName(round)),knockout.filter((match)=>(match.round||1)===round).map(matchCard))))
           );
         }
         function CupScoreModal({ data,setData,tournament,teams,profiles,onClose,onSave }){
