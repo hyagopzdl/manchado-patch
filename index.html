@@ -177,7 +177,7 @@
       .sports-fab { position:fixed !important; z-index:45 !important; left:50% !important; bottom:72px !important; transform:translateX(-50%) !important; width:62px !important; height:62px !important; border:1px solid rgba(255,255,255,.3) !important; background:linear-gradient(145deg,#29ec9b,#00b968) !important; box-shadow:0 14px 38px rgba(0,201,120,.32),0 0 32px rgba(33,228,147,.18),inset 0 1px 0 rgba(255,255,255,.45) !important; }
       .sports-fab:hover { transform:translateX(-50%) translateY(-2px) scale(1.03) !important; }
       .roster-player-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
-      .roster-player-card { min-width:0; height:272px; }
+      .roster-player-card { min-width:0; height:232px; }
       @media (min-width: 760px) { .roster-player-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
       @media (min-width: 1120px) { .roster-player-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
       .sports-modal-overlay { animation: sportsFadeIn .2s ease both; z-index:1000 !important; backdrop-filter: blur(10px); -webkit-backdrop-filter:blur(10px); }
@@ -310,6 +310,11 @@
           OfferIcon = SvgIcon(["M21 15a4 4 0 0 1-4 4H8l-5 3V8a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v7Z", "M8 10h8", "M8 14h5"]),
           Star = SvgIcon(["m12 3 2.78 5.63 6.22.9-4.5 4.39 1.06 6.2L12 17.2l-5.56 2.92 1.06-6.2L3 9.53l6.22-.9L12 3Z"]),
           FilterIcon = SvgIcon(["M4 6h16", "M7 12h10", "M10 18h4"]),
+          BankIcon = function ({ size = 14, color = "currentColor", style = {} }) {
+            return React.createElement("svg", { width:size, height:size, viewBox:"0 0 24 24", fill:color, style, "aria-hidden":"true" },
+              React.createElement("path", { d:"M12 2.8 2.5 7.6v2.1h19V7.6L12 2.8Zm-7.2 8.6v6.4H3v2.4h18v-2.4h-1.8v-6.4h-2.4v6.4h-2.3v-6.4h-2.4v6.4H9.8v-6.4H7.4v6.4H5.2v-6.4H4.8Z" })
+            );
+          },
           AdminIcon = SvgIcon(["M12 3 4.5 6v5.5c0 4.7 3.2 7.9 7.5 9.5 4.3-1.6 7.5-4.8 7.5-9.5V6L12 3Z", "M9 12l2 2 4-4"]),
           it = {
             GK: "Goleiro",
@@ -2132,6 +2137,7 @@
                           unreadOffers: unreadOfferCount,
                           onAcceptOffer: acceptTradeOffer,
                           onUpdateOffer: updateTradeOffer,
+                          onOpenBalanceHistory: () => setBalanceHistoryOpen(true),
                         }),
                       Y === "admin" && isAdminProfile(te) &&
                         React.createElement(AdminArea, {
@@ -2929,17 +2935,16 @@
           }
           function playerCard(player) {
             let cannotSell = squad.length <= minPlayers;
-            return React.createElement("article", { key:player.id, className:"tapbtn roster-player-card", onClick:()=>c(player), style:{ position:"relative", minWidth:0, padding:14, borderRadius:22, cursor:"pointer", overflow:"hidden", display:"flex", flexDirection:"column", background:`linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 19%, var(--surface)) 0%, var(--surface-soft) 52%, var(--surface) 100%)`, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 45%, var(--border))`, boxShadow:`0 18px 44px color-mix(in srgb, ${overallColor(player.overall)} 10%, transparent)`, textAlign:"left", color:"var(--heading)" } },
+            return React.createElement("article", { key:player.id, className:"tapbtn roster-player-card", onClick:()=>c(player), style:{ position:"relative", minWidth:0, padding:13, borderRadius:22, cursor:"pointer", overflow:"hidden", display:"flex", flexDirection:"column", background:`linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 19%, var(--surface)) 0%, var(--surface-soft) 52%, var(--surface) 100%)`, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 45%, var(--border))`, boxShadow:`0 18px 44px color-mix(in srgb, ${overallColor(player.overall)} 10%, transparent)`, textAlign:"left", color:"var(--heading)" } },
               React.createElement("div", { style:{ position:"absolute", width:120, height:120, right:-45, top:-45, borderRadius:999, background:overallColor(player.overall), opacity:.12, filter:"blur(18px)" } }),
               React.createElement("div", { style:{ position:"relative", fontSize:36, lineHeight:1, fontWeight:850, letterSpacing:"-1.6px", color:overallColor(player.overall) } }, player.overall),
-              React.createElement("div", { style:{ position:"relative", height:24, flexShrink:0 } }),
-              React.createElement("div", { style:{ position:"relative", display:"flex", flexDirection:"column", gap:4, minWidth:0 } },
+              React.createElement("div", { style:{ position:"relative", height:16, flexShrink:0 } }),
+              React.createElement("div", { style:{ position:"relative", display:"flex", flexDirection:"column", gap:5, minWidth:0 } },
                 React.createElement("span", { style:{ alignSelf:"flex-start", display:"inline-flex", fontSize:10, fontWeight:800, background:positionColor(player.position), color:"white", padding:"4px 7px", borderRadius:7 } }, player.position),
                 React.createElement("div", { style:{ fontSize:17, fontWeight:800, lineHeight:1.08, letterSpacing:"-.4px", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" } }, player.name),
-                React.createElement("div", { style:{ fontSize:10.5, color:"var(--muted)", lineHeight:1.3, marginTop:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.club || `${player.age || "—"} anos`),
-                React.createElement("div", { style:{ fontSize:11, color:"var(--heading)", fontWeight:750, marginTop:2 } }, L(player.value))
+                React.createElement("div", { style:{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--heading)", fontWeight:750, marginTop:4 } }, React.createElement(BankIcon, { size:13, color:"currentColor" }), L(player.value))
               ),
-              !readOnly && React.createElement("button", { disabled:cannotSell, onClick:(event)=>{event.stopPropagation();if(!cannotSell)p(player)}, style:{ marginTop:"auto", width:"100%", padding:"10px 8px", borderRadius:999, border:"1px solid var(--border)", background:cannotSell?"var(--surface-soft)":"color-mix(in srgb, var(--surface) 82%, transparent)", color:cannotSell?"var(--muted)":"var(--heading)", fontSize:11.5, fontWeight:750, cursor:cannotSell?"not-allowed":"pointer", opacity:cannotSell?.65:1 } }, cannotSell ? `Mín. ${minPlayers}` : "Vender ao mercado")
+              !readOnly && React.createElement("button", { disabled:cannotSell, onClick:(event)=>{event.stopPropagation();if(!cannotSell)p(player)}, style:{ marginTop:"auto", width:"100%", padding:"10px 8px", borderRadius:999, border:"1px solid var(--border)", background:cannotSell?"var(--surface-soft)":"color-mix(in srgb, var(--surface) 82%, transparent)", color:cannotSell?"var(--muted)":"var(--heading)", fontSize:11.5, fontWeight:750, cursor:cannotSell?"not-allowed":"pointer", opacity:cannotSell?.65:1 } }, "Vender ao mercado")
             );
           }
           return React.createElement("div", null,
@@ -2985,6 +2990,7 @@
           unreadOffers: unreadOffers,
           onAcceptOffer: onAcceptOffer,
           onUpdateOffer: onUpdateOffer,
+          onOpenBalanceHistory: onOpenBalanceHistory,
         }) {
           let [marketSection, setMarketSection] = b("recommended"),
             [clubQuery, setClubQuery] = b(""),
@@ -3155,7 +3161,7 @@
                 className: "tapbtn",
                 onClick: () => f(player),
                 style: {
-                  position: "relative", width: 176, minWidth: 176, height: 252, padding: 14, borderRadius: 22, cursor: "pointer", overflow: "hidden",
+                  position: "relative", width: 176, minWidth: 176, height: 232, padding: 13, borderRadius: 22, cursor: "pointer", overflow: "hidden",
                   display: "flex", flexDirection: "column",
                   background: `linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 19%, var(--surface)) 0%, var(--surface-soft) 52%, var(--surface) 100%)`,
                   border: `1px solid color-mix(in srgb, ${overallColor(player.overall)} 45%, var(--border))`,
@@ -3165,13 +3171,14 @@
               },
               React.createElement("div", { style: { position: "absolute", width: 120, height: 120, right: -45, top: -45, borderRadius: 999, background: overallColor(player.overall), opacity: .12, filter: "blur(18px)" } }),
               React.createElement("div", { style: { position: "relative", fontSize: 38, lineHeight: 1, fontWeight: 850, letterSpacing: "-1.8px", color: overallColor(player.overall) } }, player.overall),
-              React.createElement("div", { style: { position: "relative", height: 28, flexShrink: 0 } }),
-              React.createElement("div", { style: { position: "relative", display: "flex", flexDirection: "column", gap: 4 } },
+              React.createElement("div", { style: { position: "relative", height: 18, flexShrink: 0 } }),
+              React.createElement("div", { style: { position: "relative", display: "flex", flexDirection: "column", gap: 5, minHeight:0 } },
                 React.createElement("span", { style: { alignSelf: "flex-start", display: "inline-flex", fontSize: 10.5, fontWeight: 800, background: positionColor(player.position), color: "white", padding: "4px 7px", borderRadius: 7 } }, player.position),
-                React.createElement("div", { style: { fontSize: 18, fontWeight: 800, lineHeight: 1.08, letterSpacing: "-.45px", height: 39, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } }, player.name),
-                React.createElement("div", { style: { fontSize: 10.5, color: "var(--muted)", lineHeight: 1.3, height: 28, overflow: "hidden" } }, owner ? owner.name : (player.club || "Mercado livre"))
+                React.createElement("div", { style: { fontSize: 18, fontWeight: 800, lineHeight: 1.08, letterSpacing: "-.45px", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } }, player.name),
+                React.createElement("div", { style: { fontSize: 10.5, color: "var(--muted)", lineHeight: 1.25, overflow: "hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, owner ? owner.name : (player.club || "Mercado livre")),
+                React.createElement("div", { style:{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--heading)", fontWeight:750, marginTop:2 } }, React.createElement(BankIcon,{ size:13,color:"currentColor" }), L(status.kind === "listed" && status.price ? status.price : player.value))
               ),
-              React.createElement("div", { style: { marginTop: "auto", paddingTop: 18, position: "relative" } }, playerAction(player, status, activeOffer)),
+              React.createElement("div", { style: { marginTop: "auto", paddingTop: 12, position: "relative" } }, playerAction(player, status, activeOffer)),
             );
           }
 
@@ -3205,8 +3212,10 @@
           return React.createElement(
             "div",
             null,
-            React.createElement(Z, { icon: React.createElement(Xe, { size: 15 }), text: "Mercado" }),
-            activeTeam && React.createElement("div", { style:{ ...E, padding:"14px 16px", marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, background:"linear-gradient(135deg, color-mix(in srgb, var(--green) 10%, var(--surface)), var(--surface))" } }, React.createElement("div", null, React.createElement("div", { style:{ fontSize:11, color:"var(--muted)" } }, "Orçamento disponível"), React.createElement("strong", { style:{ display:"block", fontSize:22, color:"var(--green)", marginTop:3 } }, L(activeTeam.budget))), React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", textAlign:"right" } }, `${(a || []).length ? "Campeonato atual" : ""}`)),
+            React.createElement("header", { style:{ position:"relative", minHeight:64, display:"grid", placeItems:"center", marginBottom:18, padding:"4px 0" } },
+              React.createElement("h1", { style:{ margin:0, padding:"0 86px", fontSize:"clamp(32px,5vw,48px)", lineHeight:1, letterSpacing:"-.055em", textAlign:"center" } }, "Mercado"),
+              activeTeam && React.createElement("button", { className:"tapbtn", onClick:onOpenBalanceHistory, title:"Ver histórico de saldo", style:{ position:"absolute", right:0, top:"50%", transform:"translateY(-50%)", border:"1px solid color-mix(in srgb, var(--green) 30%, var(--border))", background:"color-mix(in srgb, var(--green) 10%, var(--surface))", color:"var(--heading)", borderRadius:999, padding:"9px 12px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontWeight:800, boxShadow:"0 10px 26px rgba(0,0,0,.12)" } }, React.createElement(BankIcon,{ size:15,color:"var(--green)" }), L(activeTeam.budget))
+            ),
             React.createElement(
               "div",
               { style: { display: "flex", gap: 4, padding: 4, marginBottom: 18, background: "var(--surface-soft)", border: "1px solid var(--border)", borderRadius: 999, overflowX: "auto" } },
@@ -3308,13 +3317,17 @@
                       let activeOffer = Object.values(offers || {}).find((offer) => isOfferOpen(offer) && offer.playerId === player.id && activeTeam && offer.buyerTeamId === activeTeam.id);
                       return React.createElement(
                         "article",
-                        { key: player.id, style: { ...E, padding:16, display:"grid", gap:14, background:`linear-gradient(145deg, color-mix(in srgb, ${overallColor(player.overall)} 8%, var(--surface)), var(--surface))` } },
-                        React.createElement("button", { onClick: () => f(player), style:{ display:"grid", gridTemplateColumns:"auto 1fr auto", alignItems:"center", gap:12, width:"100%", background:"none", border:0, padding:0, textAlign:"left", color:"var(--heading)", cursor:"pointer" } },
-                          React.createElement("div", { style:{ width:50, height:58, borderRadius:14, display:"grid", placeItems:"center", background:`linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 25%, var(--surface-soft)), var(--surface-soft))`, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 45%, var(--border))` } }, React.createElement("strong", { style:{ fontSize:22, color:overallColor(player.overall) } }, player.overall)),
-                          React.createElement("div", { style:{ minWidth:0 } }, React.createElement("span", { style:{ display:"inline-flex", fontSize:9.5, fontWeight:800, color:"white", background:positionColor(player.position), borderRadius:5, padding:"2px 6px", marginBottom:5 } }, player.position), React.createElement("div", { style:{ fontWeight:800, fontSize:15.5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.name), React.createElement("div", { style:{ fontSize:11, color:"var(--muted)", marginTop:3, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, status.kind === "free" ? (player.club || "Livre no mercado") : owner ? `Pertence a ${owner.name}` : "Outro time")),
-                          React.createElement("span", { style:{ color:"var(--muted)", fontSize:18 } }, "›")
+                        { key: player.id, style: { ...E, padding:14, display:"grid", gridTemplateColumns:"auto minmax(0,1fr) auto", alignItems:"center", gap:13, background:`linear-gradient(145deg, color-mix(in srgb, ${overallColor(player.overall)} 10%, var(--surface)), var(--surface))`, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 30%, var(--border))` } },
+                        React.createElement("button", { onClick: () => f(player), style:{ display:"contents", background:"none", border:0, padding:0, textAlign:"left", color:"var(--heading)", cursor:"pointer" } },
+                          React.createElement("div", { style:{ width:54, height:64, borderRadius:15, display:"grid", placeItems:"center", background:`linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 25%, var(--surface-soft)), var(--surface-soft))`, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 45%, var(--border))` } }, React.createElement("strong", { style:{ fontSize:23, color:overallColor(player.overall) } }, player.overall)),
+                          React.createElement("div", { style:{ minWidth:0, display:"flex", flexDirection:"column", gap:4 } },
+                            React.createElement("span", { style:{ alignSelf:"flex-start", display:"inline-flex", fontSize:9.5, fontWeight:800, color:"white", background:positionColor(player.position), borderRadius:5, padding:"2px 6px" } }, player.position),
+                            React.createElement("div", { style:{ fontWeight:800, fontSize:15.5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.name),
+                            React.createElement("div", { style:{ fontSize:11, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, status.kind === "free" ? (player.club || "Livre no mercado") : owner ? owner.name : "Outro time"),
+                            React.createElement("div", { style:{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--heading)", fontWeight:750 } }, React.createElement(BankIcon,{ size:13,color:"currentColor" }), L(status.kind === "listed" && status.price ? status.price : player.value))
+                          )
                         ),
-                        React.createElement("div", { style:{ width:"100%" } }, playerAction(player, status, activeOffer)),
+                        React.createElement("div", { style:{ width:132, maxWidth:"32vw" } }, playerAction(player, status, activeOffer)),
                       );
                     })),
                     filteredPlayers.length === 0 && React.createElement("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Nenhum jogador corresponde aos filtros selecionados."),
