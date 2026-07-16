@@ -172,10 +172,9 @@
       }
       .sports-tab { min-width: 68px; flex: 1; height: 54px; position: relative; border: 0; border-radius: 19px; background: transparent; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; cursor:pointer; color:var(--muted); transition:background .18s ease,color .18s ease,transform .18s ease; }
       .sports-tab.is-active { background: color-mix(in srgb, var(--green) 14%, var(--surface-soft)); color:var(--heading); }
-      .sports-tab.is-active::after { content:""; position:absolute; bottom:3px; width:18px; height:3px; border-radius:99px; background:var(--green); box-shadow:0 0 14px color-mix(in srgb,var(--green) 75%,transparent); }
       .sports-tab-avatar { width:24px; height:24px; border-radius:50%; overflow:hidden; display:grid; place-items:center; font-size:10px; font-weight:800; color:#fff; background:var(--green-strong); box-shadow:0 0 0 2px color-mix(in srgb,var(--surface) 85%,transparent); }
       .sports-tab-avatar img { width:100%; height:100%; object-fit:cover; }
-      .sports-fab { position:fixed !important; z-index:45 !important; left:50% !important; bottom:78px !important; transform:translateX(-50%) !important; width:62px !important; height:62px !important; border:1px solid rgba(255,255,255,.3) !important; background:linear-gradient(145deg,#29ec9b,#00b968) !important; box-shadow:0 14px 38px rgba(0,201,120,.32),0 0 32px rgba(33,228,147,.18),inset 0 1px 0 rgba(255,255,255,.45) !important; }
+      .sports-fab { position:fixed !important; z-index:45 !important; left:50% !important; bottom:72px !important; transform:translateX(-50%) !important; width:62px !important; height:62px !important; border:1px solid rgba(255,255,255,.3) !important; background:linear-gradient(145deg,#29ec9b,#00b968) !important; box-shadow:0 14px 38px rgba(0,201,120,.32),0 0 32px rgba(33,228,147,.18),inset 0 1px 0 rgba(255,255,255,.45) !important; }
       .sports-fab:hover { transform:translateX(-50%) translateY(-2px) scale(1.03) !important; }
       .sports-modal-overlay { animation: sportsFadeIn .2s ease both; z-index:1000 !important; backdrop-filter: blur(10px); -webkit-backdrop-filter:blur(10px); }
       .sports-modal { animation: sportsModalIn .28s cubic-bezier(.2,.9,.2,1) both; background:color-mix(in srgb,var(--surface) 94%,transparent) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-float) !important; backdrop-filter:blur(28px) saturate(145%); -webkit-backdrop-filter:blur(28px) saturate(145%); }
@@ -193,8 +192,7 @@
         .sports-dock { bottom:24px; width:auto; min-width:560px; }
         .sports-tab { min-width:100px; flex:none; padding:0 18px; flex-direction:row; gap:9px; }
         .sports-tab span:last-child { font-size:12px !important; }
-        .sports-tab.is-active::after { bottom:6px; }
-        .sports-fab { bottom:96px !important; }
+        .sports-fab { bottom:88px !important; }
         .sports-modal-overlay { align-items:center !important; padding:32px !important; }
         .sports-modal { border-radius:28px !important; width:min(720px,100%) !important; max-height:min(86vh,900px) !important; padding:26px !important; }
       }
@@ -206,7 +204,7 @@
         .sports-dock { bottom:10px; width:calc(100% - 20px); height:66px; border-radius:24px; }
         .sports-tab { height:50px; min-width:58px; }
         .sports-tab-label { font-size:9.5px !important; }
-        .sports-fab { bottom:68px !important; width:58px !important; height:58px !important; }
+        .sports-fab { bottom:60px !important; width:58px !important; height:58px !important; }
         .sports-modal-overlay { align-items:flex-end !important; }
         .sports-modal { border-radius:26px 26px 0 0 !important; border-bottom:0 !important; width:100% !important; max-height:90vh !important; padding:20px 18px calc(20px + env(safe-area-inset-bottom)) !important; }
       }
@@ -739,7 +737,8 @@
             [setupAdminName, setSetupAdminName] = b("Admin"),
             [setupTournamentName, setSetupTournamentName] = b("Campeonato 1"),
             [setupSubmitting, setSetupSubmitting] = b(!1),
-            [theme, setTheme] = b("dark");
+            [theme, setTheme] = b("dark"),
+            [presence, setPresence] = b({});
           He(() => {
             document.documentElement.setAttribute("data-theme", theme);
             localStorage.setItem("pes-theme", JSON.stringify(theme));
@@ -775,6 +774,7 @@
               Q("meta", (i) =>
                 u(i || { currentTournamentId: null, seasonCounter: 1 }),
               ),
+              Q("presence", (i) => setPresence(i && typeof i === "object" ? i : {})),
               Q("profiles", (i) => {
                 let list = Array.isArray(i) ? i : [];
                 T(list);
@@ -789,6 +789,22 @@
             ];
             return () => o.forEach((i) => i());
           }, []);
+          He(() => {
+            let db = Ee();
+            if (!db || !te || !te.id) return;
+            let connectedRef = db.ref(".info/connected");
+            let presenceRef = db.ref("pes/presence/" + te.id);
+            let handler = (snapshot) => {
+              if (snapshot.val() !== true) return;
+              presenceRef.onDisconnect().remove();
+              presenceRef.set({ online: true, updatedAt: firebase.database.ServerValue.TIMESTAMP });
+            };
+            connectedRef.on("value", handler);
+            return () => {
+              connectedRef.off("value", handler);
+              presenceRef.remove().catch(() => {});
+            };
+          }, [te && te.id]);
           let R = X(
               () => m.find((o) => o.id === selectedTournamentId) || null,
               [m, selectedTournamentId],
@@ -2077,7 +2093,7 @@
                           tournament: R, tournaments: m.filter((item) => item.status !== "finished"), teams: p,
                           teamById: $, profiles: x, squadOf: Oe, onSelectTournament: viewTournament, onDeleteMatch: deleteQuickMatch, currentProfile: te, isAdmin: isAdminProfile(te),
                           onOpenTeam: (teamId) => setViewedTeamId(teamId),
-                          onOpenRules: () => setRulesOpen(true),
+                          onOpenRules: () => setRulesOpen(true), presence,
                         }),
                       Y === "teams" &&
                         React.createElement(io, {
@@ -2138,9 +2154,9 @@
                           onOpenBalanceHistory: () => setBalanceHistoryOpen(true),
                         }),
                     ),
-                    R && R.status !== "finished" && (ProfileTeam || isAdminProfile(te)) && p.filter((team) => team && team.active !== false).length >= 2 &&
+                    Y === "table" && R && R.status !== "finished" && (ProfileTeam || isAdminProfile(te)) && p.filter((team) => team && team.active !== false).length >= 2 &&
                       React.createElement("button", { onClick: openMatchWizard, className: "tapbtn sports-fab", title: "Adicionar partida", "aria-label": "Adicionar partida", style: { position: "fixed", left: "50%", bottom: 62, transform: "translateX(-50%)", width: 58, height: 58, borderRadius: "50%", border: "5px solid var(--surface)", background: "var(--green)", color: "white", fontSize: 32, lineHeight: 1, display: "grid", placeItems: "center", cursor: "pointer", zIndex: 140, boxShadow: "0 8px 20px rgba(0,0,0,.18)" } }, "+"),
-                    React.createElement(mo, { tab: Y, setTab: oe, isAdmin: isAdminProfile(te), unreadOffers: unreadOfferCount, profile: te }),
+                    React.createElement(mo, { tab: Y, setTab: oe, isAdmin: isAdminProfile(te), unreadOffers: unreadOfferCount, profile: te, presence }),
                     viewedTeamId && $(viewedTeamId) && React.createElement(TeamViewer, {
                       team: $(viewedTeamId),
                       squadOf: Oe,
@@ -2150,7 +2166,7 @@
                       tournament: R,
                       onClose: () => setViewedTeamId(null),
                     }),
-                    matchWizard && React.createElement(MatchWizard, { data: matchWizard, setData: setMatchWizard, teams: p.filter((team) => team && team.active !== false), profiles: x, onClose: () => setMatchWizard(null), onSave: saveQuickMatch }),
+                    matchWizard && React.createElement(MatchWizard, { data: matchWizard, setData: setMatchWizard, teams: p.filter((team) => team && team.active !== false), profiles: x, presence, onClose: () => setMatchWizard(null), onSave: saveQuickMatch }),
                     ct &&
                       React.createElement(
                         ee,
@@ -2896,11 +2912,9 @@
           let overall = average(squad), totalValue = squad.reduce((sum,player)=>sum+(Number(player.value)||0),0);
           let sectorData = Object.entries(groups).map(([key,group]) => ({ key, label:group.label, average:average(group.players), count:group.players.length }));
           let weakest = sectorData.filter((item)=>item.count).sort((x,y)=>x.average-y.average || x.count-y.count)[0];
-          let tip = squad.length <= minPlayers
-            ? `Seu elenco está no mínimo permitido de ${minPlayers} jogadores. Contrate antes de vender.`
-            : weakest
-              ? `${weakest.label} é o setor com menor média (${weakest.average.toFixed(1)}). Veja reforços recomendados para equilibrar o time.`
-              : "Monte seu elenco para receber análises e recomendações personalizadas.";
+          let tip = weakest
+            ? `${weakest.label} é o setor com menor média (${weakest.average.toFixed(1)}). Esse é hoje o principal ponto técnico a melhorar.`
+            : "Monte seu elenco para receber uma análise técnica dos setores.";
           function statCard(label,value,accent) {
             return React.createElement("div", { style:{ padding:16, borderRadius:16, background:"var(--surface)", border:"1px solid var(--border)", minWidth:0 } },
               React.createElement("div", { style:{ fontSize:11, color:"var(--muted)", marginBottom:6 } }, label),
@@ -2922,12 +2936,21 @@
           }
           return React.createElement("div", null,
             onBack && React.createElement("button", { onClick:onBack, className:"tapbtn", style:{ marginBottom:16, border:"1px solid var(--border)", background:"var(--surface)", color:"var(--heading)", borderRadius:999, padding:"9px 14px", fontWeight:750, cursor:"pointer" } }, "← Voltar para a tabela"),
-            React.createElement("div", { style:{ textAlign:"center", marginBottom:20 } }, React.createElement("div", { style:{ fontSize:12, color:"var(--muted)", marginBottom:5 } }, readOnly ? (viewerProfile ? `Time de ${viewerProfile.name}` : "Elenco do participante") : "Meu elenco"), React.createElement("h1", { style:{ margin:0, fontSize:"clamp(28px,5vw,42px)", lineHeight:1, letterSpacing:"-.045em" } }, s.name), React.createElement("div", { style:{ color:"var(--muted)", fontSize:12.5, marginTop:8 } }, `${squad.length}/${maxPlayers} jogadores${readOnly ? "" : ` · ${L(s.budget)} disponíveis`}`)),
-            !readOnly && React.createElement("div", { style:{ ...E, padding:18, marginBottom:16, border:"1px solid color-mix(in srgb, var(--green) 28%, var(--border))", background:"linear-gradient(135deg, color-mix(in srgb, var(--green) 12%, var(--surface)), var(--surface) 60%, color-mix(in srgb, var(--accent) 7%, var(--surface)))" } }, React.createElement("div", { style:{ fontSize:10.5, fontWeight:800, color:"var(--green)", textTransform:"uppercase", letterSpacing:".08em", marginBottom:6 } }, "Análise do time"), React.createElement("div", { style:{ fontSize:14, lineHeight:1.5, color:"var(--heading)" } }, tip), React.createElement("button", { onClick:v, style:{ marginTop:12, background:"none", border:0, color:"var(--green)", fontWeight:800, padding:0, cursor:"pointer" } }, "Ver recomendações →")),
-            React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(135px,1fr))", gap:10, marginBottom:24 } },
-              statCard("Overall do elenco", overall ? overall.toFixed(1) : "—", overall?overallColor(overall):null),
-              statCard("Valor do elenco", L(totalValue)),
-              ...sectorData.map((item)=>statCard(item.label, item.count ? item.average.toFixed(1) : "—", item.count?overallColor(item.average):null))
+            React.createElement("section", { style:{ ...E, padding:"clamp(18px,3vw,28px)", marginBottom:24, background:"linear-gradient(145deg, color-mix(in srgb, var(--green) 7%, var(--surface)), var(--surface) 44%, color-mix(in srgb, var(--accent) 5%, var(--surface)))" } },
+              React.createElement("div", { style:{ textAlign:"center", padding:"4px 0 22px" } },
+                React.createElement("div", { style:{ fontSize:11, color:"var(--muted)", marginBottom:7, textTransform:"uppercase", letterSpacing:".08em", fontWeight:750 } }, readOnly ? (viewerProfile ? `Time de ${viewerProfile.name}` : "Elenco do participante") : "Meu elenco"),
+                React.createElement("h1", { style:{ margin:0, fontSize:"clamp(28px,5vw,42px)", lineHeight:1, letterSpacing:"-.045em" } }, s.name),
+                React.createElement("div", { style:{ color:"var(--muted)", fontSize:12.5, marginTop:9 } }, `${squad.length}/${maxPlayers} jogadores${readOnly ? "" : ` · ${L(s.budget)} disponíveis`}`)
+              ),
+              React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(135px,1fr))", gap:10 } },
+                statCard("Overall do elenco", overall ? overall.toFixed(1) : "—", overall?overallColor(overall):null),
+                statCard("Valor do elenco", L(totalValue)),
+                ...sectorData.map((item)=>statCard(item.label, item.count ? item.average.toFixed(1) : "—", item.count?overallColor(item.average):null))
+              ),
+              !readOnly && React.createElement("div", { style:{ marginTop:14, padding:"16px 17px", borderRadius:16, border:"1px solid color-mix(in srgb, var(--green) 24%, var(--border))", background:"color-mix(in srgb, var(--green) 8%, var(--surface-soft))" } },
+                React.createElement("div", { style:{ fontSize:10.5, fontWeight:800, color:"var(--green)", textTransform:"uppercase", letterSpacing:".08em", marginBottom:6 } }, "Análise do time"),
+                React.createElement("div", { style:{ fontSize:14, lineHeight:1.5, color:"var(--heading)" } }, tip)
+              )
             ),
             squad.length===0 && React.createElement("div", { style:{ ...E, textAlign:"center", color:"var(--muted)", padding:28 } }, "Elenco vazio. Vá ao mercado para contratar jogadores."),
             Object.values(groups).map((group)=>group.players.length ? React.createElement("section", { key:group.label, style:{ marginBottom:26 } },
@@ -4687,7 +4710,7 @@
           rows.forEach((row)=>row.gd=row.gf-row.ga);
           return rows.sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||String(a.name).localeCompare(String(b.name)));
         }
-        function TableArea({ tournament, tournaments, teams, teamById, profiles, squadOf, onSelectTournament, onDeleteMatch, currentProfile, isAdmin, onOpenTeam, onOpenRules }) {
+        function TableArea({ tournament, tournaments, teams, teamById, profiles, squadOf, onSelectTournament, onDeleteMatch, currentProfile, isAdmin, onOpenTeam, onOpenRules, presence }) {
           let [visibleCount, setVisibleCount] = b(20), sentinel = React.useRef(null);
           He(() => { setVisibleCount(20); }, [tournament && tournament.id]);
           let allMatches = tournament && Array.isArray(tournament.matches) ? tournament.matches.filter((match) => match && match.played && !match.bye && match.status !== "voided") : [];
@@ -4716,7 +4739,11 @@
           function avatarForTeam(team, size) {
             let profile = team && (profiles || []).find((item) => item && typeof item === "object" && item.id === team.profileId);
             let name = profile && profile.name ? profile.name : team && team.name ? team.name : "?";
-            return React.createElement("span", { style:{ width:size, height:size, borderRadius:999, overflow:"hidden", flexShrink:0, display:"inline-grid", placeItems:"center", background:(profile&&profile.color)||(team&&team.color)||"var(--surface-soft)", color:"white", fontSize:Math.max(10,size*.38), fontWeight:800, border:"1px solid var(--border)" } }, profile&&profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"", style:{ width:"100%", height:"100%", objectFit:"cover" } }) : String(name).charAt(0).toUpperCase());
+            let online = !!(profile && presence && presence[profile.id] && presence[profile.id].online);
+            return React.createElement("span", { style:{ width:size, height:size, borderRadius:999, flexShrink:0, display:"inline-grid", placeItems:"center", background:(profile&&profile.color)||(team&&team.color)||"var(--surface-soft)", color:"white", fontSize:Math.max(10,size*.38), fontWeight:800, border:profile&&profile.avatar?"0":"1px solid var(--border)", position:"relative" } },
+              React.createElement("span", { style:{ width:"100%", height:"100%", borderRadius:999, overflow:"hidden", display:"grid", placeItems:"center" } }, profile&&profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"", style:{ width:"100%", height:"100%", objectFit:"cover" } }) : String(name).charAt(0).toUpperCase()),
+              online && React.createElement("span", { title:"Online", style:{ position:"absolute", right:-1, bottom:-1, width:Math.max(9,size*.28), height:Math.max(9,size*.28), borderRadius:999, background:"#21e493", boxShadow:"0 0 0 2px var(--surface), 0 0 10px rgba(33,228,147,.65)" } })
+            );
           }
           function profileForTeam(team) {
             return team && (profiles || []).find((item) => item && typeof item === "object" && item.id === team.profileId);
@@ -4776,14 +4803,15 @@
             canDelete ? React.createElement("button", { onClick:()=>onDelete && onDelete(match), title:"Excluir partida", "aria-label":"Excluir partida", style:{ width:36, height:36, borderRadius:10, border:0, background:"transparent", color:"var(--muted)", display:"grid", placeItems:"center", cursor:"pointer", padding:0, transition:"color .16s ease, background .16s ease" }, onMouseEnter:(event)=>{event.currentTarget.style.color="var(--danger)";event.currentTarget.style.background="color-mix(in srgb, var(--danger) 10%, transparent)"}, onMouseLeave:(event)=>{event.currentTarget.style.color="var(--muted)";event.currentTarget.style.background="transparent"} }, React.createElement("svg", { width:18, height:18, viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:1.8, strokeLinecap:"round", strokeLinejoin:"round", "aria-hidden":"true" }, React.createElement("path", { d:"M3 6h18" }), React.createElement("path", { d:"M8 6V4h8v2" }), React.createElement("path", { d:"M19 6l-1 14H6L5 6" }), React.createElement("path", { d:"M10 11v5M14 11v5" }))) : React.createElement("div", { "aria-hidden":"true" })
           );
         }
-        function MatchWizard({ data, setData, teams, profiles, onClose, onSave }) {
+        function MatchWizard({ data, setData, teams, profiles, presence, onClose, onSave }) {
           let left = teams.find((team) => team.id === data.leftTeamId);
           let right = teams.find((team) => team.id === data.rightTeamId);
           function profileFor(team) { return profiles.find((item) => item && typeof item === "object" && item.id === team.profileId) || null; }
           function profileName(team) { let profile=profileFor(team); return profile ? profile.name : team.name; }
           function profileAvatar(team) {
             let profile=profileFor(team), name=profileName(team);
-            return React.createElement("span", { style:{ width:38, height:38, borderRadius:"50%", overflow:"hidden", display:"grid", placeItems:"center", flex:"0 0 auto", background:(profile&&profile.color)||"var(--green)", color:"white", fontWeight:800 } }, profile&&profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"", style:{ width:"100%", height:"100%", objectFit:"cover" } }) : String(name||"?").charAt(0).toUpperCase());
+            let online=!!(profile&&presence&&presence[profile.id]&&presence[profile.id].online);
+            return React.createElement("span", { style:{ width:38, height:38, borderRadius:"50%", display:"grid", placeItems:"center", flex:"0 0 auto", background:(profile&&profile.color)||"var(--green)", color:"white", fontWeight:800, position:"relative", border:profile&&profile.avatar?"0":"1px solid var(--border)" } }, React.createElement("span", { style:{ width:"100%",height:"100%",borderRadius:"50%",overflow:"hidden",display:"grid",placeItems:"center" } }, profile&&profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"", style:{ width:"100%", height:"100%", objectFit:"cover" } }) : String(name||"?").charAt(0).toUpperCase()), online&&React.createElement("span", { title:"Online", style:{ position:"absolute",right:-1,bottom:-1,width:10,height:10,borderRadius:99,background:"#21e493",boxShadow:"0 0 0 2px var(--surface),0 0 8px rgba(33,228,147,.65)" } }));
           }
           function choose(side, id) {
             let next={ ...data, [side+"TeamId"]:id };
@@ -4821,7 +4849,7 @@
           );
           return React.createElement(ee, { title, onClose }, stepOne, stepTwo);
         }
-        function mo({ tab: e, setTab: t, isAdmin: l, unreadOffers, profile }) {
+        function mo({ tab: e, setTab: t, isAdmin: l, unreadOffers, profile, presence }) {
           let items = [
             { key: "table", icon: pe, label: "Tabela" },
             { key: "teams", icon: Vt, label: "Elenco" },
@@ -4834,10 +4862,11 @@
             items.map(({ key, icon: Icon, label, badge, avatar }) => {
               let active = e === key;
               let visual = avatar
-                ? React.createElement("span", { className: "sports-tab-avatar", style: { background: profileItem.color || "var(--green-strong)" } },
+                ? React.createElement("span", { className: "sports-tab-avatar", style: { background: profileItem.color || "var(--green-strong)", boxShadow: profileItem.avatar ? "none" : undefined, position:"relative" } },
                     profileItem.avatar
                       ? React.createElement("img", { src: profileItem.avatar, alt: "" })
-                      : String(profileItem.name || "?").charAt(0).toUpperCase())
+                      : String(profileItem.name || "?").charAt(0).toUpperCase(),
+                    presence && profileItem.id && presence[profileItem.id] && presence[profileItem.id].online && React.createElement("span", { title:"Online", style:{ position:"absolute",right:-1,bottom:-1,width:8,height:8,borderRadius:99,background:"#21e493",boxShadow:"0 0 0 2px var(--surface)" } }))
                 : React.createElement(Icon, { size: 21, color: "currentColor" });
               return React.createElement("button", { key, onClick: () => t(key), className: "sports-tab" + (active ? " is-active" : ""), "aria-current": active ? "page" : undefined, "aria-label": label },
                 React.createElement("span", { style: { position: "relative", display: "inline-flex" } }, visual,
