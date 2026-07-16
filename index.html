@@ -1305,6 +1305,46 @@
                 ? { kind: "listed", teamId: i.teamId, price: i.price }
                 : { kind: "owned", teamId: i.teamId };
           }
+          function fullSquadOverall(teamId, ownershipValue = c, catalogValue = n) {
+            let entries = Object.entries(ownershipValue && typeof ownershipValue === "object" ? ownershipValue : {});
+            let ids = new Set(entries.filter(([, item]) => item && String(item.teamId) === String(teamId)).map(([playerId]) => String(playerId)));
+            let players = (Array.isArray(catalogValue) ? catalogValue : []).filter((player) => player && ids.has(String(player.id)));
+            if (!players.length) return 0;
+            return players.reduce((sum, player) => sum + (Number(player.overall) || 0), 0) / players.length;
+          }
+          function marketBalanceSettings(tournament = R) {
+            let settings = tournament && tournament.marketBalanceSettings && typeof tournament.marketBalanceSettings === "object" ? tournament.marketBalanceSettings : {};
+            return { enabled: settings.enabled === true, maxDifference: Math.max(0, Number(settings.maxDifference != null ? settings.maxDifference : 10) || 0) };
+          }
+          function evaluateMarketBalance(player, buyerTeamId, tournament = R, teamsValue = p, ownershipValue = c, catalogValue = n) {
+            let settings = marketBalanceSettings(tournament);
+            if (!settings.enabled || !player || !buyerTeamId) return { allowed:true, enabled:settings.enabled, maxDifference:settings.maxDifference };
+            let activeTeams = (Array.isArray(teamsValue) ? teamsValue : []).filter((team) => team && team.active !== false);
+            if (activeTeams.length < 2) return { allowed:true, enabled:true, maxDifference:settings.maxDifference };
+            let current = activeTeams.map((team) => ({ team, overall:fullSquadOverall(team.id, ownershipValue, catalogValue) }));
+            let validCurrent = current.filter((item) => item.overall > 0);
+            if (validCurrent.length < 2) return { allowed:true, enabled:true, maxDifference:settings.maxDifference };
+            let currentMax = Math.max(...validCurrent.map((item) => item.overall));
+            let currentMin = Math.min(...validCurrent.map((item) => item.overall));
+            let currentGap = currentMax - currentMin;
+            let nextOwnership = { ...(ownershipValue || {}) };
+            let playerKey = Object.keys(nextOwnership).find((key) => String(key) === String(player.id)) || String(player.id);
+            nextOwnership[playerKey] = { ...(nextOwnership[playerKey] || {}), teamId:buyerTeamId, forSale:false, price:null };
+            let future = activeTeams.map((team) => ({ team, overall:fullSquadOverall(team.id, nextOwnership, catalogValue) })).filter((item) => item.overall > 0);
+            let futureMax = Math.max(...future.map((item) => item.overall));
+            let futureMin = Math.min(...future.map((item) => item.overall));
+            let futureGap = futureMax - futureMin;
+            let threshold = currentGap > settings.maxDifference ? currentGap : settings.maxDifference;
+            let allowed = futureGap <= threshold + 0.000001;
+            let buyerBefore = (current.find((item) => String(item.team.id) === String(buyerTeamId)) || {}).overall || 0;
+            let buyerAfter = (future.find((item) => String(item.team.id) === String(buyerTeamId)) || {}).overall || 0;
+            let weakest = future.slice().sort((a,b)=>a.overall-b.overall)[0];
+            return { allowed, enabled:true, maxDifference:settings.maxDifference, currentGap, futureGap, buyerBefore, buyerAfter, weakestTeamName:weakest && weakest.team ? weakest.team.name : "time mais fraco", weakestOverall:weakest ? weakest.overall : 0 };
+          }
+          function marketBalanceMessage(check) {
+            if (!check || check.allowed) return "";
+            return `Esta contratação elevaria a diferença entre os times para ${check.futureGap.toFixed(1)} OVR. Pela regra de equilíbrio, o máximo permitido agora é ${(check.currentGap > check.maxDifference ? check.currentGap : check.maxDifference).toFixed(1)} OVR. O time mais fraco está com ${check.weakestOverall.toFixed(1)} OVR.`;
+          }
           function kt(o) {
             let status = Pe(o);
             if (!ProfileTeam) return;
@@ -1314,8 +1354,13 @@
               window.alert(`Seu elenco atingiu o limite de ${maxPlayers} jogadores. Venda alguém antes de comprar.`);
               return;
             }
+            let balanceCheck = evaluateMarketBalance(o, ProfileTeam.id);
+            if (!balanceCheck.allowed) {
+              window.alert(marketBalanceMessage(balanceCheck));
+              return;
+            }
             if (status.kind === "free") {
-              he({ player: o, status });
+              he({ player: o, status, balanceCheck });
               return;
             }
             if (status.teamId === ProfileTeam.id) return;
@@ -1332,6 +1377,11 @@
             if (!sellerTeamId || sellerTeamId === ProfileTeam.id) return;
             if (ProfileTeam.budget < value) {
               window.alert("Seu saldo é insuficiente para enviar esta oferta.");
+              return;
+            }
+            let balanceCheck = evaluateMarketBalance(player, ProfileTeam.id);
+            if (!balanceCheck.allowed) {
+              window.alert(marketBalanceMessage(balanceCheck));
               return;
             }
             let duplicate = Object.values(tradeOffers).find((offer) => isOfferOpen(offer) && offer.playerId === player.id && offer.buyerTeamId === ProfileTeam.id);
@@ -1398,6 +1448,12 @@
               window.alert("O comprador não possui saldo suficiente neste momento. A proposta continuará aberta.");
               return;
             }
+            let localPlayer = n.find((player) => player && String(player.id) === String(localOffer.playerId));
+            let localBalanceCheck = evaluateMarketBalance(localPlayer, localBuyer.id, R, localTeams, localOwnership, n);
+            if (!localBalanceCheck.allowed) {
+              window.alert(marketBalanceMessage(localBalanceCheck) + " A proposta continuará aberta.");
+              return;
+            }
 
             let db = Ee();
             if (!db) return;
@@ -1432,6 +1488,9 @@
               if (buyerSize >= maxPlayers) { failureReason = "buyer_roster_full"; return; }
               if (sellerSize <= minPlayers) { failureReason = "seller_min_roster"; return; }
               if ((Number(buyer.budget) || 0) < Number(offer.currentAmount || 0)) { failureReason = "insufficient_funds"; return; }
+              let offerPlayer = n.find((player) => player && String(player.id) === String(offer.playerId));
+              let atomicBalanceCheck = evaluateMarketBalance(offerPlayer, buyer.id, tournament, teams, ownership, n);
+              if (!atomicBalanceCheck.allowed) { failureReason = "market_balance_lock"; return; }
 
               buyer.budget = (Number(buyer.budget) || 0) - Number(offer.currentAmount || 0);
               seller.budget = (Number(seller.budget) || 0) + Number(offer.currentAmount || 0);
@@ -1464,50 +1523,70 @@
                 wrong_championship: "Esta proposta pertence a outro campeonato.",
                 team_not_found: "Um dos times da negociação não existe mais neste campeonato.",
                 championship_not_found: "O campeonato desta proposta não foi encontrado.",
-                offer_unavailable: "A proposta não está mais disponível."
+                offer_unavailable: "A proposta não está mais disponível.",
+                market_balance_lock: "A transferência está bloqueada pela regra de equilíbrio do mercado. A proposta continua aberta."
               };
               window.alert(messages[failureReason] || "A transferência não pôde ser concluída.");
             });
           }
           function Ft(o, i, y) {
-            let D = $(y);
-            if (!D) return;
-            let maxPlayers = Math.max(1, Number(R && R.rosterSettings && R.rosterSettings.maxPlayers != null ? R.rosterSettings.maxPlayers : 30) || 30);
+            if (!R || !o || !y) return;
+            let buyerLocal = $(y);
+            if (!buyerLocal) return;
+            let maxPlayers = Math.max(1, Number(R.rosterSettings && R.rosterSettings.maxPlayers != null ? R.rosterSettings.maxPlayers : 30) || 30);
             if (Oe(y).length >= maxPlayers) { window.alert(`Este elenco atingiu o limite de ${maxPlayers} jogadores.`); return; }
-            let S = i.kind === "free" ? o.value : i.price;
-            if (D.budget < S) return;
-            let A = p.map((z) =>
-                z.id === y
-                  ? { ...z, budget: z.budget - S }
-                  : i.kind === "listed" && z.id === i.teamId
-                    ? { ...z, budget: z.budget + S }
-                    : z,
-              ),
-              w = { ...c, [o.id]: { teamId: y, forSale: !1, price: null } };
-            let financialTransactions = Array.isArray(R && R.context && R.context.financialTransactions) ? [...R.context.financialTransactions] : [];
-            financialTransactions.unshift(financeEntry("market_purchase", y, -S, `Compra de ${o.name}`, o.id, Number(D.budget) || 0));
-            if (i.kind === "listed" && i.teamId) {
-              let seller = $(i.teamId);
-              financialTransactions.unshift(financeEntry("player_sale", i.teamId, S, `Venda de ${o.name}`, o.id, Number(seller && seller.budget) || 0));
+            let price = i.kind === "free" ? Number(o.value)||0 : Number(i.price)||Number(o.value)||0;
+            if ((Number(buyerLocal.budget)||0) < price) { window.alert("Saldo insuficiente para esta compra."); return; }
+            let check = evaluateMarketBalance(o, y);
+            if (!check.allowed) { window.alert(marketBalanceMessage(check)); return; }
+            let tournamentId = R.id, failureReason = null;
+            let db = Ee();
+            let applyPurchase = (tournament) => {
+              let context = { ...(tournament.context || {}) };
+              let ownership = { ...(context.ownership || {}) };
+              let teams = Array.isArray(context.teams) ? context.teams.map((team)=>({...team})) : [];
+              let buyer = teams.find((team)=>team && String(team.id)===String(y));
+              if (!buyer) { failureReason="team_not_found"; return null; }
+              let playerKey = Object.keys(ownership).find((key)=>String(key)===String(o.id)) || String(o.id);
+              let currentOwner = ownership[playerKey];
+              if (i.kind === "free" && currentOwner && currentOwner.teamId) { failureReason="player_unavailable"; return null; }
+              if ((Number(buyer.budget)||0) < price) { failureReason="insufficient_funds"; return null; }
+              let rosterSize = Object.values(ownership).filter((item)=>item && String(item.teamId)===String(buyer.id)).length;
+              let localMax = Math.max(1, Number(tournament.rosterSettings && tournament.rosterSettings.maxPlayers != null ? tournament.rosterSettings.maxPlayers : 30)||30);
+              if (rosterSize >= localMax) { failureReason="buyer_roster_full"; return null; }
+              let atomicCheck = evaluateMarketBalance(o, buyer.id, tournament, teams, ownership, n);
+              if (!atomicCheck.allowed) { failureReason="market_balance_lock"; return null; }
+              buyer.budget = (Number(buyer.budget)||0) - price;
+              ownership[playerKey] = { ...(currentOwner||{}), teamId:buyer.id, forSale:false, price:null };
+              let now=Date.now();
+              let transfers=[{ id:_(), championshipId:tournament.id, playerId:o.id, playerName:o.name, fromTeamId:currentOwner&&currentOwner.teamId?currentOwner.teamId:null, toTeamId:buyer.id, price, type:"market_purchase", createdAt:now, date:new Date().toLocaleDateString("pt-BR") }, ...(Array.isArray(context.transfers)?context.transfers:[])];
+              let financialTransactions=Array.isArray(context.financialTransactions)?[...context.financialTransactions]:[];
+              financialTransactions.unshift(financeEntry("market_purchase",buyer.id,-price,`Compra de ${o.name}`,o.id,(Number(buyer.budget)||0)+price,now));
+              failureReason=null;
+              return { ...tournament, context:{ ...context, teams, ownership, transfers, financialTransactions } };
+            };
+            if (!db) {
+              let updated=applyPurchase(R);
+              if (!updated) { window.alert("A compra não pôde ser concluída."); return; }
+              ae(m.map((item)=>String(item.id)===String(tournamentId)?updated:item));
+              he(null);
+              return;
             }
-            (Se(A),
-              ne(w),
-              vt([
-                {
-                  id: _(),
-                  playerId: o.id,
-                  playerName: o.name,
-                  fromTeamId: i.kind === "listed" ? i.teamId : null,
-                  toTeamId: y,
-                  price: S,
-                  type: i.kind === "listed" ? "user_transfer" : "market_purchase",
-                  createdAt: Date.now(),
-                  date: new Date().toLocaleDateString("pt-BR"),
-                },
-                ...k,
-              ]),
-              saveContextField("financialTransactions", financialTransactions),
-              he(null));
+            db.ref("pes/tournaments").transaction((serverValue)=>{
+              let isArray=Array.isArray(serverValue);
+              let list=isArray?[...serverValue]:Object.values(serverValue||{});
+              let index=list.findIndex((item)=>item&&String(item.id)===String(tournamentId));
+              if(index<0){failureReason="championship_not_found";return;}
+              let updated=applyPurchase(list[index]);
+              if(!updated)return;
+              list[index]=updated;
+              return isArray?list:Object.fromEntries(list.map((item,idx)=>[item.id||String(idx),item]));
+            },(error,committed)=>{
+              if(error){window.alert("Não foi possível concluir a compra. Tente novamente.");return;}
+              if(committed){he(null);return;}
+              let messages={market_balance_lock:"Esta compra está bloqueada pela regra de equilíbrio do mercado.",insufficient_funds:"Saldo insuficiente para esta compra.",buyer_roster_full:"Seu elenco atingiu o limite máximo de jogadores.",player_unavailable:"Este jogador não está mais livre no mercado.",team_not_found:"Seu time não foi encontrado.",championship_not_found:"O campeonato não foi encontrado."};
+              window.alert(messages[failureReason]||"A compra não pôde ser concluída.");
+            });
           }
           function Ct(o, i) {
             Ae({ player: o, teamId: i, price: o.value });
@@ -2100,6 +2179,11 @@
             let pct = Math.min(100, Math.max(0, Math.round(Number(value) || 0)));
             ae(m.map((item) => item.id === R.id ? { ...item, marketSettings: { ...(item.marketSettings || {}), depreciationPct: pct } } : item));
           }
+          function updateMarketBalanceRules(enabled, maxDifference) {
+            if (!R) return;
+            let next = { enabled: enabled === true, maxDifference: Math.max(0, Number(maxDifference) || 0) };
+            ae(m.map((item) => item.id === R.id ? { ...item, marketBalanceSettings: next } : item));
+          }
           function updateRosterRules(minValue, maxValue) {
             if (!R) return;
             let minPlayers = Math.max(0, Math.round(Number(minValue) || 0));
@@ -2643,7 +2727,7 @@
                           teams: ProfileTeams,
                           statusOf: Pe,
                           onBuy: kt,
-                          onOpenDetail: (player) => { let status = Pe(player); be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free" }); },
+                          onOpenDetail: (player) => { let status = Pe(player); let balanceCheck = ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true }; be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free", balanceCheck }); },
                           transfers: k,
                           activeTeam: ProfileTeam,
                           offers: tradeOffers,
@@ -2653,6 +2737,7 @@
                           onOpenBalanceHistory: () => setBalanceHistoryOpen(true),
                           favoritePlayerIds: currentFavoriteIds,
                           onToggleFavorite: toggleFavoritePlayer,
+                          balanceCheckFor: (player) => ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true },
                         }),
                       Y === "admin" && isAdminProfile(te) && adminUnlocked &&
                         React.createElement(AdminArea, {
@@ -2666,6 +2751,7 @@
                           onUpdateBudget: updateAdminBudget, onToggleParticipant: toggleTournamentParticipant,
                           onDeleteProfile: deleteGlobalProfile, onResetTournament: resetCurrentTournament, onRemoveOrphanParticipant: removeOrphanParticipant, onRestoreOrphanProfile: restoreOrphanProfile,
                           onUpdateMarketDepreciation: updateMarketDepreciation,
+                          onUpdateMarketBalanceRules: updateMarketBalanceRules,
                           onUpdateRosterRules: updateRosterRules,
                           onUpdateEconomyRules: updateEconomyRules,
                           onFinishTournament: finishCurrentTournament,
@@ -3562,6 +3648,7 @@
           onOpenBalanceHistory: onOpenBalanceHistory,
           favoritePlayerIds: favoritePlayerIds = [],
           onToggleFavorite: onToggleFavorite,
+          balanceCheckFor: balanceCheckFor,
         }) {
           let [marketSection, setMarketSection] = b("recommended"),
             [clubQuery, setClubQuery] = b(""),
@@ -3619,6 +3706,8 @@
                 if (status.teamId === activeTeam.id) return null;
                 let price = Number(status.kind === "listed" && status.price ? status.price : player.value) || 0;
                 if (price > Number(activeTeam.budget || 0)) return null;
+                let balanceCheck = typeof balanceCheckFor === "function" ? balanceCheckFor(player) : { allowed:true };
+                if (!balanceCheck.allowed) return null;
                 let group = positionGroup(player.position), need = squadAnalysis[group] || { deficit: 0, weakest: 0, average: 0, count: 0 };
                 let reference = need.weakest || need.average || 60;
                 let upgrade = Math.max(0, Number(player.overall || 0) - reference);
@@ -3699,13 +3788,16 @@
             if (!(status.kind === "free" || (status.teamId && (!activeTeam || status.teamId !== activeTeam.id)))) return null;
             let price = status.kind === "free" ? player.value : status.kind === "listed" && status.price ? status.price : player.value;
             let insufficient = status.kind === "free" && activeTeam && Number(activeTeam.budget || 0) < Number(price || 0);
+            let balanceCheck = activeTeam && typeof balanceCheckFor === "function" ? balanceCheckFor(player) : { allowed:true };
+            let balanceBlocked = !balanceCheck.allowed;
             return React.createElement(
               "button",
               {
                 className: "tapbtn",
-                disabled: insufficient,
+                disabled: insufficient || balanceBlocked,
+                title: balanceBlocked ? "Bloqueado pela regra de equilíbrio" : undefined,
                 onClick: (event) => {
-                  if (insufficient) return;
+                  if (insufficient || balanceBlocked) return;
                   event.stopPropagation();
                   activeOffer ? setMarketSection("negotiations") : r(player);
                 },
@@ -3718,11 +3810,11 @@
                   padding: "9px 10px",
                   fontSize: 11.5,
                   fontWeight: 750,
-                  cursor: insufficient ? "not-allowed" : "pointer",
-                  opacity: insufficient ? .45 : 1,
+                  cursor: insufficient || balanceBlocked ? "not-allowed" : "pointer",
+                  opacity: insufficient || balanceBlocked ? .45 : 1,
                 },
               },
-              status.kind === "free" ? `Comprar · ${L(price)}` : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`,
+              balanceBlocked ? "Bloqueado pelo equilíbrio" : status.kind === "free" ? `Comprar · ${L(price)}` : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`,
             );
           }
 
@@ -3731,10 +3823,12 @@
             let activeOffer = Object.values(offers || {}).find((offer) => isOfferOpen(offer) && offer.playerId === player.id && activeTeam && offer.buyerTeamId === activeTeam.id);
             let price = status.kind === "listed" && status.price ? status.price : player.value;
             let insufficient = status.kind === "free" && activeTeam && Number(activeTeam.budget || 0) < Number(price || 0);
-            let label = status.kind === "free" ? (insufficient ? "Saldo insuficiente" : `Comprar · ${L(price)}`) : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`;
+            let balanceCheck = activeTeam && typeof balanceCheckFor === "function" ? balanceCheckFor(player) : { allowed:true };
+            let balanceBlocked = !balanceCheck.allowed;
+            let label = balanceBlocked ? "Bloqueado pelo equilíbrio" : status.kind === "free" ? (insufficient ? "Saldo insuficiente" : `Comprar · ${L(price)}`) : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`;
             return React.createElement(UnifiedPlayerCard, {
               key:player.id, player, onOpen:f, className:"market-highlight-card",
-              actionLabel:label, actionDisabled:insufficient,
+              actionLabel:label, actionDisabled:insufficient || balanceBlocked,
               isFavorite:favoriteSet.has(String(player.id)), onToggleFavorite,
               onAction:()=>{ activeOffer ? setMarketSection("negotiations") : r(player); }
             });
@@ -3798,8 +3892,10 @@
                       let price=status.kind==="listed"&&status.price?status.price:player.value;
                       let insufficient=status.kind==="free"&&activeTeam&&Number(activeTeam.budget||0)<Number(price||0);
                       let own=!!(activeTeam&&status.teamId===activeTeam.id);
-                      let label=own?null:status.kind==="free"?(insufficient?"Saldo insuficiente":`Comprar · ${L(price)}`):activeOffer?"Ver negociação":`Ofertar · ${L(price)}`;
-                      return React.createElement(UnifiedPlayerCard,{ key:player.id,player,onOpen:f,actionLabel:label,actionDisabled:insufficient,isFavorite:true,onToggleFavorite,onAction:()=>{activeOffer?setMarketSection("negotiations"):r(player)}});
+                      let balanceCheck=activeTeam&&typeof balanceCheckFor==="function"?balanceCheckFor(player):{allowed:true};
+                      let balanceBlocked=!balanceCheck.allowed;
+                      let label=own?null:balanceBlocked?"Bloqueado pelo equilíbrio":status.kind==="free"?(insufficient?"Saldo insuficiente":`Comprar · ${L(price)}`):activeOffer?"Ver negociação":`Ofertar · ${L(price)}`;
+                      return React.createElement(UnifiedPlayerCard,{ key:player.id,player,onOpen:f,actionLabel:label,actionDisabled:insufficient||balanceBlocked,isFavorite:true,onToggleFavorite,onAction:()=>{activeOffer?setMarketSection("negotiations"):r(player)}});
                     })))
               : marketSection === "recommended"
                 ? React.createElement(
@@ -3888,9 +3984,11 @@
                       let activeOffer = Object.values(offers || {}).find((offer) => isOfferOpen(offer) && offer.playerId === player.id && activeTeam && offer.buyerTeamId === activeTeam.id);
                       let price = status.kind === "listed" && status.price ? status.price : player.value;
                       let insufficient = status.kind === "free" && activeTeam && Number(activeTeam.budget || 0) < Number(price || 0);
-                      let label = status.kind === "free" ? (insufficient ? "Saldo insuficiente" : `Comprar · ${L(price)}`) : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`;
+                      let balanceCheck = activeTeam && typeof balanceCheckFor === "function" ? balanceCheckFor(player) : { allowed:true };
+                      let balanceBlocked = !balanceCheck.allowed;
+                      let label = balanceBlocked ? "Bloqueado pelo equilíbrio" : status.kind === "free" ? (insufficient ? "Saldo insuficiente" : `Comprar · ${L(price)}`) : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`;
                       return React.createElement(UnifiedPlayerCard, {
-                        key:player.id, player, onOpen:f, actionLabel:label, actionDisabled:insufficient,
+                        key:player.id, player, onOpen:f, actionLabel:label, actionDisabled:insufficient || balanceBlocked,
                         isFavorite:favoriteSet.has(String(player.id)), onToggleFavorite,
                         onAction:()=>{ activeOffer ? setMarketSection("negotiations") : r(player); }
                       });
@@ -3970,10 +4068,11 @@
           let footLabel = e.foot === "Right" ? "Direito" : e.foot === "Left" ? "Esquerdo" : "Ambos";
           let sideValue = String(e.favouredSide || "").trim().toLowerCase();
           let sideLabel = sideValue === "right" ? "Direito" : sideValue === "left" ? "Esquerdo" : sideValue === "both" ? "Ambos" : (e.favouredSide || "—");
+          let detailBalanceBlocked = detailContext.balanceCheck && detailContext.balanceCheck.allowed === false;
           let footerAction = detailContext.canBuy
-            ? React.createElement("button", { className:"tapbtn", disabled: !activeTeam || Number(activeTeam.budget || 0) < Number(e.value || 0), onClick:()=>onBuy&&onBuy(e), style:{ ...M, ...W, width:"100%", margin:0, opacity: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) ? 1 : .45, cursor: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) ? "pointer" : "not-allowed" } }, activeTeam && Number(activeTeam.budget || 0) < Number(e.value || 0) ? "Saldo insuficiente" : `Comprar · ${L(e.value)}`)
+            ? React.createElement("button", { className:"tapbtn", disabled: !activeTeam || Number(activeTeam.budget || 0) < Number(e.value || 0) || detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>onBuy&&onBuy(e), style:{ ...M, ...W, width:"100%", margin:0, opacity: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) && !detailBalanceBlocked ? 1 : .45, cursor: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) && !detailBalanceBlocked ? "pointer" : "not-allowed" } }, detailBalanceBlocked ? "Bloqueado pelo equilíbrio" : activeTeam && Number(activeTeam.budget || 0) < Number(e.value || 0) ? "Saldo insuficiente" : `Comprar · ${L(e.value)}`)
             : detailContext.fromOtherTeam && onOffer
-              ? React.createElement("button", { className:"tapbtn", onClick:()=>onOffer(e), style:{ ...M, ...W, width:"100%", margin:0 } }, "Fazer proposta")
+              ? React.createElement("button", { className:"tapbtn", disabled:detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>!detailBalanceBlocked&&onOffer(e), style:{ ...M, ...W, width:"100%", margin:0, opacity:detailBalanceBlocked?.45:1, cursor:detailBalanceBlocked?"not-allowed":"pointer" } }, detailBalanceBlocked?"Bloqueado pelo equilíbrio":"Fazer proposta")
               : null;
           return React.createElement(
             ee,
@@ -4027,7 +4126,7 @@
                   attributes.map(attribute => React.createElement(N, { key:attribute[0], label:attribute[0], value:attribute[1], max:attribute[2] || 99 }))
                 )
               ),
-              footerAction && React.createElement("footer", { className:"player-detail-footer" }, footerAction)
+              footerAction && React.createElement("footer", { className:"player-detail-footer" }, detailBalanceBlocked && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.4,marginBottom:9,textAlign:"center" } }, `Esta contratação deixaria a diferença entre os times em ${detailContext.balanceCheck.futureGap.toFixed(1)} OVR. Limite atual: ${(detailContext.balanceCheck.currentGap > detailContext.balanceCheck.maxDifference ? detailContext.balanceCheck.currentGap : detailContext.balanceCheck.maxDifference).toFixed(1)} OVR.`), footerAction)
             )
           );
         }
@@ -4091,7 +4190,25 @@
         }
         function ChampionshipRulesModal({ tournament, onClose }) {
           let economy=economySettingsOf(tournament), prize=prizeSettingsOf(tournament), roster=tournament.rosterSettings||{minPlayers:23,maxPlayers:30}, depreciation=tournament.marketSettings&&tournament.marketSettings.depreciationPct!=null?tournament.marketSettings.depreciationPct:10;
-          return React.createElement(ee, { title:"Regras do campeonato",onClose }, [["Vitória",`3 pontos · ${L(economy.winReward)}`],["Empate",`1 ponto · ${L(economy.drawReward)}`],["Derrota","0 pontos · 0M"],["Premiação final",`${L(prize.firstPlacePrize)} no 1º · último recebe ${prize.lastPlacePercentage}%`],["Elenco",`${roster.minPlayers} a ${roster.maxPlayers} jogadores`],["Venda ao mercado",`${depreciation}% de depreciação`]].map(([label,value])=>React.createElement("div", { key:label,style:{ display:"flex",justifyContent:"space-between",gap:14,padding:"12px 0",borderBottom:"1px solid var(--border)",fontSize:13 } }, React.createElement("span", { style:{ color:"var(--muted)" } }, label), React.createElement("strong", { style:{ textAlign:"right" } }, value))));
+          return React.createElement(ee, { title:"Regras do campeonato",onClose }, [["Vitória",`3 pontos · ${L(economy.winReward)}`],["Empate",`1 ponto · ${L(economy.drawReward)}`],["Derrota","0 pontos · 0M"],["Premiação final",`${L(prize.firstPlacePrize)} no 1º · último recebe ${prize.lastPlacePercentage}%`],["Elenco",`${roster.minPlayers} a ${roster.maxPlayers} jogadores`],["Venda ao mercado",`${depreciation}% de depreciação`],["Equilíbrio do mercado", tournament && tournament.marketBalanceSettings && tournament.marketBalanceSettings.enabled ? `máx. ${Number(tournament.marketBalanceSettings.maxDifference||0).toFixed(1)} OVR` : "desativado"]].map(([label,value])=>React.createElement("div", { key:label,style:{ display:"flex",justifyContent:"space-between",gap:14,padding:"12px 0",borderBottom:"1px solid var(--border)",fontSize:13 } }, React.createElement("span", { style:{ color:"var(--muted)" } }, label), React.createElement("strong", { style:{ textAlign:"right" } }, value))));
+        }
+        function MarketBalanceAdminForm({ tournament, teams, catalog, onSave }) {
+          let settings = tournament && tournament.marketBalanceSettings ? tournament.marketBalanceSettings : {};
+          let [enabled,setEnabled]=b(settings.enabled===true), [maxDifference,setMaxDifference]=b(settings.maxDifference!=null?settings.maxDifference:10);
+          He(()=>{ setEnabled(settings.enabled===true); setMaxDifference(settings.maxDifference!=null?settings.maxDifference:10); },[tournament&&tournament.id,settings.enabled,settings.maxDifference]);
+          let ownership=tournament&&tournament.context&&tournament.context.ownership&&typeof tournament.context.ownership==="object"?tournament.context.ownership:{};
+          function avg(teamId){ let ids=new Set(Object.entries(ownership).filter(([,item])=>item&&String(item.teamId)===String(teamId)).map(([id])=>String(id))); let players=(catalog||[]).filter((player)=>player&&ids.has(String(player.id))); return players.length?players.reduce((sum,player)=>sum+(Number(player.overall)||0),0)/players.length:0; }
+          let rows=(teams||[]).filter((team)=>team&&team.active!==false).map((team)=>({team,overall:avg(team.id)})).filter((item)=>item.overall>0).sort((a,b)=>b.overall-a.overall);
+          let gap=rows.length>1?rows[0].overall-rows[rows.length-1].overall:0;
+          return React.createElement("div",{style:{marginTop:18,paddingTop:18,borderTop:"1px solid var(--border)"}},
+            React.createElement("h3",{style:{margin:"0 0 6px"}},"Equilíbrio do mercado"),
+            React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginBottom:14}},"Limita contratações que aumentariam demais a diferença de overall médio entre os elencos completos."),
+            React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Ativar trava"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},"Campeonatos acima do limite podem continuar se a operação não piorar a diferença.")),React.createElement("input",{type:"checkbox",checked:enabled,onChange:(event)=>setEnabled(event.target.checked)})),
+            React.createElement("label",{style:P},"Diferença máxima de overall"),
+            React.createElement("input",{type:"number",min:0,step:.1,value:maxDifference,onChange:(event)=>setMaxDifference(event.target.value),style:q}),
+            rows.length>1&&React.createElement("div",{style:{...E,padding:14,marginTop:12,display:"grid",gap:7,fontSize:12}},React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12}},React.createElement("span",{style:{color:"var(--muted)"}},"Mais forte"),React.createElement("strong",null,rows[0].team.name," · ",rows[0].overall.toFixed(1))),React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12}},React.createElement("span",{style:{color:"var(--muted)"}},"Mais fraco"),React.createElement("strong",null,rows[rows.length-1].team.name," · ",rows[rows.length-1].overall.toFixed(1))),React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12}},React.createElement("span",{style:{color:"var(--muted)"}},"Diferença atual"),React.createElement("strong",{style:{color:gap>Number(maxDifference||0)?"var(--danger)":"var(--green)"}},gap.toFixed(1)," OVR"))),
+            React.createElement("button",{onClick:()=>onSave(enabled,maxDifference),style:{...M,...W,marginTop:12}},"Salvar equilíbrio")
+          );
         }
         function MarketSaleModal({ data, onClose, onConfirm }) {
           let player = data && data.player;
@@ -4897,7 +5014,7 @@
           return { owners, entries, total: entries.length };
         }
 
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateRosterRules, onUpdateEconomyRules, onFinishTournament, catalog, onImportRosters }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateMarketBalanceRules, onUpdateRosterRules, onUpdateEconomyRules, onFinishTournament, catalog, onImportRosters }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -5244,6 +5361,7 @@
               React.createElement("h3", { style:{ margin:"0 0 6px" } }, "Economia e premiação"),
               React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5 } }, "Defina recompensas por resultado e a faixa de premiação final."),
               React.createElement(EconomyAdminForm, { tournament:currentTournament, onSave:onUpdateEconomyRules }),
+              currentTournament.type !== "cup" && React.createElement(MarketBalanceAdminForm, { tournament:currentTournament, teams, catalog, onSave:onUpdateMarketBalanceRules }),
               React.createElement("button", { onClick:onFinishTournament, disabled:currentTournament.status==="finished", style:{ ...M,marginTop:14,background:currentTournament.status==="finished"?"var(--surface-soft)":"var(--ink)",color:currentTournament.status==="finished"?"var(--muted)":"var(--surface)",cursor:currentTournament.status==="finished"?"not-allowed":"pointer" } }, currentTournament.status==="finished"?"Campeonato encerrado":"Encerrar campeonato")
             ),
             adminSection === "danger" && currentTournament && React.createElement("div", { style: { ...E, border: "1px solid color-mix(in srgb, var(--danger) 40%, var(--border))" } },
