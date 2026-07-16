@@ -224,7 +224,11 @@
         .sports-modal { border-radius:26px 26px 0 0 !important; border-bottom:0 !important; width:100% !important; max-height:90vh !important; padding:20px 18px calc(20px + env(safe-area-inset-bottom)) !important; }
       }
       @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms !important; transition-duration:.01ms !important; scroll-behavior:auto !important; } }
-    </style>
+    
+      @media (max-width: 520px) {
+        .market-header-action-label { display: none; }
+      }
+</style>
 
     <!-- React via CDN (unpkg) -->
     <script
@@ -3650,20 +3654,20 @@
           onToggleFavorite: onToggleFavorite,
           balanceCheckFor: balanceCheckFor,
         }) {
-          let [marketSection, setMarketSection] = b("recommended"),
+          let [marketSection, setMarketSection] = b("all"),
             [clubQuery, setClubQuery] = b(""),
             [positionFilter, setPositionFilter] = b("all"),
             [sortBy, setSortBy] = b("overall"),
             [visibleCount, setVisibleCount] = b(36),
             [filtersOpen, setFiltersOpen] = b(false),
-            [overallMin, setOverallMin] = b(0),
+            [overallMin, setOverallMin] = b(70),
             [overallMax, setOverallMax] = b(99),
-            [valueMin, setValueMin] = b(0),
-            [valueMax, setValueMax] = b(999);
+            [valueMin, setValueMin] = b(3),
+            [valueMax, setValueMax] = b(333);
 
           let favoriteSet = X(() => new Set((Array.isArray(favoritePlayerIds) ? favoritePlayerIds : []).map((id) => String(id))), [favoritePlayerIds]);
-          let favoritePlayers = X(() => e.filter((player) => favoriteSet.has(String(player.id))), [e, favoriteSet]);
-          He(() => { if (marketSection === "favorites" && favoritePlayers.length === 0) setMarketSection("recommended"); }, [marketSection, favoritePlayers.length]);
+          let favoritePlayers = X(() => e.filter((player) => favoriteSet.has(String(player.id)) && !(activeTeam && t[player.id] && String(t[player.id].teamId) === String(activeTeam.id))), [e, favoriteSet, activeTeam, t]);
+          He(() => { if (marketSection === "favorites" && favoritePlayers.length === 0) setMarketSection("all"); }, [marketSection, favoritePlayers.length]);
 
           let positions = X(() => [...new Set(e.map((u) => u.position).filter(Boolean))].sort(), [e]);
           let activeSquad = X(
@@ -3723,6 +3727,7 @@
 
           let filteredPlayers = X(() => {
             let result = e.filter((player) => {
+              if (activeTeam && t[player.id] && String(t[player.id].teamId) === String(activeTeam.id)) return false;
               if (positionFilter !== "all" && player.position !== positionFilter) return false;
               if (Number(player.overall || 0) < Number(overallMin || 0) || Number(player.overall || 0) > Number(overallMax || 99)) return false;
               if (Number(player.value || 0) < Number(valueMin || 0) || Number(player.value || 0) > Number(valueMax || 999)) return false;
@@ -3748,21 +3753,21 @@
             if (sortBy === "value") result.sort((left, right) => right.value - left.value);
             if (sortBy === "club") result.sort((left, right) => String(left.club || "").localeCompare(String(right.club || "")));
             return result;
-          }, [e, positionFilter, overallMin, overallMax, valueMin, valueMax, clubQuery, sortBy, n, l]);
+          }, [e, positionFilter, overallMin, overallMax, valueMin, valueMax, clubQuery, sortBy, n, l, activeTeam, t]);
 
           let activeFilterCount =
             (positionFilter !== "all" ? 1 : 0) +
-            (Number(overallMin) > 0 || Number(overallMax) < 99 ? 1 : 0) +
-            (Number(valueMin) > 0 || Number(valueMax) < maxCatalogValue ? 1 : 0) +
+            (Number(overallMin) > 70 || Number(overallMax) < 99 ? 1 : 0) +
+            (Number(valueMin) > 3 || Number(valueMax) < 333 ? 1 : 0) +
             (clubQuery.trim() ? 1 : 0);
 
           function resetFilters() {
             setClubQuery("");
             setPositionFilter("all");
-            setOverallMin(0);
+            setOverallMin(70);
             setOverallMax(99);
-            setValueMin(0);
-            setValueMax(maxCatalogValue);
+            setValueMin(3);
+            setValueMax(333);
             setVisibleCount(36);
           }
 
@@ -3865,21 +3870,20 @@
             "div",
             null,
             React.createElement("header", { style:{ position:"relative", minHeight:64, display:"grid", placeItems:"center", marginBottom:18, padding:"4px 0" } },
-              React.createElement("h1", { style:{ margin:0, padding:"0 86px", fontSize:"clamp(32px,5vw,48px)", lineHeight:1, letterSpacing:"-.055em", textAlign:"center" } }, "Mercado"),
+              React.createElement("button", { className:"tapbtn", onClick:()=>setMarketSection("negotiations"), title:"Abrir negociações", style:{ position:"absolute", left:0, top:"50%", transform:"translateY(-50%)", border:"1px solid color-mix(in srgb, #ffbb26 42%, var(--border))", background:marketSection==="negotiations"?"color-mix(in srgb, #ffbb26 22%, var(--surface))":"color-mix(in srgb, #ffbb26 10%, var(--surface))", color:"#ffcc4d", borderRadius:999, padding:"9px 12px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontWeight:800, boxShadow:"0 10px 26px rgba(0,0,0,.12)" } },
+                React.createElement(OfferIcon,{ size:16,color:"#ffcc4d" }),
+                React.createElement("span", { className:"market-header-action-label" }, "Negociações"),
+                unreadOffers>0&&React.createElement("span", { style:{ minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:"var(--danger)",color:"white",display:"grid",placeItems:"center",fontSize:10,fontWeight:850 } }, unreadOffers>9?"9+":unreadOffers)
+              ),
+              React.createElement("h1", { style:{ margin:0, padding:"0 112px", fontSize:"clamp(32px,5vw,48px)", lineHeight:1, letterSpacing:"-.055em", textAlign:"center" } }, "Mercado"),
               activeTeam && React.createElement("button", { className:"tapbtn", onClick:onOpenBalanceHistory, title:"Ver histórico de saldo", style:{ position:"absolute", right:0, top:"50%", transform:"translateY(-50%)", border:"1px solid color-mix(in srgb, var(--green) 30%, var(--border))", background:"color-mix(in srgb, var(--green) 10%, var(--surface))", color:"var(--heading)", borderRadius:999, padding:"9px 12px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontWeight:800, boxShadow:"0 10px 26px rgba(0,0,0,.12)" } }, React.createElement(BankIcon,{ size:15,color:"var(--green)" }), L(activeTeam.budget))
             ),
             React.createElement(
               "div",
               { style: { display: "flex", gap: 4, padding: 4, marginBottom: 18, background: "var(--surface-soft)", border: "1px solid var(--border)", borderRadius: 999, overflowX: "auto" } },
-              React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("recommended"), style: segmentStyle(marketSection === "recommended") }, React.createElement(Star, { size: 15 }), "Recomendados"),
-              React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("all"), style: segmentStyle(marketSection === "all") }, React.createElement(Xe, { size: 15 }), "Todos"),
+              React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("all"), style: segmentStyle(marketSection === "all") }, React.createElement(Xe, { size: 15 }), "Jogadores"),
               favoritePlayers.length > 0 && React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("favorites"), style: segmentStyle(marketSection === "favorites") }, React.createElement("svg", { width:15,height:15,viewBox:"0 0 24 24",fill:"currentColor",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true" }, React.createElement("path", { d:"m12 2.8 2.8 5.68 6.27.91-4.54 4.42 1.07 6.24L12 17.1l-5.6 2.95 1.07-6.24-4.54-4.42 6.27-.91L12 2.8Z" })), "Favoritos"),
-              React.createElement(
-                "button",
-                { className: "tapbtn", onClick: () => setMarketSection("negotiations"), style: segmentStyle(marketSection === "negotiations") },
-                React.createElement(OfferIcon, { size: 15 }), "Negociações",
-                unreadOffers > 0 && React.createElement("span", { style: { minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999, background: marketSection === "negotiations" ? "var(--surface)" : "var(--danger)", color: marketSection === "negotiations" ? "var(--ink)" : "white", display: "grid", placeItems: "center", fontSize: 10, fontWeight: 800 } }, unreadOffers > 9 ? "9+" : unreadOffers),
-              ),
+              React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("recommended"), style: segmentStyle(marketSection === "recommended") }, React.createElement(Star, { size: 15 }), "Recomendados"),
             ),
             marketSection === "negotiations"
               ? React.createElement(TradeOffersArea, { offers, catalog: catalogMap, teamById: l, activeTeam, transfers: d, onAccept: onAcceptOffer, onUpdate: onUpdateOffer, onOpenDetail: f, onExplorePlayers: () => setMarketSection("all") })
@@ -3969,8 +3973,22 @@
                       React.createElement(
                         "div",
                         { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 } },
-                        React.createElement("div", null, React.createElement("div", { style: { fontSize: 10.5, color: "var(--muted)", marginBottom: 7 } }, "Range de overall"), React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 7 } }, React.createElement("input", { type: "number", min: 0, max: 99, value: overallMin, onChange: (event) => { setOverallMin(Math.min(Number(event.target.value || 0), Number(overallMax))); setVisibleCount(36); }, style: q }), React.createElement("span", { style: { color: "var(--muted)" } }, "até"), React.createElement("input", { type: "number", min: 0, max: 99, value: overallMax, onChange: (event) => { setOverallMax(Math.max(Number(event.target.value || 99), Number(overallMin))); setVisibleCount(36); }, style: q }))),
-                        React.createElement("div", null, React.createElement("div", { style: { fontSize: 10.5, color: "var(--muted)", marginBottom: 7 } }, "Range de valor"), React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 7 } }, React.createElement("input", { type: "number", min: 0, max: maxCatalogValue, value: valueMin, onChange: (event) => { setValueMin(Math.min(Number(event.target.value || 0), Number(valueMax))); setVisibleCount(36); }, style: q }), React.createElement("span", { style: { color: "var(--muted)" } }, "até"), React.createElement("input", { type: "number", min: 0, max: maxCatalogValue, value: valueMax, onChange: (event) => { setValueMax(Math.max(Number(event.target.value || maxCatalogValue), Number(valueMin))); setVisibleCount(36); }, style: q }))),
+                        React.createElement("div", null,
+                          React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",gap:10,fontSize:10.5,color:"var(--muted)",marginBottom:9 } }, React.createElement("span", null, "Overall"), React.createElement("strong", { style:{ color:"var(--heading)" } }, `${overallMin} – ${overallMax}`)),
+                          React.createElement("div", { style:{ display:"grid",gap:7 } },
+                            React.createElement("input", { type:"range", min:70, max:99, step:1, value:overallMin, onChange:(event)=>{ setOverallMin(Math.min(Number(event.target.value), Number(overallMax))); setVisibleCount(36); }, style:{ width:"100%",accentColor:"var(--green)" } }),
+                            React.createElement("input", { type:"range", min:70, max:99, step:1, value:overallMax, onChange:(event)=>{ setOverallMax(Math.max(Number(event.target.value), Number(overallMin))); setVisibleCount(36); }, style:{ width:"100%",accentColor:"var(--green)" } })
+                          ),
+                          React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",fontSize:9.5,color:"var(--muted)",marginTop:4 } }, React.createElement("span",null,"70"),React.createElement("span",null,"99"))
+                        ),
+                        React.createElement("div", null,
+                          React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",gap:10,fontSize:10.5,color:"var(--muted)",marginBottom:9 } }, React.createElement("span", null, "Valor"), React.createElement("strong", { style:{ color:"var(--heading)" } }, `${valueMin}M – ${valueMax}M`)),
+                          React.createElement("div", { style:{ display:"grid",gap:7 } },
+                            React.createElement("input", { type:"range", min:3, max:333, step:1, value:valueMin, onChange:(event)=>{ setValueMin(Math.min(Number(event.target.value), Number(valueMax))); setVisibleCount(36); }, style:{ width:"100%",accentColor:"var(--green)" } }),
+                            React.createElement("input", { type:"range", min:3, max:333, step:1, value:valueMax, onChange:(event)=>{ setValueMax(Math.max(Number(event.target.value), Number(valueMin))); setVisibleCount(36); }, style:{ width:"100%",accentColor:"var(--green)" } })
+                          ),
+                          React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",fontSize:9.5,color:"var(--muted)",marginTop:4 } }, React.createElement("span",null,"3M"),React.createElement("span",null,"333M"))
+                        ),
                       ),
                     ),
                     React.createElement(
@@ -5817,8 +5835,8 @@
                 ? React.createElement("span", { className: "sports-tab-avatar", style: { background: profileItem.color || "var(--green-strong)", boxShadow: profileItem.avatar ? "none" : undefined, position:"relative" } },
                     profileItem.avatar
                       ? React.createElement("img", { src: profileItem.avatar, alt: "" })
-                      : String(profileItem.name || "?").charAt(0).toUpperCase(),
-                    presence && profileItem.id && presence[profileItem.id] && presence[profileItem.id].online && React.createElement("span", { title:"Online", style:{ position:"absolute",right:-1,bottom:-1,width:8,height:8,borderRadius:99,background:"#21e493",boxShadow:"0 0 0 2px var(--surface)" } }))
+                      : String(profileItem.name || "?").charAt(0).toUpperCase()
+                  )
                 : React.createElement(Icon, { size: 21, color: "currentColor" });
               return React.createElement("button", { key, onClick: () => t(key), className: "sports-tab" + (active ? " is-active" : ""), "aria-current": active ? "page" : undefined, "aria-label": label },
                 React.createElement("span", { style: { position: "relative", display: "inline-flex" } }, visual,
