@@ -1778,9 +1778,9 @@
                 setSelectedTournamentId(cup.id);
                 qe("pes-selected-tournament", cup.id);
                 oe("table");
-                return;
+                return Promise.resolve(true);
               }
-              db.ref("pes/tournaments").transaction((serverList) => {
+              return new Promise((resolve) => db.ref("pes/tournaments").transaction((serverList) => {
                 let list = Array.isArray(serverList) ? [...serverList] : [];
                 if (list.some((item) => item && String(item.id) === String(cup.id))) return list;
                 list.push(cup);
@@ -1789,6 +1789,7 @@
                 if (error || !committed) {
                   console.error("cup creation failed", error);
                   window.alert("Não foi possível criar a Copa. Nenhum dado foi alterado. Tente novamente.");
+                  resolve(false);
                   return;
                 }
                 let savedList = snapshot && Array.isArray(snapshot.val()) ? snapshot.val() : nextList;
@@ -1797,8 +1798,8 @@
                 setSelectedTournamentId(cup.id);
                 qe("pes-selected-tournament", cup.id);
                 oe("table");
-              });
-              return;
+                resolve(true);
+              }));
             }
             let inheritance = {
               participants: options.inheritance ? options.inheritance.participants !== false : true,
@@ -5005,14 +5006,19 @@
             }
             return true;
           }
-          function submitCompetitionWizard() {
+          async function submitCompetitionWizard() {
             let options = competitionType === "cup"
               ? { competitionType:"cup", linkedLeagueId:cupLeagueId, groupLegs, cupPrize, cupParticipantIds }
               : creationMode === "continue"
                 ? { competitionType:"league", mode:"continue", sourceTournamentId, inheritance, participantOverrides }
                 : { competitionType:"league", mode:"new", newParticipantIds, newParticipantDrafts };
-            onCreateTournament(options);
-            closeCompetitionWizard();
+            try {
+              let result = await onCreateTournament(options);
+              if (result !== false) closeCompetitionWizard();
+            } catch (error) {
+              console.error("competition creation failed", error);
+              window.alert("Não foi possível criar a competição. Os dados anteriores foram preservados.");
+            }
           }
           function competitionChoiceCard(value, title, description) {
             let selected = competitionType === value;
@@ -5475,7 +5481,7 @@
             observer.observe(node); return () => observer.disconnect();
           }, [visibleCount, history.length, tournament && tournament.id]);
           if (!tournament) return React.createElement("div", { style: E }, React.createElement("div", { style: { fontWeight: 700, marginBottom: 6 } }, "Nenhum campeonato selecionado"), React.createElement("div", { style: { color: "var(--muted)", fontSize: 14 } }, "Selecione um campeonato para visualizar a tabela."));
-          if (tournament.type === "cup") return React.createElement(CupCompetitionArea,{ tournament, teams, teamById, profiles, presence, onOpenMatch:onOpenCupMatch, onOpenSummary });
+          if (tournament.type === "cup") return React.createElement(CupViewErrorBoundary,{ tournamentId:tournament.id },React.createElement(CupCompetitionArea,{ tournament, teams, teamById, profiles, presence, onOpenMatch:onOpenCupMatch, onOpenSummary }));
           let participantIds = Array.isArray(tournament.participants) ? tournament.participants : [];
           let declaredTeamIds = Array.isArray(tournament.teamIds) ? tournament.teamIds : [];
           let existingProfileIds = new Set((profiles || []).filter((item) => item && typeof item === "object" && item.active !== false && item.id).map((item) => String(item.id)));
@@ -5554,28 +5560,71 @@
             canDelete ? React.createElement("button", { onClick:()=>onDelete && onDelete(match), title:"Excluir partida", "aria-label":"Excluir partida", style:{ width:36, height:36, borderRadius:10, border:0, background:"transparent", color:"var(--muted)", display:"grid", placeItems:"center", cursor:"pointer", padding:0, transition:"color .16s ease, background .16s ease" }, onMouseEnter:(event)=>{event.currentTarget.style.color="var(--danger)";event.currentTarget.style.background="color-mix(in srgb, var(--danger) 10%, transparent)"}, onMouseLeave:(event)=>{event.currentTarget.style.color="var(--muted)";event.currentTarget.style.background="transparent"} }, React.createElement("svg", { width:18, height:18, viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:1.8, strokeLinecap:"round", strokeLinejoin:"round", "aria-hidden":"true" }, React.createElement("path", { d:"M3 6h18" }), React.createElement("path", { d:"M8 6V4h8v2" }), React.createElement("path", { d:"M19 6l-1 14H6L5 6" }), React.createElement("path", { d:"M10 11v5M14 11v5" }))) : React.createElement("div", { "aria-hidden":"true" })
           );
         }
+        class CupViewErrorBoundary extends React.Component {
+          constructor(props){ super(props); this.state={ error:null }; }
+          static getDerivedStateFromError(error){ return { error }; }
+          componentDidCatch(error, info){ console.error("cup view failed", error, info); }
+          componentDidUpdate(prevProps){
+            if (this.state.error && prevProps.tournamentId !== this.props.tournamentId) this.setState({ error:null });
+          }
+          render(){
+            if (!this.state.error) return this.props.children;
+            return React.createElement("section", { className:"family-card", style:{padding:24,textAlign:"center",marginTop:10} },
+              React.createElement("div", { style:{fontSize:38,marginBottom:10} }, "🏆"),
+              React.createElement("div", { style:{fontSize:19,fontWeight:850,marginBottom:7} }, "Não foi possível abrir esta Copa"),
+              React.createElement("div", { style:{fontSize:13,color:"var(--muted)",lineHeight:1.55,maxWidth:520,margin:"0 auto 14px"} }, "Os dados da competição foram preservados. Atualize a página; se a estrutura estiver incompleta, o app tentará reconstruí-la usando a liga vinculada."),
+              React.createElement("button", { onClick:()=>window.location.reload(), style:{...M,...W,width:"auto",padding:"11px 18px"} }, "Tentar novamente")
+            );
+          }
+        }
         function CupCompetitionArea({ tournament, teams, teamById, profiles, presence, onOpenMatch, onOpenSummary }) {
           tournament = tournament && typeof tournament === "object" ? tournament : {};
-          teams = Array.isArray(teams) ? teams : [];
-          profiles = Array.isArray(profiles) ? profiles : [];
-          teamById = typeof teamById === "function" ? teamById : ((id) => teams.find((team) => team && String(team.id) === String(id)));
-          let [view,setView]=b(tournament.cupStage==="knockout"||tournament.status==="finished"?"knockout":"groups");
-          He(()=>{ if(tournament.cupStage==="knockout"||tournament.status==="finished") setView("knockout"); },[tournament.cupStage,tournament.status]);
-          let groups=Array.isArray(tournament.groups)?tournament.groups:[], matches=Array.isArray(tournament.matches)?tournament.matches:[];
-          function profileForTeam(team){return team&&(profiles||[]).find((profile)=>profile&&String(profile.id)===String(team.profileId));}
-          function avatar(team,size=34){let profile=profileForTeam(team),name=profile&&profile.name||team&&team.name||"?";return React.createElement("span",{style:{width:size,height:size,borderRadius:999,overflow:"hidden",display:"grid",placeItems:"center",background:profile&&profile.color||"var(--surface-soft)",fontWeight:850,flexShrink:0}},profile&&profile.avatar?React.createElement("img",{src:profile.avatar,alt:"",style:{width:"100%",height:"100%",objectFit:"cover"}}):String(name).charAt(0).toUpperCase());}
-          function matchCard(match){let home=teamById(match.homeId),away=teamById(match.awayId);return React.createElement("button",{key:match.id,onClick:()=>tournament.status!=="finished"&&onOpenMatch&&onOpenMatch(match),disabled:tournament.status==="finished",className:"family-card tapbtn",style:{width:"100%",padding:14,marginBottom:8,display:"grid",gridTemplateColumns:"minmax(0,1fr) auto minmax(0,1fr)",gap:10,alignItems:"center",color:"inherit",cursor:tournament.status==="finished"?"default":"pointer"}},React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,minWidth:0}},avatar(home,30),React.createElement("span",{style:{fontWeight:750,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},home&&home.name||"A definir")),React.createElement("div",{style:{fontWeight:900,fontSize:18,whiteSpace:"nowrap"}},match.played?`${match.homeScore} × ${match.awayScore}`:"×"),React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8,minWidth:0}},React.createElement("span",{style:{fontWeight:750,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},away&&away.name||"A definir"),avatar(away,30)));}
-          let knockout=matches.filter((match)=>match.stage==="knockout"),rounds=[...new Set(knockout.map((match)=>match.round||1))].sort((a,b)=>a-b);
-          let cupHasStructure = groups.length > 0 && matches.length > 0;
-          if (!cupHasStructure) return React.createElement("section", { className:"family-card", style:{padding:22,textAlign:"center"} },
-            React.createElement("div", { style:{fontSize:34,marginBottom:10} }, "🏆"),
-            React.createElement("div", { style:{fontSize:19,fontWeight:850,marginBottom:6} }, "Preparando a Copa"),
-            React.createElement("div", { style:{fontSize:13,color:"var(--muted)",lineHeight:1.5,maxWidth:460,margin:"0 auto"} }, "Os grupos e confrontos desta Copa ainda estão sendo reconstruídos a partir da liga vinculada. Atualize a página em alguns instantes. Se o problema continuar, abra a competição no Admin e confirme a liga-base e os participantes."));
-          function roundName(round){let count=knockout.filter((match)=>(match.round||1)===round).length;return count===1?"Final":count===2?"Semifinal":count===4?"Quartas de final":count===8?"Oitavas de final":`Fase ${round}`;}
+          teams = Array.isArray(teams) ? teams.filter(Boolean) : [];
+          profiles = Array.isArray(profiles) ? profiles.filter(Boolean) : [];
+          const groups = Array.isArray(tournament.groups) ? tournament.groups.filter(Boolean) : [];
+          const matches = Array.isArray(tournament.matches) ? tournament.matches.filter(Boolean) : [];
+          const isFinished = tournament.status === "finished";
+          const hasKnockout = matches.some((match)=>match && match.stage === "knockout");
+          let [view,setView]=b((tournament.cupStage === "knockout" || isFinished || hasKnockout) ? "knockout" : "groups");
+          He(()=>{ if(tournament.cupStage === "knockout" || isFinished) setView("knockout"); },[tournament.cupStage,isFinished]);
+          const byTeamId = new Map(teams.map((team)=>[String(team.id),team]));
+          function resolveTeam(id){
+            if (id == null) return null;
+            return byTeamId.get(String(id)) || (typeof teamById === "function" ? teamById(id) : null) || null;
+          }
+          function resolveProfile(team){ return team ? profiles.find((profile)=>profile && String(profile.id)===String(team.profileId)) || null : null; }
+          function avatar(team,size=34){
+            const profile=resolveProfile(team), name=(profile&&profile.name)||(team&&team.name)||"?";
+            return React.createElement("span",{style:{width:size,height:size,borderRadius:999,overflow:"hidden",display:"grid",placeItems:"center",background:(profile&&profile.color)||(team&&team.color)||"var(--surface-soft)",fontWeight:850,flexShrink:0}},profile&&profile.avatar?React.createElement("img",{src:profile.avatar,alt:"",style:{width:"100%",height:"100%",objectFit:"cover"}}):String(name).charAt(0).toUpperCase());
+          }
+          function safeStandings(group){
+            const ids=Array.isArray(group&&group.teamIds)?group.teamIds.map(String):[];
+            const rows=Object.fromEntries(ids.map((id)=>[id,{id,pj:0,v:0,e:0,d:0,gp:0,gc:0,sg:0,pts:0}]));
+            matches.filter((match)=>match&&match.stage==="group"&&match.groupName===group.name&&match.played&&match.status!=="voided").forEach((match)=>{
+              const home=rows[String(match.homeId)],away=rows[String(match.awayId)]; if(!home||!away)return;
+              const hs=Number(match.homeScore)||0,as=Number(match.awayScore)||0; home.pj++;away.pj++;home.gp+=hs;home.gc+=as;away.gp+=as;away.gc+=hs;
+              if(hs>as){home.v++;away.d++;home.pts+=3;}else if(as>hs){away.v++;home.d++;away.pts+=3;}else{home.e++;away.e++;home.pts++;away.pts++;}
+            });
+            Object.values(rows).forEach((row)=>row.sg=row.gp-row.gc);
+            return Object.values(rows).sort((a,b)=>b.pts-a.pts||b.sg-a.sg||b.gp-a.gp||String((resolveTeam(a.id)||{}).name||"").localeCompare(String((resolveTeam(b.id)||{}).name||"")));
+          }
+          function matchCard(match){
+            const home=resolveTeam(match.homeId),away=resolveTeam(match.awayId),canOpen=!isFinished&&home&&away;
+            return React.createElement("button",{key:match.id||`${match.homeId}-${match.awayId}-${match.round||0}`,onClick:()=>canOpen&&onOpenMatch&&onOpenMatch(match),disabled:!canOpen,className:"family-card tapbtn",style:{width:"100%",padding:14,marginBottom:8,display:"grid",gridTemplateColumns:"minmax(0,1fr) auto minmax(0,1fr)",gap:10,alignItems:"center",color:"inherit",cursor:canOpen?"pointer":"default",opacity:home&&away?1:.65}},React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,minWidth:0}},avatar(home,30),React.createElement("span",{style:{fontWeight:750,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},home&&home.name||"A definir")),React.createElement("div",{style:{fontWeight:900,fontSize:18,whiteSpace:"nowrap"}},match.played?`${Number(match.homeScore)||0} × ${Number(match.awayScore)||0}`:"×"),React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8,minWidth:0}},React.createElement("span",{style:{fontWeight:750,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},away&&away.name||"A definir"),avatar(away,30)));
+          }
+          if (!groups.length || !matches.length) return React.createElement("section", { className:"family-card", style:{padding:24,textAlign:"center"} },
+            React.createElement("div", { style:{fontSize:38,marginBottom:10} }, "🏆"),
+            React.createElement("div", { style:{fontSize:19,fontWeight:850,marginBottom:6} }, "Copa em preparação"),
+            React.createElement("div", { style:{fontSize:13,color:"var(--muted)",lineHeight:1.55,maxWidth:500,margin:"0 auto"} }, "A estrutura de grupos ainda não foi concluída. Os dados permanecem salvos e serão reconstruídos automaticamente a partir da liga vinculada.")
+          );
+          const knockout=matches.filter((match)=>match&&match.stage==="knockout");
+          const rounds=[...new Set(knockout.map((match)=>Number(match.round)||1))].sort((a,b)=>a-b);
+          function roundName(round){const count=knockout.filter((match)=>(Number(match.round)||1)===round).length;return count===1?"Final":count===2?"Semifinal":count===4?"Quartas de final":count===8?"Oitavas de final":`Fase ${round}`;}
+          const winner=Array.isArray(tournament.finalStandings)&&tournament.finalStandings[0]?tournament.finalStandings[0]:null;
           return React.createElement("div",null,
-            tournament.status==="finished"&&Array.isArray(tournament.finalStandings)&&tournament.finalStandings.length>0&&React.createElement("section",{className:"family-card",style:{padding:22,marginBottom:16,textAlign:"center",background:"linear-gradient(145deg,color-mix(in srgb,#ffbb26 12%,var(--surface)),var(--surface))"}},React.createElement("div",{style:{fontSize:42}},"🏆"),React.createElement("div",{style:{fontSize:12,color:"#ffbb26",fontWeight:850,textTransform:"uppercase",letterSpacing:".12em"}},"Campeão da copa"),React.createElement("div",{style:{fontSize:22,fontWeight:900,marginTop:5}},tournament.finalStandings[0].profileNameSnapshot),React.createElement("div",{style:{color:"var(--muted)",fontSize:13,marginTop:3}},`${tournament.finalStandings[0].teamNameSnapshot} · +${L(tournament.finalStandings[0].prize||0)}`),React.createElement("button",{onClick:()=>onOpenSummary&&onOpenSummary(tournament),style:{...M,marginTop:14,background:"var(--surface-soft)",color:"var(--heading)"}},"Ver resumo da copa")),
+            isFinished&&winner&&React.createElement("section",{className:"family-card",style:{padding:22,marginBottom:16,textAlign:"center",background:"linear-gradient(145deg,color-mix(in srgb,#ffbb26 12%,var(--surface)),var(--surface))"}},React.createElement("div",{style:{fontSize:42}},"🏆"),React.createElement("div",{style:{fontSize:12,color:"#ffbb26",fontWeight:850,textTransform:"uppercase",letterSpacing:".12em"}},"Campeão da copa"),React.createElement("div",{style:{fontSize:22,fontWeight:900,marginTop:5}},winner.profileNameSnapshot||winner.teamNameSnapshot||"Campeão"),React.createElement("div",{style:{color:"var(--muted)",fontSize:13,marginTop:3}},`${winner.teamNameSnapshot||"Time"} · +${L(winner.prize||0)}`),onOpenSummary&&React.createElement("button",{onClick:()=>onOpenSummary(tournament),style:{...M,marginTop:14,background:"var(--surface-soft)",color:"var(--heading)"}},"Ver resumo da copa")),
             React.createElement("div",{style:{display:"flex",justifyContent:"center",marginBottom:16}},React.createElement("div",{style:{display:"inline-flex",padding:4,borderRadius:999,background:"var(--surface-soft)",overflowX:"auto",maxWidth:"100%"}},React.createElement("button",{onClick:()=>setView("groups"),style:{...V(view==="groups"),whiteSpace:"nowrap"}},"Grupos"),knockout.length?React.createElement("button",{onClick:()=>setView("knockout"),style:{...V(view==="knockout"),whiteSpace:"nowrap"}},"Mata-mata"):null)),
-            view==="groups"?React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,360px),1fr))",gap:14}},groups.map((group)=>{let rows=cupStandings(group,matches);let groupMatches=matches.filter((match)=>match.stage==="group"&&match.groupName===group.name);return React.createElement("section",{key:group.name,className:"family-card",style:{padding:14}},React.createElement("div",{style:{fontSize:17,fontWeight:850,marginBottom:10}},group.name),React.createElement("div",{style:{overflowX:"auto"}},React.createElement("table",{style:{width:"100%",borderCollapse:"collapse",minWidth:330}},React.createElement("thead",null,React.createElement("tr",null,["#","Time","J","SG","PTS"].map((label)=>React.createElement("th",{key:label,style:{fontSize:10,color:"var(--muted)",textAlign:label==="Time"?"left":"center",padding:"7px 5px",borderBottom:"1px solid var(--border)"}},label)))),React.createElement("tbody",null,rows.map((row,index)=>{let team=teamById(row.id);return React.createElement("tr",{key:row.id,style:{background:index<2?"color-mix(in srgb,var(--green) 7%,transparent)":"transparent"}},React.createElement("td",{style:{padding:"9px 5px",textAlign:"center",fontWeight:800}},index+1),React.createElement("td",{style:{padding:"9px 5px",fontWeight:750}},team&&team.name||"?"),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center"}},row.pj || 0),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center"}},row.sg || 0),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center",fontWeight:900}},row.pts));})))),React.createElement("div",{style:{fontSize:11,color:"var(--muted)",fontWeight:800,textTransform:"uppercase",letterSpacing:".08em",margin:"14px 0 8px"}},"Confrontos"),groupMatches.map(matchCard));})):React.createElement("div",{className:"cup-bracket-scroll",style:{display:"flex",gap:18,overflowX:"auto",padding:"8px 8px 22px",alignItems:"stretch"}},rounds.map((round)=>React.createElement("section",{key:round,className:"family-card",style:{flex:"0 0 min(82vw,330px)",padding:14,display:"flex",flexDirection:"column",justifyContent:"center"}},React.createElement("div",{style:{fontSize:12,color:"var(--muted)",fontWeight:850,textTransform:"uppercase",letterSpacing:".1em",marginBottom:10}},roundName(round)),knockout.filter((match)=>(match.round||1)===round).map(matchCard))))
+            view==="groups"?React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(min(100%,360px),1fr))",gap:14}},groups.map((group,index)=>{const rows=safeStandings(group),groupMatches=matches.filter((match)=>match&&match.stage==="group"&&match.groupName===group.name);return React.createElement("section",{key:group.name||index,className:"family-card",style:{padding:14}},React.createElement("div",{style:{fontSize:17,fontWeight:850,marginBottom:10}},group.name||`Grupo ${index+1}`),React.createElement("div",{style:{overflowX:"auto"}},React.createElement("table",{style:{width:"100%",borderCollapse:"collapse",minWidth:330}},React.createElement("thead",null,React.createElement("tr",null,["#","Time","J","SG","PTS"].map((label)=>React.createElement("th",{key:label,style:{fontSize:10,color:"var(--muted)",textAlign:label==="Time"?"left":"center",padding:"7px 5px",borderBottom:"1px solid var(--border)"}},label)))),React.createElement("tbody",null,rows.map((row,rowIndex)=>{const team=resolveTeam(row.id);return React.createElement("tr",{key:row.id,style:{background:rowIndex<2?"color-mix(in srgb,var(--green) 7%,transparent)":"transparent"}},React.createElement("td",{style:{padding:"9px 5px",textAlign:"center",fontWeight:800}},rowIndex+1),React.createElement("td",{style:{padding:"9px 5px",fontWeight:750}},team&&team.name||"Time indisponível"),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center"}},row.pj),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center"}},row.sg),React.createElement("td",{style:{padding:"9px 5px",textAlign:"center",fontWeight:900}},row.pts));})))),React.createElement("div",{style:{fontSize:11,color:"var(--muted)",fontWeight:800,textTransform:"uppercase",letterSpacing:".08em",margin:"14px 0 8px"}},"Confrontos"),groupMatches.map(matchCard));})):knockout.length?React.createElement("div",{className:"cup-bracket-scroll",style:{display:"flex",gap:18,overflowX:"auto",padding:"8px 8px 22px",alignItems:"stretch"}},rounds.map((round)=>React.createElement("section",{key:round,className:"family-card",style:{flex:"0 0 min(82vw,330px)",padding:14,display:"flex",flexDirection:"column",justifyContent:"center"}},React.createElement("div",{style:{fontSize:12,color:"var(--muted)",fontWeight:850,textTransform:"uppercase",letterSpacing:".1em",marginBottom:10}},roundName(round)),knockout.filter((match)=>(Number(match.round)||1)===round).map(matchCard)))):React.createElement("section",{className:"family-card",style:{padding:20,textAlign:"center",color:"var(--muted)"}},"Conclua todos os jogos dos grupos para gerar o mata-mata.")
           );
         }
         function CupScoreModal({ data,setData,tournament,teams,profiles,onClose,onSave }){
