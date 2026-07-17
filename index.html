@@ -1152,19 +1152,20 @@
             if (unlocked) { setAdminUnlocked(true); oe("admin"); return; }
             setAdminGate({ mode: adminSecurity && adminSecurity.passwordHash ? "verify" : "create", password: "", confirm: "", error: "", submitting: false });
           }
-          async function submitAdminGate() {
-            if (!adminGate || adminGate.submitting) return;
-            let password = String(adminGate.password || "");
-            if (password.length < 6) { setAdminGate({ ...adminGate, error: "Use uma senha com pelo menos 6 caracteres." }); return; }
-            if (adminGate.mode === "create" && password !== String(adminGate.confirm || "")) { setAdminGate({ ...adminGate, error: "As senhas não coincidem." }); return; }
-            setAdminGate({ ...adminGate, submitting: true, error: "" });
+          async function submitAdminGate(passwordOverride = null, gateOverride = null) {
+            let gate = gateOverride || adminGate;
+            if (!gate || gate.submitting) return;
+            let password = String(passwordOverride != null ? passwordOverride : gate.password || "");
+            if (password.length < 6) { setAdminGate({ ...gate, password, error: "Use uma senha com pelo menos 6 caracteres." }); return; }
+            if (gate.mode === "create" && password !== String(gate.confirm || "")) { setAdminGate({ ...gate, password, error: "As senhas não coincidem." }); return; }
+            setAdminGate({ ...gate, password, submitting: true, error: "" });
             try {
               let passwordHash = await hashAdminPassword(password);
-              if (adminGate.mode === "verify" && (!adminSecurity || passwordHash !== adminSecurity.passwordHash)) {
-                setAdminGate({ ...adminGate, submitting: false, error: "Senha incorreta." });
+              if (gate.mode === "verify" && (!adminSecurity || passwordHash !== adminSecurity.passwordHash)) {
+                setAdminGate({ ...gate, password:"", submitting: false, error: "Senha incorreta." });
                 return;
               }
-              if (adminGate.mode === "create") {
+              if (gate.mode === "create") {
                 let security = { passwordHash, updatedAt: Date.now(), updatedByProfileId: te && te.id ? te.id : null };
                 await Promise.resolve(U("adminSecurity", security));
                 setAdminSecurity(security);
@@ -1175,7 +1176,7 @@
               oe("admin");
             } catch (error) {
               console.error("admin access error", error);
-              setAdminGate({ ...adminGate, submitting: false, error: "Não foi possível validar a senha. Tente novamente." });
+              setAdminGate({ ...gate, password, submitting: false, error: "Não foi possível validar a senha. Tente novamente." });
             }
           }
           function selectTournament(o) {
@@ -2780,7 +2781,7 @@
                     adminGate && React.createElement(ee, { title: adminGate.mode === "create" ? "Criar senha de administrador" : "Acessar administração", onClose: () => setAdminGate(null) },
                       React.createElement("div", { style: { color: "var(--muted)", fontSize: 13.5, lineHeight: 1.55, marginBottom: 16 } }, adminGate.mode === "create" ? "Defina uma senha para proteger o painel administrativo neste app." : "Digite a senha de administrador para continuar."),
                       React.createElement("label", { style: P }, "Senha"),
-                      React.createElement("input", { type: "password", autoFocus: true, value: adminGate.password, onChange: (event) => setAdminGate({ ...adminGate, password: event.target.value, error: "" }), onKeyDown: (event) => { if (event.key === "Enter" && adminGate.mode === "verify") submitAdminGate(); }, style: { ...q, marginBottom: adminGate.mode === "create" ? 12 : 4 }, placeholder: "Mínimo de 6 caracteres" }),
+                      React.createElement("input", { type: "password", autoFocus: true, inputMode:"numeric", maxLength:adminGate.mode === "verify" ? 6 : undefined, value: adminGate.password, onChange: (event) => { let password=event.target.value; let next={ ...adminGate, password, error:"" }; setAdminGate(next); if(adminGate.mode === "verify" && password.length === 6) submitAdminGate(password,next); }, onKeyDown: (event) => { if (event.key === "Enter" && adminGate.mode === "verify") submitAdminGate(); }, style: { ...q, marginBottom: adminGate.mode === "create" ? 12 : 4 }, placeholder: adminGate.mode === "verify" ? "Digite os 6 dígitos" : "Mínimo de 6 caracteres" }),
                       adminGate.mode === "create" && React.createElement(React.Fragment, null,
                         React.createElement("label", { style: P }, "Confirmar senha"),
                         React.createElement("input", { type: "password", value: adminGate.confirm, onChange: (event) => setAdminGate({ ...adminGate, confirm: event.target.value, error: "" }), onKeyDown: (event) => { if (event.key === "Enter") submitAdminGate(); }, style: q, placeholder: "Digite novamente" })
@@ -2799,6 +2800,8 @@
                       onOpenDetail: be,
                       profiles: x,
                       tournament: R,
+                      tournaments: m,
+                      onOpenChampionshipSummary: (item) => setChampionshipSummary(item),
                       onClose: () => setViewedTeamId(null),
                     }),
                     matchWizard && React.createElement(MatchWizard, { data: matchWizard, setData: setMatchWizard, teams: p.filter((team) => team && team.active !== false), profiles: x, presence, onClose: () => setMatchWizard(null), onSave: saveQuickMatch }),
@@ -4953,7 +4956,7 @@
               [["Saldo", L(team.budget || 0)], ["Elenco", `${squad.length} jogadores`], ["Partidas", played.length], ["Campanha", `${wins}V · ${draws}E · ${losses}D`], ["Gols marcados", goalsFor], ["Artilharia do elenco", goals]].map(([label,value]) => React.createElement("button", { key: label, onClick:label==="Saldo"?onOpenBalanceHistory:undefined, className: "family-card", style: { padding: 18, textAlign:"left", color:"inherit", cursor:label==="Saldo"?"pointer":"default", width:"100%" } }, React.createElement("div", { style: { fontSize: 12, color: "var(--muted)", marginBottom: 6 } }, label), React.createElement("strong", { style: { fontSize: 18, color: "var(--heading)" } }, value))),
               React.createElement("div", { className:"family-card", style:{ padding:18, gridColumn:"1 / -1" } }, React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:10 } }, "Últimas partidas"), React.createElement("div", { style:{ display:"flex",gap:8,alignItems:"center" } }, played.slice().sort((a,b)=>(a.playedAt||a.createdAt||0)-(b.playedAt||b.createdAt||0)).slice(-6).map((match)=>{ let isHome=match.homeId===team.id, mine=isHome?Number(match.homeScore)||0:Number(match.awayScore)||0, other=isHome?Number(match.awayScore)||0:Number(match.homeScore)||0, result=mine>other?"V":mine<other?"D":"E"; return React.createElement("span", { key:match.id, style:{ width:30,height:30,borderRadius:9,display:"grid",placeItems:"center",fontWeight:850,background:result==="V"?"rgba(0,201,120,.18)":result==="D"?"rgba(255,43,58,.18)":"rgba(255,187,38,.18)",color:result==="V"?"#00c978":result==="D"?"#ff2b3a":"#ffbb26" } }, result); })))
             ),
-            (()=>{ let trophies=(tournaments||[]).filter((item)=>item&&item.status==="finished").map((item)=>{ let standings=Array.isArray(item.finalStandings)?item.finalStandings:[]; let entry=profile&&profile.id?standings.find((row)=>row&&String(row.profileId)===String(profile.id)):null; return entry&&entry.position<=3?{ tournament:item, entry }:null; }).filter(Boolean).sort((a,b)=>(Number(b.tournament.finishedAt)||0)-(Number(a.tournament.finishedAt)||0)); return trophies.length ? React.createElement("section", { style:{ marginBottom:18 } }, React.createElement("div", { style:{ fontSize:19,fontWeight:800,marginBottom:12 } }, "Sala de troféus"), React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10 } }, trophies.map(({tournament:item,entry})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:18,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } }, React.createElement("div", { style:{ fontSize:34,marginBottom:8 } }, "🏆"), React.createElement("div", { style:{ fontWeight:800,fontSize:14 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)",fontSize:12,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão"))))) : null; })(),
+            (()=>{ let trophies=(tournaments||[]).filter((item)=>item&&item.status==="finished").map((item)=>{ let standings=Array.isArray(item.finalStandings)?item.finalStandings:[]; let entry=profile&&profile.id?standings.find((row)=>row&&String(row.profileId)===String(profile.id)):null; return entry&&Number(entry.position)===1?{ tournament:item, entry }:null; }).filter(Boolean).sort((a,b)=>(Number(b.tournament.finishedAt)||0)-(Number(a.tournament.finishedAt)||0)); return trophies.length ? React.createElement("section", { style:{ marginBottom:18 } }, React.createElement("div", { style:{ fontSize:19,fontWeight:800,marginBottom:12 } }, "Sala de troféus"), React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10 } }, trophies.map(({tournament:item,entry})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:18,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } }, React.createElement("div", { style:{ fontSize:34,marginBottom:8 } }, "🏆"), React.createElement("div", { style:{ fontWeight:800,fontSize:14 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)",fontSize:12,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão"))))) : null; })(),
             editing && React.createElement("div", { className: "family-card", style: { padding: 24, marginBottom: 16 } },
               React.createElement("div", { style: { fontSize: 19, fontWeight: 600, marginBottom: 16 } }, "Editar perfil"),
               React.createElement("label", { style: P }, "Avatar"),
@@ -5572,8 +5575,23 @@
             ) : React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:24 } }, "O snapshot final deste campeonato ainda não está disponível."));
         }
 
-        function TeamViewer({ team, squadOf, ownership, onOpenDetail, profiles, tournament, onClose }) {
-          let profile = (profiles || []).find((item) => item && typeof item === "object" && item.id === team.profileId);
+        function TeamViewer({ team, squadOf, ownership, onOpenDetail, profiles, tournament, tournaments, onOpenChampionshipSummary, onClose }) {
+          let profile = (profiles || []).find((item) => item && typeof item === "object" && String(item.id) === String(team.profileId));
+          let trophies = (tournaments || []).filter((item)=>item&&item.status==="finished").map((item)=>{
+            let standings=Array.isArray(item.finalStandings)?item.finalStandings:[];
+            let entry=standings.find((row)=>row&&String(row.profileId)===String(team.profileId)&&Number(row.position)===1);
+            return entry?{tournament:item,entry}:null;
+          }).filter(Boolean).sort((a,b)=>(Number(b.tournament.finishedAt)||0)-(Number(a.tournament.finishedAt)||0));
+          let trophySection = trophies.length ? React.createElement("section", { style:{ marginBottom:18 } },
+            React.createElement("div", { style:{ fontSize:19,fontWeight:850,marginBottom:12 } }, "Sala de troféus"),
+            React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10 } },
+              trophies.map(({tournament:item})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:18,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } },
+                React.createElement("div", { style:{ fontSize:34,marginBottom:8 } }, "🏆"),
+                React.createElement("div", { style:{ fontWeight:850,fontSize:14 } }, item.name),
+                React.createElement("div", { style:{ color:"var(--muted)",fontSize:12,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão")
+              ))
+            )
+          ) : null;
           return React.createElement(
             "div",
             {
@@ -5584,6 +5602,7 @@
             React.createElement(
               "div",
               { onClick:(event)=>event.stopPropagation(), style:{ width:"min(1120px,100%)", margin:"0 auto", minHeight:"calc(100vh - 64px)", background:"var(--bg)", border:"1px solid var(--border)", borderRadius:28, padding:"clamp(18px,3vw,36px)", boxShadow:"0 24px 80px rgba(0,0,0,.35)" } },
+              trophySection,
               React.createElement(io, {
                 teams:[team], activeTeamId:team.id, setActiveTeamId:()=>{}, onNewTeam:null, onDeleteTeam:()=>{},
                 squadOf, onSellToMarket:()=>{}, depreciationPct:0, ownership, onOpenDetail:(player)=>onOpenDetail({ player, fromOtherTeam:true }), onGoMarket:()=>{},
@@ -5835,8 +5854,7 @@
                 ? React.createElement("span", { className: "sports-tab-avatar", style: { background: profileItem.color || "var(--green-strong)", boxShadow: profileItem.avatar ? "none" : undefined, position:"relative" } },
                     profileItem.avatar
                       ? React.createElement("img", { src: profileItem.avatar, alt: "" })
-                      : String(profileItem.name || "?").charAt(0).toUpperCase()
-                  )
+                      : String(profileItem.name || "?").charAt(0).toUpperCase())
                 : React.createElement(Icon, { size: 21, color: "currentColor" });
               return React.createElement("button", { key, onClick: () => t(key), className: "sports-tab" + (active ? " is-active" : ""), "aria-current": active ? "page" : undefined, "aria-label": label },
                 React.createElement("span", { style: { position: "relative", display: "inline-flex" } }, visual,
