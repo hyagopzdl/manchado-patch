@@ -1244,6 +1244,42 @@
             if (!db) { setPlayerReviews({ ...playerReviews, [id]:review }); setPlayerReportModal(null); return; }
             db.ref("pes/playerReviews/" + id).set(review).then(() => setPlayerReportModal(null)).catch((error) => { console.error("player review submit failed", error); window.alert("Não foi possível enviar a revisão. Tente novamente."); });
           }
+          function removePlayerReview(reviewId) {
+            if (!reviewId || !te || !te.id) return;
+            let review = playerReviews && typeof playerReviews === "object" ? playerReviews[reviewId] : null;
+            if (!review) { window.alert("Esta revisão não está mais disponível."); return; }
+            let adminCanRemove = isAdminProfile(te);
+            let ownPendingReview = String(review.createdByProfileId) === String(te.id) && review.status === "pending";
+            if (!adminCanRemove && !ownPendingReview) { window.alert("Você não tem permissão para remover esta revisão."); return; }
+            let actionLabel = adminCanRemove && !ownPendingReview ? "remover esta revisão" : "cancelar este pedido";
+            if (!window.confirm(`Tem certeza que deseja ${actionLabel}?`)) return;
+            let db = Ee();
+            if (!db) {
+              let next = { ...(playerReviews || {}) };
+              delete next[reviewId];
+              setPlayerReviews(next);
+              return;
+            }
+            let failureReason = null;
+            db.ref("pes/playerReviews/" + reviewId).transaction((reviewValue) => {
+              let current = reviewValue && typeof reviewValue === "object" ? reviewValue : null;
+              if (!current) { failureReason = "unavailable"; return; }
+              let canRemoveCurrent = adminCanRemove || (String(current.createdByProfileId) === String(te.id) && current.status === "pending");
+              if (!canRemoveCurrent) { failureReason = "forbidden"; return; }
+              failureReason = null;
+              return null;
+            }, (error, committed) => {
+              if (error) {
+                console.error("player review removal failed", error);
+                window.alert("Não foi possível remover a revisão. Tente novamente.");
+                return;
+              }
+              if (!committed) {
+                let messages = { unavailable:"Esta revisão não está mais disponível.", forbidden:"Você não tem permissão para remover esta revisão." };
+                window.alert(messages[failureReason] || "A revisão não pôde ser removida.");
+              }
+            });
+          }
           function votePlayerReview(reviewId, decision) {
             if (!te || !te.id || !["approve","reject"].includes(decision)) return;
             let db = Ee();
@@ -3098,7 +3134,7 @@
                         onReport: (player) => setPlayerReportModal(player),
                       }),
                     playerReportModal && React.createElement(PlayerReportModal, { player:playerReportModal, onClose:()=>setPlayerReportModal(null), onSubmit:submitPlayerReview }),
-                    playerReviewsOpen && React.createElement(PlayerReviewsModal, { reviews:pendingPlayerReviews(), catalogMap:xe, profiles:x, currentProfile:te, onClose:()=>setPlayerReviewsOpen(false), onVote:votePlayerReview }),
+                    playerReviewsOpen && React.createElement(PlayerReviewsModal, { reviews:pendingPlayerReviews(), catalogMap:xe, profiles:x, currentProfile:te, isAdmin:isAdminProfile(te), onClose:()=>setPlayerReviewsOpen(false), onVote:votePlayerReview, onRemove:removePlayerReview }),
                     We &&
                       React.createElement(so, {
                         data: We,
@@ -4310,7 +4346,7 @@
             React.createElement("button",{className:"tapbtn",onClick:()=>onSubmit(player,{overall,value}),style:{...M,...W,width:"100%",marginTop:18}},"Enviar para revisão")
           );
         }
-        function PlayerReviewsModal({ reviews, catalogMap, currentProfile, onClose, onVote }) {
+        function PlayerReviewsModal({ reviews, catalogMap, currentProfile, isAdmin, onClose, onVote, onRemove }) {
           let ordered=[...(reviews||[])].sort((a,b)=>Number(a.createdAt||0)-Number(b.createdAt||0));
           let voteAvatars=(items)=>items.length?React.createElement("div",{style:{position:"absolute",top:-16,left:"50%",transform:"translateX(-50%)",display:"flex",justifyContent:"center",paddingLeft:6,zIndex:2}},items.slice(0,5).map((vote,i)=>React.createElement(ProfileVoteAvatar,{key:`${vote.profileNameSnapshot||i}-${i}`,vote}))):null;
           let overallBadge=(value,isOld)=>{
@@ -4322,6 +4358,8 @@
           let reviewCard=(review)=>{
             let player=catalogMap.get(review.playerId)||{name:review.playerNameSnapshot};
             let votes=Object.values(review.votes||{}), approvals=votes.filter(v=>v&&v.decision==="approve"), rejections=votes.filter(v=>v&&v.decision==="reject"), own=String(review.createdByProfileId)===String(currentProfile&&currentProfile.id), myVote=review.votes&&currentProfile&&review.votes[currentProfile.id];
+            let canRemove=own||isAdmin;
+            let removeLabel=own?"Cancelar pedido":"Remover revisão";
             let changedOverall=review.proposed&&review.proposed.overall!=null;
             let changedValue=review.proposed&&review.proposed.value!=null;
             return React.createElement("article",{key:review.id,className:"family-card",style:{padding:"20px 18px 18px",borderRadius:22,overflow:"visible"}},
@@ -4335,7 +4373,8 @@
               !own&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:20,paddingTop:8}},
                 React.createElement("div",{style:{position:"relative"}},voteAvatars(rejections),React.createElement("button",{className:"tapbtn",onClick:()=>onVote(review.id,"reject"),style:{...M,width:"100%",margin:0,minHeight:50,background:myVote&&myVote.decision==="reject"?"var(--danger)":"color-mix(in srgb,var(--danger) 10%,var(--surface))",color:myVote&&myVote.decision==="reject"?"white":"var(--danger)",border:"1px solid color-mix(in srgb,var(--danger) 38%,var(--border))"}},"Recusar")),
                 React.createElement("div",{style:{position:"relative"}},voteAvatars(approvals),React.createElement("button",{className:"tapbtn",onClick:()=>onVote(review.id,"approve"),style:{...M,...W,width:"100%",margin:0,minHeight:50}},"Aprovar"))
-              )
+              ),
+              canRemove&&React.createElement("button",{className:"tapbtn",onClick:()=>onRemove(review.id),style:{width:"100%",minHeight:42,marginTop:14,border:0,background:"transparent",color:"var(--danger)",fontSize:12.5,fontWeight:800,cursor:"pointer",borderRadius:12}},React.createElement(TrashIcon,{size:15,style:{marginRight:7}}),removeLabel)
             );
           };
           return React.createElement("div",{className:"sports-modal-overlay",style:{position:"fixed",inset:0,zIndex:1200,background:"var(--canvas)",overflowY:"auto",padding:0}},
