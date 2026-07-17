@@ -1712,6 +1712,43 @@
             });
           }
 
+
+          function importHistoricalCompetition(payload) {
+            if (!payload || !payload.competition || !Array.isArray(payload.rows) || !payload.rows.length) return;
+            let parsed = payload.competition;
+            let mappings = payload.mappings || {};
+            let name = String(parsed.name || "").trim();
+            if (!name) { window.alert("Informe o nome da competição no TXT."); return; }
+            if (m.some((item) => String(item && item.name || "").trim().toLowerCase() === name.toLowerCase())) { window.alert("Já existe uma competição com este nome."); return; }
+            let now = Date.now(), competitionId = _();
+            let allNames = payload.rows.map((row) => row.originalName);
+            let profileForName = (originalName) => x.find((profile) => profile && String(profile.id) === String(mappings[originalName]));
+            let missing = allNames.filter((originalName) => !profileForName(originalName));
+            if (missing.length) { window.alert("Vincule todos os participantes antes de importar."); return; }
+            let teamIdForName = (originalName) => `history-${competitionId}-${String(mappings[originalName])}`;
+            let snapshotForName = (originalName) => {
+              let profile = profileForName(originalName) || {};
+              return { profileId:profile.id||null, profileNameSnapshot:profile.name||originalName, originalName, avatarSnapshot:profile.avatar||null, colorSnapshot:profile.color||null, teamId:teamIdForName(originalName), teamNameSnapshot:profile.name||originalName };
+            };
+            let contextTeams = allNames.map((originalName) => { let snap=snapshotForName(originalName); return { id:snap.teamId, profileId:snap.profileId, name:snap.profileNameSnapshot, color:snap.colorSnapshot, budget:0, active:false, historical:true }; });
+            let tournament;
+            if (parsed.type === "cup") {
+              let groups = (parsed.groups || []).map((group) => ({ name:group.name, teamIds:group.names.map(teamIdForName) }));
+              let matches = (parsed.matches || []).map((match) => ({ id:_(), stage:match.stage, round:match.round||1, groupName:match.groupName||null, homeId:teamIdForName(match.home), awayId:match.away ? teamIdForName(match.away) : null, homeScore:match.homeScore == null ? null : Number(match.homeScore), awayScore:match.awayScore == null ? null : Number(match.awayScore), played:true, status:"confirmed", historical:true, winnerId:match.winner ? teamIdForName(match.winner) : null }));
+              let championSnap=snapshotForName(parsed.champion);
+              let runnerName=parsed.runner || null;
+              let finalStandings=[{ position:1, ...championSnap, points:0, prize:0 }];
+              if (runnerName) finalStandings.push({ position:2, ...snapshotForName(runnerName), points:0, prize:0 });
+              tournament={ id:competitionId,type:"cup",format:"historical",name,status:"finished",createdAt:now,finishedAt:parsed.finishedAt||now,participants:allNames.map((n)=>mappings[n]),teamIds:allNames.map(teamIdForName),groups,matches,champion:championSnap.teamId,cupStage:"finished",finalStandings,cupSnapshot:{groups,matches,championTeamId:championSnap.teamId,runnerTeamId:runnerName?teamIdForName(runnerName):null,historical:true},context:{teams:contextTeams,ownership:{},playerStats:{},transfers:[],tradeOffers:{},financialTransactions:[],historicalImport:{version:parsed.version||2,source:"txt",importedAt:now}} };
+            } else {
+              let finalStandings=(parsed.standings||[]).map((row)=>({ position:Number(row.position), ...snapshotForName(row.originalName), played:Number(row.played)||0, wins:Number(row.wins)||0, draws:Number(row.draws)||0, losses:Number(row.losses)||0, goalDifference:Number(row.goalDifference)||0, points:Number(row.points)||0, prize:0 }));
+              tournament={ id:competitionId,type:"league",format:"historical",name,status:"finished",createdAt:now,finishedAt:parsed.finishedAt||now,participants:allNames.map((n)=>mappings[n]),champion:finalStandings[0]&&finalStandings[0].teamId,finalStandings,context:{teams:contextTeams,matches:[],ownership:{},playerStats:{},transfers:[],tradeOffers:{},financialTransactions:[],historicalImport:{version:parsed.version||2,source:"txt",importedAt:now}} };
+            }
+            let db=Ee();
+            if (!db) { ae([...m,tournament]); window.alert(`${name} foi importado como competição encerrada.`); return; }
+            db.ref("pes/tournaments").transaction((serverList)=>{ let list=Array.isArray(serverList)?[...serverList]:[]; if(list.some((item)=>item&&String(item.name||"").trim().toLowerCase()===name.toLowerCase())) return; list.push(tournament); return list; },(error,committed)=>{ if(error) window.alert("Não foi possível importar a competição. Tente novamente."); else if(!committed) window.alert("A importação foi cancelada porque já existe uma competição com este nome."); else window.alert(`${name} foi importado como competição encerrada.`); });
+          }
+
           function cupShuffle(values) {
             let list = [...values];
             for (let index = list.length - 1; index > 0; index--) {
@@ -2760,7 +2797,7 @@
                           onUpdateRosterRules: updateRosterRules,
                           onUpdateEconomyRules: updateEconomyRules,
                           onFinishTournament: finishCurrentTournament,
-                          catalog: n, onImportRosters: importRosterPlan,
+                          catalog: n, onImportRosters: importRosterPlan, onImportHistoricalCompetition: importHistoricalCompetition,
                         }),
                       Y === "profile" &&
                         React.createElement(ProfileArea, {
@@ -5035,7 +5072,28 @@
           return { owners, entries, total: entries.length };
         }
 
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateMarketBalanceRules, onUpdateRosterRules, onUpdateEconomyRules, onFinishTournament, catalog, onImportRosters }) {
+
+        function parseHistoricalCompetitionTxt(text) {
+          let lines=String(text||"").replace(/\r/g,"").split("\n").map((line)=>line.trim()).filter(Boolean);
+          let headers={}, sections={}, current="";
+          lines.forEach((line)=>{ let section=line.match(/^\[([^\]]+)\]$/); if(section){current=section[1].toUpperCase();sections[current]=sections[current]||[];return;} let header=line.match(/^([A-Z_]+)=(.*)$/i); if(header&&!current){headers[header[1].toUpperCase()]=header[2].trim();return;} if(current) sections[current].push(line); else (sections.STANDINGS||(sections.STANDINGS=[])).push(line); });
+          let type=String(headers.TYPE||"").toUpperCase()==="CUP"?"cup":"league",name=headers.NAME||"",version=Number(headers.VERSION)||2;
+          if(type==="league"){
+            let standings=(sections.STANDINGS||[]).map((line)=>{let c=line.split("|").map((v)=>v.trim());return {position:Number(c[0]),originalName:c[1],played:Number(c[2]),wins:Number(c[3]),draws:Number(c[4]),losses:Number(c[5]),goalDifference:Number(c[6]),points:Number(c[7])};}).filter((row)=>row.originalName&&row.position);
+            return {version,type,name,standings,names:standings.map((row)=>row.originalName)};
+          }
+          let groups=Object.keys(sections).filter((key)=>key.startsWith("GROUP_")).map((key)=>({name:key.replace("GROUP_","Grupo ").replace(/_/g," "),names:sections[key]}));
+          let matches=[];
+          (sections.SEMIFINALS||[]).forEach((line)=>{let c=line.split("|").map((v)=>v.trim());let hs=c[1]!=="?"&&c[1]!==""?Number(c[1]):null,as=c[3]!=="?"&&c[3]!==""?Number(c[3]):null;let winner=hs!=null&&as!=null?(hs>as?c[0]:as>hs?c[2]:null):null;matches.push({stage:"knockout",round:1,home:c[0],away:c[2],homeScore:hs,awayScore:as,winner});});
+          let finalLine=(sections.FINAL||[])[0]||"",fc=finalLine?finalLine.split("|").map((v)=>v.trim()):[];
+          let champion=(sections.CHAMPION||[])[0]||"";
+          let runner="";
+          if(fc.length){let hs=fc[1]!=="?"&&fc[1]!==""?Number(fc[1]):null,as=fc[3]!=="?"&&fc[3]!==""?Number(fc[3]):null;let away=fc[2]&&fc[2]!=="?"?fc[2]:null;matches.push({stage:"knockout",round:2,home:fc[0],away,homeScore:hs,awayScore:as,winner:champion||null}); if(champion&&away) runner=fc[0]===champion?away:fc[0];}
+          let names=[];groups.forEach((g)=>g.names.forEach((n)=>{if(n&&!names.includes(n))names.push(n);}));matches.forEach((match)=>[match.home,match.away].forEach((n)=>{if(n&&!names.includes(n))names.push(n);}));if(champion&&!names.includes(champion))names.push(champion);
+          return {version,type,name,groups,matches,champion,runner,names};
+        }
+
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateMarketBalanceRules, onUpdateRosterRules, onUpdateEconomyRules, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -5043,6 +5101,9 @@
           let [importText, setImportText] = b("");
           let [importMode, setImportMode] = b("replace");
           let [importPreview, setImportPreview] = b(null);
+          let [historyImportText,setHistoryImportText]=b("");
+          let [historyImportPreview,setHistoryImportPreview]=b(null);
+          let [historyMappings,setHistoryMappings]=b({});
           let sourceCandidates = [...(tournaments || [])].sort((a, b) => (Number(b.finishedAt || b.createdAt) || 0) - (Number(a.finishedAt || a.createdAt) || 0));
           let [creationMode, setCreationMode] = b(sourceCandidates.length ? "continue" : "new");
           let [sourceTournamentId, setSourceTournamentId] = b(sourceCandidates[0] ? sourceCandidates[0].id : "");
@@ -5102,6 +5163,11 @@
             if (!preview.total) { window.alert("Nenhum jogador foi identificado no TXT."); return; }
             setImportPreview(preview);
           }
+
+          function readHistoryImportFile(event){let file=event.target.files&&event.target.files[0];if(!file)return;if(!/\.txt$/i.test(file.name)){window.alert("Selecione um arquivo .txt.");return;}let reader=new FileReader();reader.onload=()=>{setHistoryImportText(String(reader.result||""));setHistoryImportPreview(null);setHistoryMappings({});};reader.readAsText(file,"UTF-8");}
+          function buildHistoryImportPreview(){let parsed=parseHistoricalCompetitionTxt(historyImportText);if(!parsed.name){window.alert("O TXT precisa ter NAME=Nome da competição.");return;}if(!parsed.names||!parsed.names.length){window.alert("Nenhum participante foi identificado.");return;}if(parsed.type==="cup"&&!parsed.champion){window.alert("A Copa precisa informar o campeão em [CHAMPION].");return;}let next={};parsed.names.forEach((name)=>{let normalized=normalizeImportText(name);let matches=globalProfiles.filter((profile)=>normalizeImportText(profile.name)===normalized);if(matches.length===1)next[name]=matches[0].id;});setHistoryMappings(next);setHistoryImportPreview(parsed);}
+          function confirmHistoryImport(){if(!historyImportPreview)return;let used=Object.values(historyMappings).filter(Boolean);if(historyImportPreview.names.some((name)=>!historyMappings[name])){window.alert("Vincule todos os participantes.");return;}if(new Set(used.map(String)).size!==used.length){window.alert("Cada nome antigo precisa estar vinculado a um perfil diferente.");return;}let rows=historyImportPreview.names.map((originalName)=>({originalName}));if(!window.confirm(`Importar ${historyImportPreview.name} como competição encerrada?`))return;onImportHistoricalCompetition({competition:historyImportPreview,rows,mappings:historyMappings});}
+
           function resolveImportEntry(index, playerId) {
             let next = { ...importPreview, entries: importPreview.entries.map((entry, entryIndex) => entryIndex === index ? { ...entry, playerId, status: playerId ? "matched" : "not_found" } : entry) };
             let seen = new Map();
@@ -5378,6 +5444,19 @@
                 React.createElement("button", { disabled: importErrors.length > 0, onClick: () => { if (!window.confirm(`Importar ${importPreview.entries.length} jogadores para ${currentTournament.name}?`)) return; onImportRosters({ entries: importPreview.entries.map((entry) => ({ playerId: entry.playerId, teamId: entry.teamId, squadRole: entry.squadRole })) }, importMode); }, style: { ...M, ...W, opacity: importErrors.length ? 0.45 : 1 } }, importErrors.length ? "Resolva as pendências" : "Confirmar importação")
               )
             ),
+            adminSection === "tools" && React.createElement("div", { style:{ ...E,marginTop:18 } },
+              React.createElement("div", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:4 } },React.createElement("div", { style:{ fontSize:18,fontWeight:700 } },"Importar competição encerrada"),React.createElement("span", { style:{ fontSize:11,fontWeight:700,color:"#ffbb26",background:"var(--surface-soft)",borderRadius:999,padding:"5px 8px" } },"Histórico")),
+              React.createElement("div", { style:{ fontSize:13,color:"var(--muted)",lineHeight:1.5,marginBottom:14 } },"Importe uma Liga ou Copa antiga sem elencos, mercado ou economia. O tipo é identificado automaticamente pelo TXT."),
+              React.createElement("input", { type:"file",accept:".txt,text/plain",onChange:readHistoryImportFile,style:{...q,padding:10,marginBottom:10} }),
+              React.createElement("textarea", { value:historyImportText,onChange:(event)=>{setHistoryImportText(event.target.value);setHistoryImportPreview(null);setHistoryMappings({});},placeholder:"Ou cole aqui o conteúdo do TXT histórico...",rows:8,style:{...q,resize:"vertical",minHeight:160,fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",fontSize:11.5} }),
+              React.createElement("button", { disabled:!historyImportText.trim(),onClick:buildHistoryImportPreview,style:{...M,...W,opacity:historyImportText.trim()?1:.45} },"Ler competição"),
+              historyImportPreview&&React.createElement("div", { style:{marginTop:18} },
+                React.createElement("div", { className:"family-card",style:{padding:14,marginBottom:12} },React.createElement("div", { style:{fontSize:11,color:"var(--muted)",fontWeight:800,textTransform:"uppercase",letterSpacing:".1em"} },historyImportPreview.type==="cup"?"Copa encerrada":"Liga encerrada"),React.createElement("div", { style:{fontSize:18,fontWeight:850,marginTop:4} },historyImportPreview.name),React.createElement("div", { style:{fontSize:12,color:"var(--muted)",marginTop:4} },`${historyImportPreview.names.length} participantes${historyImportPreview.type==="cup"?` · Campeão: ${historyImportPreview.champion}`:""}`)),
+                React.createElement("div", { style:{fontSize:13,fontWeight:800,marginBottom:8} },"Vincular participantes"),
+                React.createElement("div", { style:{display:"grid",gap:8,maxHeight:390,overflow:"auto"} },historyImportPreview.names.map((name)=>React.createElement("div", { key:name,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1.2fr)",gap:10,alignItems:"center",padding:10,border:"1px solid var(--border)",borderRadius:12} },React.createElement("div", { style:{fontWeight:800,fontSize:13} },name),React.createElement("select", { value:historyMappings[name]||"",onChange:(event)=>setHistoryMappings({...historyMappings,[name]:event.target.value}),style:{...q,padding:"9px 10px",fontSize:12} },React.createElement("option", { value:"" },"Selecionar perfil"),globalProfiles.map((profile)=>React.createElement("option", { key:profile.id,value:profile.id },profile.name)))))),
+                React.createElement("button", { onClick:confirmHistoryImport,disabled:historyImportPreview.names.some((name)=>!historyMappings[name]),style:{...M,...W,opacity:historyImportPreview.names.some((name)=>!historyMappings[name])?.45:1} },historyImportPreview.names.some((name)=>!historyMappings[name])?"Vincule todos os participantes":"Confirmar importação")
+              )
+            ),
             adminSection === "rules" && currentTournament && React.createElement("section", { style:{ ...E,padding:20,marginTop:18 } },
               React.createElement("h3", { style:{ margin:"0 0 6px" } }, "Economia e premiação"),
               React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5 } }, "Defina recompensas por resultado e a faixa de premiação final."),
@@ -5582,16 +5661,6 @@
             let entry=standings.find((row)=>row&&String(row.profileId)===String(team.profileId)&&Number(row.position)===1);
             return entry?{tournament:item,entry}:null;
           }).filter(Boolean).sort((a,b)=>(Number(b.tournament.finishedAt)||0)-(Number(a.tournament.finishedAt)||0));
-          let trophySection = trophies.length ? React.createElement("section", { style:{ marginBottom:18 } },
-            React.createElement("div", { style:{ fontSize:19,fontWeight:850,marginBottom:12 } }, "Sala de troféus"),
-            React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10 } },
-              trophies.map(({tournament:item})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:18,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } },
-                React.createElement("div", { style:{ fontSize:34,marginBottom:8 } }, "🏆"),
-                React.createElement("div", { style:{ fontWeight:850,fontSize:14 } }, item.name),
-                React.createElement("div", { style:{ color:"var(--muted)",fontSize:12,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão")
-              ))
-            )
-          ) : null;
           return React.createElement(
             "div",
             {
@@ -5602,7 +5671,10 @@
             React.createElement(
               "div",
               { onClick:(event)=>event.stopPropagation(), style:{ width:"min(1120px,100%)", margin:"0 auto", minHeight:"calc(100vh - 64px)", background:"var(--bg)", border:"1px solid var(--border)", borderRadius:28, padding:"clamp(18px,3vw,36px)", boxShadow:"0 24px 80px rgba(0,0,0,.35)" } },
-              trophySection,
+              trophies.length ? React.createElement("section", { style:{ marginBottom:18 } },
+                React.createElement("div", { style:{ fontSize:19,fontWeight:850,marginBottom:12 } }, "Sala de troféus"),
+                React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10 } }, trophies.map(({tournament:item})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:18,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } }, React.createElement("div", { style:{ fontSize:34,marginBottom:8 } }, "🏆"), React.createElement("div", { style:{ fontWeight:850,fontSize:14 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)",fontSize:12,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão"))))
+              ) : null,
               React.createElement(io, {
                 teams:[team], activeTeamId:team.id, setActiveTeamId:()=>{}, onNewTeam:null, onDeleteTeam:()=>{},
                 squadOf, onSellToMarket:()=>{}, depreciationPct:0, ownership, onOpenDetail:(player)=>onOpenDetail({ player, fromOtherTeam:true }), onGoMarket:()=>{},
