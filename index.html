@@ -190,7 +190,7 @@
       .player-detail-modal { padding:0 !important; overflow:hidden !important; display:flex; flex-direction:column; }
       .player-detail-scroll { min-height:0; overflow-y:auto; padding:24px 24px 18px; overscroll-behavior:contain; }
       .player-detail-footer { flex:0 0 auto; width:100%; padding:14px 24px calc(14px + env(safe-area-inset-bottom)); background:color-mix(in srgb,var(--surface) 96%,transparent); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border-top:1px solid var(--border); }
-      .player-detail-close { position:fixed; top:max(16px,env(safe-area-inset-top)); right:16px; z-index:1002; width:42px; height:42px; border-radius:999px; border:1px solid var(--border); background:color-mix(in srgb,var(--surface) 88%,transparent); color:var(--heading); display:grid; place-items:center; box-shadow:var(--shadow-sm); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); cursor:pointer; }
+      .player-detail-close { position:fixed; top:max(16px,env(safe-area-inset-top)); left:16px; z-index:1002; width:42px; height:42px; border-radius:999px; border:1px solid var(--border); background:color-mix(in srgb,var(--surface) 88%,transparent); color:var(--heading); display:grid; place-items:center; box-shadow:var(--shadow-sm); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); cursor:pointer; }
       @media (max-width:899px) { .player-detail-scroll { padding:22px 18px 16px; } .player-detail-footer { padding-left:18px; padding-right:18px; } }
       @keyframes sportsFadeIn { from { opacity:0 } to { opacity:1 } }
       @keyframes sportsModalIn { from { opacity:0; transform:translateY(24px) scale(.975) } to { opacity:1; transform:translateY(0) scale(1) } }
@@ -225,6 +225,11 @@
       }
       @media (prefers-reduced-motion: reduce) { *,*::before,*::after { animation-duration:.01ms !important; transition-duration:.01ms !important; scroll-behavior:auto !important; } }
     
+      .dual-range-input::-webkit-slider-runnable-track { height: 4px; background: transparent; }
+      .dual-range-input::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:22px; height:22px; border-radius:50%; background:var(--surface); border:3px solid var(--green); box-shadow:0 2px 8px rgba(0,0,0,.18); pointer-events:auto; cursor:grab; margin-top:-9px; }
+      .dual-range-input::-moz-range-track { height:4px; background:transparent; }
+      .dual-range-input::-moz-range-thumb { width:18px; height:18px; border-radius:50%; background:var(--surface); border:3px solid var(--green); box-shadow:0 2px 8px rgba(0,0,0,.18); pointer-events:auto; cursor:grab; }
+      .dual-range-input:active::-webkit-slider-thumb { cursor:grabbing; }
       @media (max-width: 520px) {
         .market-header-action-label { display: none; }
       }
@@ -853,7 +858,7 @@
               }),
               Q("ownership", (i) => setBaseOwnership(i || {})),
               Q("playerStats", (i) => setBaseStats(i || {})),
-              Q("tournaments", (i) => { g(i || []); setTournamentsLoaded(!0); }),
+              Q("tournaments", (i) => { let list = Array.isArray(i) ? i.filter(Boolean) : (i && typeof i === "object" ? Object.values(i).filter(Boolean) : []); g(list); setTournamentsLoaded(!0); }),
               Q("transfers", (i) => setBaseTransfers(i || [])),
               Q("meta", (i) =>
                 u(i || { currentTournamentId: null, seasonCounter: 1 }),
@@ -876,6 +881,32 @@
               }),
             ];
             return () => o.forEach((i) => i());
+          }, []);
+          He(() => {
+            let db = Ee();
+            if (!db) return;
+            let cancelled = false;
+            let refreshTournaments = () => {
+              if (cancelled || document.visibilityState === "hidden") return;
+              db.ref("pes/tournaments").once("value").then((snapshot) => {
+                if (cancelled) return;
+                let value = snapshot.val();
+                let list = Array.isArray(value) ? value.filter(Boolean) : (value && typeof value === "object" ? Object.values(value).filter(Boolean) : []);
+                g(list);
+                setTournamentsLoaded(!0);
+              }).catch((error) => console.error("tournament refresh failed", error));
+            };
+            let onVisible = () => { if (document.visibilityState === "visible") refreshTournaments(); };
+            let onFocus = () => refreshTournaments();
+            document.addEventListener("visibilitychange", onVisible);
+            window.addEventListener("focus", onFocus);
+            let timer = window.setInterval(refreshTournaments, 15000);
+            return () => {
+              cancelled = true;
+              document.removeEventListener("visibilitychange", onVisible);
+              window.removeEventListener("focus", onFocus);
+              window.clearInterval(timer);
+            };
           }, []);
           He(() => {
             let db = Ee();
@@ -2960,6 +2991,7 @@
                       tournament: R,
                       tournaments: m,
                       onOpenChampionshipSummary: (item) => setChampionshipSummary(item),
+                      onOfferPlayer: (player) => { setViewedTeamId(null); kt(player); },
                       onClose: () => setViewedTeamId(null),
                     }),
                     matchWizard && React.createElement(MatchWizard, { data: matchWizard, setData: setMatchWizard, teams: p.filter((team) => team && team.active !== false), profiles: x, presence, players: n, ownership: c, onClose: () => setMatchWizard(null), onSave: saveQuickMatch }),
@@ -3730,6 +3762,8 @@
           onBack = null,
           viewerProfile = null,
           viewerTrophies = null,
+          readOnlyActionLabel = null,
+          onReadOnlyAction = null,
         }) {
           let s = e.find((h) => h.id === t);
           if (!s) return React.createElement("div", { style: E }, "Nenhum time selecionado.");
@@ -3766,9 +3800,9 @@
             let cannotSell = squad.length <= minPlayers;
             return React.createElement(UnifiedPlayerCard, {
               key:player.id, player, onOpen:c,
-              actionLabel:readOnly?null:"Vender ao mercado",
-              actionDisabled:cannotSell,
-              onAction:()=>{ if(!cannotSell) p(player); }
+              actionLabel:readOnly?readOnlyActionLabel:"Vender ao mercado",
+              actionDisabled:readOnly?!onReadOnlyAction:cannotSell,
+              onAction:()=>{ if(readOnly){ if(onReadOnlyAction) onReadOnlyAction(player); } else if(!cannotSell) p(player); }
             });
           }
           return React.createElement("div", null,
@@ -3798,6 +3832,23 @@
               React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"end", marginBottom:10 } }, React.createElement("div", null, React.createElement("h2", { style:{ margin:0, fontSize:19 } }, group.label), React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:3 } }, `${group.players.length} jogadores · média ${average(group.players).toFixed(1)}`))),
               React.createElement("div", { className:"unified-player-grid" }, group.players.map(playerCard))
             ) : null)
+          );
+        }
+        function DualRange({ min, max, step=1, minValue, maxValue, onChangeMin, onChangeMax, formatValue=(value)=>value }) {
+          let span = Math.max(1, Number(max) - Number(min));
+          let left = ((Number(minValue) - Number(min)) / span) * 100;
+          let right = 100 - ((Number(maxValue) - Number(min)) / span) * 100;
+          let shared = { position:"absolute", inset:0, width:"100%", height:30, margin:0, background:"transparent", pointerEvents:"none", WebkitAppearance:"none", appearance:"none" };
+          return React.createElement("div", null,
+            React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", gap:10, fontSize:10.5, color:"var(--muted)", marginBottom:9 } },
+              React.createElement("span", null, formatValue(minValue)), React.createElement("strong", { style:{ color:"var(--heading)" } }, `${formatValue(minValue)} – ${formatValue(maxValue)}`), React.createElement("span", null, formatValue(maxValue))
+            ),
+            React.createElement("div", { style:{ position:"relative", height:30 } },
+              React.createElement("div", { style:{ position:"absolute", left:0, right:0, top:13, height:4, borderRadius:999, background:"var(--surface-soft)", boxShadow:"inset 0 0 0 1px var(--border)" } }),
+              React.createElement("div", { style:{ position:"absolute", left:`${left}%`, right:`${right}%`, top:13, height:4, borderRadius:999, background:"var(--green)" } }),
+              React.createElement("input", { className:"dual-range-input dual-range-min", type:"range", min, max, step, value:minValue, onChange:(event)=>onChangeMin(Number(event.target.value)), style:{...shared,zIndex:Number(minValue)>=Number(maxValue)-Number(step)?5:3} }),
+              React.createElement("input", { className:"dual-range-input dual-range-max", type:"range", min, max, step, value:maxValue, onChange:(event)=>onChangeMax(Number(event.target.value)), style:{...shared,zIndex:4} })
+            )
           );
         }
         function lo({
@@ -3831,7 +3882,8 @@
             [overallMin, setOverallMin] = b(70),
             [overallMax, setOverallMax] = b(99),
             [valueMin, setValueMin] = b(3),
-            [valueMax, setValueMax] = b(333);
+            [valueMax, setValueMax] = b(333),
+            loadMoreSentinel = React.useRef(null);
 
           let favoriteSet = X(() => new Set((Array.isArray(favoritePlayerIds) ? favoritePlayerIds : []).map((id) => String(id))), [favoritePlayerIds]);
           let favoritePlayers = X(() => e.filter((player) => favoriteSet.has(String(player.id)) && !(activeTeam && t[player.id] && String(t[player.id].teamId) === String(activeTeam.id))), [e, favoriteSet, activeTeam, t]);
@@ -3927,6 +3979,21 @@
             (Number(overallMin) > 70 || Number(overallMax) < 99 ? 1 : 0) +
             (Number(valueMin) > 3 || Number(valueMax) < 333 ? 1 : 0) +
             (clubQuery.trim() ? 1 : 0);
+          He(() => {
+            let node = loadMoreSentinel.current;
+            if (!node || visibleCount >= filteredPlayers.length || !window.IntersectionObserver) return;
+            let loading = false;
+            let observer = new IntersectionObserver((entries) => {
+              if (!entries[0].isIntersecting || loading) return;
+              loading = true;
+              window.requestAnimationFrame(() => {
+                setVisibleCount((count) => Math.min(count + 36, filteredPlayers.length));
+                loading = false;
+              });
+            }, { rootMargin:"500px 0px" });
+            observer.observe(node);
+            return () => observer.disconnect();
+          }, [visibleCount, filteredPlayers.length, marketSection, clubQuery, positionFilter, overallMin, overallMax, valueMin, valueMax]);
 
           function resetFilters() {
             setClubQuery("");
@@ -4144,20 +4211,12 @@
                         "div",
                         { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 } },
                         React.createElement("div", null,
-                          React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",gap:10,fontSize:10.5,color:"var(--muted)",marginBottom:9 } }, React.createElement("span", null, "Overall"), React.createElement("strong", { style:{ color:"var(--heading)" } }, `${overallMin} – ${overallMax}`)),
-                          React.createElement("div", { style:{ display:"grid",gap:7 } },
-                            React.createElement("input", { type:"range", min:70, max:99, step:1, value:overallMin, onChange:(event)=>{ setOverallMin(Math.min(Number(event.target.value), Number(overallMax))); setVisibleCount(36); }, style:{ width:"100%",accentColor:"var(--green)" } }),
-                            React.createElement("input", { type:"range", min:70, max:99, step:1, value:overallMax, onChange:(event)=>{ setOverallMax(Math.max(Number(event.target.value), Number(overallMin))); setVisibleCount(36); }, style:{ width:"100%",accentColor:"var(--green)" } })
-                          ),
-                          React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",fontSize:9.5,color:"var(--muted)",marginTop:4 } }, React.createElement("span",null,"70"),React.createElement("span",null,"99"))
+                          React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginBottom:7 } }, "Overall"),
+                          React.createElement(DualRange, { min:70,max:99,step:1,minValue:overallMin,maxValue:overallMax,formatValue:(value)=>String(value),onChangeMin:(value)=>{setOverallMin(Math.min(value,overallMax));setVisibleCount(36);},onChangeMax:(value)=>{setOverallMax(Math.max(value,overallMin));setVisibleCount(36);} })
                         ),
                         React.createElement("div", null,
-                          React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",gap:10,fontSize:10.5,color:"var(--muted)",marginBottom:9 } }, React.createElement("span", null, "Valor"), React.createElement("strong", { style:{ color:"var(--heading)" } }, `${valueMin}M – ${valueMax}M`)),
-                          React.createElement("div", { style:{ display:"grid",gap:7 } },
-                            React.createElement("input", { type:"range", min:3, max:333, step:1, value:valueMin, onChange:(event)=>{ setValueMin(Math.min(Number(event.target.value), Number(valueMax))); setVisibleCount(36); }, style:{ width:"100%",accentColor:"var(--green)" } }),
-                            React.createElement("input", { type:"range", min:3, max:333, step:1, value:valueMax, onChange:(event)=>{ setValueMax(Math.max(Number(event.target.value), Number(valueMin))); setVisibleCount(36); }, style:{ width:"100%",accentColor:"var(--green)" } })
-                          ),
-                          React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",fontSize:9.5,color:"var(--muted)",marginTop:4 } }, React.createElement("span",null,"3M"),React.createElement("span",null,"333M"))
+                          React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginBottom:7 } }, "Valor"),
+                          React.createElement(DualRange, { min:3,max:333,step:1,minValue:valueMin,maxValue:valueMax,formatValue:(value)=>`${value}M`,onChangeMin:(value)=>{setValueMin(Math.min(value,valueMax));setVisibleCount(36);},onChangeMax:(value)=>{setValueMax(Math.max(value,valueMin));setVisibleCount(36);} })
                         ),
                       ),
                     ),
@@ -4182,7 +4241,7 @@
                       });
                     })),
                     filteredPlayers.length === 0 && React.createElement("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Nenhum jogador corresponde aos filtros selecionados."),
-                    filteredPlayers.length > visibleCount && React.createElement("button", { className: "tapbtn", onClick: () => setVisibleCount((count) => count + 36), style: { ...M, background: "var(--surface-soft)", color: "var(--heading)", border: "1px solid rgba(88,204,2,.35)" } }, "Mostrar mais (", filteredPlayers.length - visibleCount, " restantes)"),
+                    filteredPlayers.length > visibleCount && React.createElement("div", { ref:loadMoreSentinel, style:{ minHeight:72, display:"grid", placeItems:"center", color:"var(--muted)", fontSize:12, gap:8 } }, React.createElement("span", { className:"animate-spin", style:{ width:20,height:20,borderRadius:999,border:"2px solid var(--border)",borderTopColor:"var(--green)",display:"block" } }), React.createElement("span", null, "Carregando mais jogadores...")),
                   ),
           );
         }
@@ -4320,7 +4379,7 @@
               React.createElement(
                 "div",
                 { className:"player-detail-scroll" },
-                React.createElement("button", { className:"tapbtn", onClick:()=>onReport&&onReport(e), title:"Reportar problema", "aria-label":"Reportar problema no jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:68, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--yellow)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(FlagIcon,{size:20})),
+                React.createElement("button", { className:"tapbtn", onClick:()=>onReport&&onReport(e), title:"Reportar problema", "aria-label":"Reportar problema no jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--yellow)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(FlagIcon,{size:20})),
                 React.createElement(
                   "header",
                   { style:{ textAlign:"center", padding:"4px 8px 20px" } },
@@ -5834,7 +5893,7 @@
             ) : React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:24 } }, "O snapshot final deste campeonato ainda não está disponível."));
         }
 
-        function TeamViewer({ team, squadOf, ownership, onOpenDetail, profiles, tournament, tournaments, onOpenChampionshipSummary, onClose }) {
+        function TeamViewer({ team, squadOf, ownership, onOpenDetail, profiles, tournament, tournaments, onOpenChampionshipSummary, onOfferPlayer, onClose }) {
           let profile = (profiles || []).find((item) => item && typeof item === "object" && String(item.id) === String(team.profileId));
           let trophies = (tournaments || []).filter((item)=>item&&item.status==="finished").map((item)=>{
             let standings=Array.isArray(item.finalStandings)?item.finalStandings:[];
@@ -5856,6 +5915,7 @@
                 squadOf, onSellToMarket:()=>{}, depreciationPct:0, ownership, onOpenDetail:(player)=>onOpenDetail({ player, fromOtherTeam:true }), onGoMarket:()=>{},
                 rosterSettings:tournament&&tournament.rosterSettings?tournament.rosterSettings:{minPlayers:23,maxPlayers:30},
                 readOnly:true, onBack:onClose, viewerProfile:profile,
+                readOnlyActionLabel:"Fazer oferta", onReadOnlyAction:onOfferPlayer,
                 viewerTrophies: trophies.length ? React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10,marginTop:16,textAlign:"initial" } }, trophies.map(({tournament:item})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:14,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } }, React.createElement("div", { style:{ fontSize:30,marginBottom:6 } }, "🏆"), React.createElement("div", { style:{ fontWeight:850,fontSize:13 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)",fontSize:11.5,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão")))) : null,
               })
             )
