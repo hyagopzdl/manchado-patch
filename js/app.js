@@ -3111,6 +3111,7 @@
           let [lineupDrag, setLineupDrag] = b(null);
           let [lineupDragOver, setLineupDragOver] = b(null);
           let [lineupEditMode, setLineupEditMode] = b(false);
+          let [lineupEditingSlotId, setLineupEditingSlotId] = b(null);
           let [customPositions, setCustomPositions] = b(savedLineup.customPositions && typeof savedLineup.customPositions === "object" ? savedLineup.customPositions : {});
           let lineupGestureRef = Rf({ timer:null, active:false, payload:null, pointerId:null });
           let lineupFieldRef = Rf(null);
@@ -3124,6 +3125,7 @@
             setCustomPositions(nextCustomPositions);
             customPositionsRef.current = nextCustomPositions;
             setLineupEditMode(false);
+            setLineupEditingSlotId(null);
           }, [s.id, s.lineup && s.lineup.updatedAt]);
           He(() => () => {
             let gesture = lineupGestureRef.current;
@@ -3132,12 +3134,17 @@
           }, []);
           let presetFormation = formation === "Personalizada" ? (savedLineup.baseFormation || "4-3-3") : formation;
           let baseLineupSlots = window.PESLineups ? window.PESLineups.slots(presetFormation) : [];
-          let lineupSlots = baseLineupSlots.map((slot) => {
-            let position = customPositions && customPositions[slot.id];
-            return position && Number.isFinite(Number(position.x)) && Number.isFinite(Number(position.y))
-              ? { ...slot, x:Number(position.x), y:Number(position.y) }
-              : slot;
-          });
+          const LINEUP_GRID_X = [10, 30, 50, 70, 90];
+          const LINEUP_GRID_Y = [7, 19, 31, 43, 57, 69, 81, 93];
+          function nearestGridValue(value, grid) {
+            let numeric = Number(value);
+            return grid.reduce((closest, item) => Math.abs(item - numeric) < Math.abs(closest - numeric) ? item : closest, grid[0]);
+          }
+          function gridAlignedPosition(slot, position) {
+            let source = position && Number.isFinite(Number(position.x)) && Number.isFinite(Number(position.y)) ? position : slot;
+            return { ...slot, x:nearestGridValue(source.x, LINEUP_GRID_X), y:nearestGridValue(source.y, LINEUP_GRID_Y) };
+          }
+          let lineupSlots = baseLineupSlots.map((slot) => gridAlignedPosition(slot, customPositions && customPositions[slot.id]));
           let playerById = new Map(squad.map((player) => [String(player.id), player]));
           let starterIds = new Set(Object.values(assignments || {}).filter(Boolean).map(String));
           let benchPlayers = squad.filter((player) => !starterIds.has(String(player.id))).sort((x,y)=>(y.overall||0)-(x.overall||0));
@@ -3163,6 +3170,7 @@
           }
           function stopLineupEditor() {
             setLineupEditMode(false);
+            setLineupEditingSlotId(null);
             lineupSlotEditRef.current = { active:false, slotId:null, pointerId:null };
           }
           function resetCustomFormation() {
@@ -3171,19 +3179,14 @@
             baseLineupSlots.forEach((slot) => { reset[slot.id] = { x:Number(slot.x), y:Number(slot.y) }; });
             saveLineup("Personalizada", assignments, reset, presetFormation);
           }
-          function snappedCoordinate(value) {
-            return Math.round(Number(value) / 4) * 4;
-          }
           function safeSlotPosition(slotId, x, y) {
             let slot = lineupSlots.find((item) => item.id === slotId);
             let isGoalkeeper = slot && slot.position === "GK";
-            let nextX = Math.max(8, Math.min(92, snappedCoordinate(x)));
-            let nextY = Math.max(isGoalkeeper ? 86 : 8, Math.min(isGoalkeeper ? 95 : 86, snappedCoordinate(y)));
-            let collision = lineupSlots.some((item) => {
-              if (item.id === slotId) return false;
-              let dx = Number(item.x) - nextX, dy = Number(item.y) - nextY;
-              return Math.sqrt(dx * dx + dy * dy) < 10;
-            });
+            let nextX = nearestGridValue(x, LINEUP_GRID_X);
+            let nextY = nearestGridValue(y, LINEUP_GRID_Y);
+            if (isGoalkeeper && nextY < 81) return null;
+            if (!isGoalkeeper && nextY > 81) nextY = 81;
+            let collision = lineupSlots.some((item) => item.id !== slotId && Number(item.x) === nextX && Number(item.y) === nextY);
             if (collision) return null;
             return { x:nextX, y:nextY };
           }
@@ -3191,6 +3194,7 @@
             if (!lineupEditMode || readOnly) return;
             event.preventDefault();
             lineupSlotEditRef.current = { active:true, slotId, pointerId:event.pointerId };
+            setLineupEditingSlotId(slotId);
             try { event.currentTarget.setPointerCapture(event.pointerId); } catch (error) {}
           }
           function moveSlotEdit(event) {
@@ -3208,12 +3212,14 @@
             let gesture = lineupSlotEditRef.current;
             if (!gesture.active || gesture.pointerId !== event.pointerId) return;
             lineupSlotEditRef.current = { active:false, slotId:null, pointerId:null };
+            setLineupEditingSlotId(null);
             saveLineup("Personalizada", assignments, customPositionsRef.current, presetFormation);
           }
           function cancelSlotEdit(event) {
             let gesture = lineupSlotEditRef.current;
             if (event && gesture.pointerId != null && gesture.pointerId !== event.pointerId) return;
             lineupSlotEditRef.current = { active:false, slotId:null, pointerId:null };
+            setLineupEditingSlotId(null);
           }
           function chooseLineupPlayer(slotId, playerId) {
             let next = { ...(assignments || {}) };
@@ -3362,49 +3368,69 @@
                   )
                 ),
                 !squad.length ? React.createElement("div", { style:{ padding:30, textAlign:"center", color:"var(--muted)" } }, "Seu elenco está vazio.") : React.createElement(React.Fragment,null,
-                  React.createElement("div", { ref:lineupFieldRef, className:`lineup-field${lineupDrag?" is-drag-active":""}${lineupEditMode?" is-editing":""}` }, lineupSlots.map((slot)=>{let player=playerById.get(String(assignments[slot.id]||""));let draggedPlayer=lineupDrag&&playerById.get(String(lineupDrag.playerId));return React.createElement("button", {
-                    key:slot.id,
-                    "data-lineup-slot":slot.id,
-                    className:`lineup-slot${player?"":" is-empty"}${lineupFitClass(draggedPlayer,slot)}${lineupDragOver===slot.id?" is-drag-over":""}${lineupDrag&&String(lineupDrag.playerId)===String(player&&player.id)?" is-drag-source":""}${lineupEditMode?" is-editable":""}`,
-                    disabled:readOnly,
-                    draggable:!readOnly&&!lineupEditMode&&!!player,
-                    onClick:()=>{if(!lineupDrag&&!lineupEditMode)setLineupPicker({slotId:slot.id})},
-                    onDragStart:(event)=>player&&beginNativeLineupDrag(event,{playerId:String(player.id),sourceSlotId:slot.id}),
-                    onDragOver:(event)=>{if(!readOnly){event.preventDefault();setLineupDragOver(slot.id)}},
-                    onDragLeave:()=>{if(lineupDragOver===slot.id)setLineupDragOver(null)},
-                    onDrop:(event)=>{event.preventDefault();moveLineupPlayer(lineupDrag,slot.id);clearLineupDrag()},
-                    onDragEnd:clearLineupDrag,
-                    onPointerDown:(event)=>lineupEditMode?beginSlotEdit(event,slot.id):(player&&beginTouchLineupDrag(event,{playerId:String(player.id),sourceSlotId:slot.id})),
-                    onPointerMove:lineupEditMode?moveSlotEdit:moveTouchLineupDrag,
-                    onPointerUp:lineupEditMode?endSlotEdit:endTouchLineupDrag,
-                    onPointerCancel:lineupEditMode?cancelSlotEdit:clearLineupDrag,
-                    style:{left:`${slot.x}%`,top:`${slot.y}%`}
-                  },
-                    React.createElement("span", { className:"lineup-slot-avatar" }, player&&player.photo?React.createElement("img",{src:player.photo,alt:""}):player?String(player.name||"?").slice(0,2).toUpperCase():slot.position),
-                    player&&React.createElement("span",{className:"lineup-slot-overall"},player.overall||"—"),
-                    React.createElement("span",{className:"lineup-slot-name"},player?(player.name||"Jogador"):slot.position)
-                  )})),
-                  lineupEditMode && React.createElement("div",{className:"lineup-edit-hint"},"Arraste os slots pela grade. O goleiro permanece restrito à área defensiva."),
-                  lineupDrag && React.createElement("div",{className:"lineup-drag-hint"},"Solte em uma posição destacada ou arraste para Reservas"),
-                  React.createElement("div", {
-                    className:`lineup-bench${lineupDragOver==="bench"?" is-drag-over":""}`,
-                    "data-lineup-bench":"true",
-                    onDragOver:(event)=>{if(!readOnly){event.preventDefault();setLineupDragOver("bench")}},
-                    onDragLeave:()=>{if(lineupDragOver==="bench")setLineupDragOver(null)},
-                    onDrop:(event)=>{event.preventDefault();moveLineupPlayerToBench(lineupDrag);clearLineupDrag()}
-                  },
-                    React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 } },React.createElement("h2",{style:{margin:0,fontSize:18}},"Reservas"),React.createElement("span",{style:{fontSize:12,color:"var(--muted)"}},benchPlayers.length)),
-                    React.createElement("div", { className:"lineup-bench-list" }, benchPlayers.map((player)=>React.createElement("div", {
-                      key:player.id,
-                      className:`lineup-bench-player${lineupDrag&&String(lineupDrag.playerId)===String(player.id)?" is-drag-source":""}`,
-                      draggable:!readOnly,
-                      onDragStart:(event)=>beginNativeLineupDrag(event,{playerId:String(player.id),sourceSlotId:null}),
-                      onDragEnd:clearLineupDrag,
-                      onPointerDown:(event)=>beginTouchLineupDrag(event,{playerId:String(player.id),sourceSlotId:null}),
-                      onPointerMove:moveTouchLineupDrag,
-                      onPointerUp:endTouchLineupDrag,
-                      onPointerCancel:clearLineupDrag
-                    },player.photo&&React.createElement("img",{src:player.photo,alt:""}),React.createElement("div",{style:{fontSize:11,fontWeight:850,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:5}},player.name),React.createElement("div",{style:{fontSize:10,color:"var(--muted)",marginTop:3}},`${player.position} · ${player.overall}`))))
+                  React.createElement("div", { className:"lineup-workspace" },
+                    React.createElement("div", { className:"lineup-field-column" },
+                      React.createElement("div", { ref:lineupFieldRef, className:`lineup-field${lineupDrag?" is-drag-active":""}${lineupEditMode?" is-editing":""}` },
+                        React.createElement("div", { className:"lineup-field-markings", "aria-hidden":"true" },
+                          React.createElement("span", { className:"lineup-penalty-area lineup-penalty-area-top" }),
+                          React.createElement("span", { className:"lineup-penalty-area lineup-penalty-area-bottom" })
+                        ),
+                        lineupEditMode && lineupEditingSlotId && React.createElement("div", { className:"lineup-grid-targets", "aria-hidden":"true" }, LINEUP_GRID_Y.flatMap((gridY)=>LINEUP_GRID_X.map((gridX)=>{
+                          let allowed = !!safeSlotPosition(lineupEditingSlotId, gridX, gridY);
+                          let current = lineupSlots.some((item)=>item.id===lineupEditingSlotId&&Number(item.x)===gridX&&Number(item.y)===gridY);
+                          return React.createElement("span", { key:`${gridX}-${gridY}`, className:`lineup-grid-target${allowed?" is-available":" is-unavailable"}${current?" is-current":""}`, style:{left:`${gridX}%`,top:`${gridY}%`} });
+                        }))),
+                        lineupSlots.map((slot)=>{let player=playerById.get(String(assignments[slot.id]||""));let draggedPlayer=lineupDrag&&playerById.get(String(lineupDrag.playerId));return React.createElement("button", {
+                          key:slot.id,
+                          "data-lineup-slot":slot.id,
+                          className:`lineup-slot${player?"":" is-empty"}${lineupFitClass(draggedPlayer,slot)}${lineupDragOver===slot.id?" is-drag-over":""}${lineupDrag&&String(lineupDrag.playerId)===String(player&&player.id)?" is-drag-source":""}${lineupEditMode?" is-editable":""}${lineupEditingSlotId===slot.id?" is-being-edited":""}`,
+                          disabled:readOnly,
+                          draggable:!readOnly&&!lineupEditMode&&!!player,
+                          onClick:()=>{if(!lineupDrag&&!lineupEditMode)setLineupPicker({slotId:slot.id})},
+                          onDragStart:(event)=>player&&beginNativeLineupDrag(event,{playerId:String(player.id),sourceSlotId:slot.id}),
+                          onDragOver:(event)=>{if(!readOnly){event.preventDefault();setLineupDragOver(slot.id)}},
+                          onDragLeave:()=>{if(lineupDragOver===slot.id)setLineupDragOver(null)},
+                          onDrop:(event)=>{event.preventDefault();moveLineupPlayer(lineupDrag,slot.id);clearLineupDrag()},
+                          onDragEnd:clearLineupDrag,
+                          onPointerDown:(event)=>lineupEditMode?beginSlotEdit(event,slot.id):(player&&beginTouchLineupDrag(event,{playerId:String(player.id),sourceSlotId:slot.id})),
+                          onPointerMove:lineupEditMode?moveSlotEdit:moveTouchLineupDrag,
+                          onPointerUp:lineupEditMode?endSlotEdit:endTouchLineupDrag,
+                          onPointerCancel:lineupEditMode?cancelSlotEdit:clearLineupDrag,
+                          style:{left:`${slot.x}%`,top:`${slot.y}%`}
+                        },
+                          React.createElement("span", { className:"lineup-slot-avatar" }, player&&player.photo?React.createElement("img",{src:player.photo,alt:""}):player?String(player.name||"?").slice(0,2).toUpperCase():slot.position),
+                          player&&React.createElement("span",{className:"lineup-slot-overall",style:{color:overallColor(player.overall),borderColor:overallColor(player.overall)}},player.overall||"—"),
+                          React.createElement("span",{className:"lineup-slot-name"},player?(player.name||"Jogador"):slot.position)
+                        )})
+                      ),
+                      lineupEditMode && React.createElement("div",{className:"lineup-edit-hint"},"Arraste os slots entre as 40 posições da grade. O goleiro permanece nas duas linhas defensivas."),
+                      lineupDrag && React.createElement("div",{className:"lineup-drag-hint"},"Solte em uma posição destacada ou arraste para Reservas")
+                    ),
+                    React.createElement("div", {
+                      className:`lineup-bench${lineupDragOver==="bench"?" is-drag-over":""}`,
+                      "data-lineup-bench":"true",
+                      onDragOver:(event)=>{if(!readOnly){event.preventDefault();setLineupDragOver("bench")}},
+                      onDragLeave:()=>{if(lineupDragOver==="bench")setLineupDragOver(null)},
+                      onDrop:(event)=>{event.preventDefault();moveLineupPlayerToBench(lineupDrag);clearLineupDrag()}
+                    },
+                      React.createElement("div", { className:"lineup-bench-header" },React.createElement("div",null,React.createElement("h2",null,"Reservas"),React.createElement("p",null,"Arraste um jogador para o campo")),React.createElement("span",null,benchPlayers.length)),
+                      React.createElement("div", { className:"lineup-bench-list" }, benchPlayers.map((player)=>React.createElement("article", {
+                        key:player.id,
+                        className:`lineup-bench-player${lineupDrag&&String(lineupDrag.playerId)===String(player.id)?" is-drag-source":""}`,
+                        draggable:!readOnly,
+                        onDragStart:(event)=>beginNativeLineupDrag(event,{playerId:String(player.id),sourceSlotId:null}),
+                        onDragEnd:clearLineupDrag,
+                        onPointerDown:(event)=>beginTouchLineupDrag(event,{playerId:String(player.id),sourceSlotId:null}),
+                        onPointerMove:moveTouchLineupDrag,
+                        onPointerUp:endTouchLineupDrag,
+                        onPointerCancel:clearLineupDrag,
+                        style:{background:`linear-gradient(145deg,color-mix(in srgb,${overallColor(player.overall)} 16%,var(--surface)) 0%,var(--surface) 70%)`,borderColor:`color-mix(in srgb,${overallColor(player.overall)} 38%,var(--border))`}
+                      },
+                        React.createElement("div",{className:"lineup-bench-player-media"},player.photo?React.createElement("img",{src:player.photo,alt:""}):React.createElement("span",null,String(player.name||"?").slice(0,2).toUpperCase()),React.createElement("strong",{style:{color:overallColor(player.overall)}},player.overall)),
+                        React.createElement("div",{className:"lineup-bench-player-info"},React.createElement("div",{className:"lineup-bench-player-name"},player.name),React.createElement("div",{className:"lineup-bench-player-meta"},React.createElement("span",{style:{background:positionColor(player.position)}},player.position),React.createElement("span",null,nationalityFlag(player.nationality)),React.createElement("small",null,player.club||"Sem clube"))),
+                        React.createElement("div",{className:"lineup-bench-player-value"},React.createElement(BankIcon,{size:12,color:"currentColor"}),L(player.value))
+                      )))
+                    )
                   )
                 )
               ),
