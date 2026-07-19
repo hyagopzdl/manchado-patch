@@ -3190,8 +3190,23 @@
             if (collision) return null;
             return { x:nextX, y:nextY };
           }
+          function updateSlotPositionFromPoint(slotId, clientX, clientY, persist = false) {
+            if (readOnly || !lineupFieldRef.current) return false;
+            let rect = lineupFieldRef.current.getBoundingClientRect();
+            let position = safeSlotPosition(slotId, ((clientX - rect.left) / rect.width) * 100, ((clientY - rect.top) / rect.height) * 100);
+            if (!position) return false;
+            let nextPositions = { ...(customPositionsRef.current || {}) };
+            lineupSlots.forEach((slot) => {
+              if (!nextPositions[slot.id]) nextPositions[slot.id] = { x:Number(slot.x), y:Number(slot.y) };
+            });
+            nextPositions[slotId] = position;
+            customPositionsRef.current = nextPositions;
+            setCustomPositions(nextPositions);
+            if (persist) saveLineup("Personalizada", assignments, nextPositions, presetFormation);
+            return true;
+          }
           function beginSlotEdit(event, slotId) {
-            if (!lineupEditMode || readOnly) return;
+            if (readOnly) return;
             event.preventDefault();
             lineupSlotEditRef.current = { active:true, slotId, pointerId:event.pointerId };
             setLineupEditingSlotId(slotId);
@@ -3201,12 +3216,7 @@
             let gesture = lineupSlotEditRef.current;
             if (!gesture.active || gesture.pointerId !== event.pointerId || !lineupFieldRef.current) return;
             event.preventDefault();
-            let rect = lineupFieldRef.current.getBoundingClientRect();
-            let position = safeSlotPosition(gesture.slotId, ((event.clientX - rect.left) / rect.width) * 100, ((event.clientY - rect.top) / rect.height) * 100);
-            if (!position) return;
-            let nextPositions = { ...(customPositionsRef.current || {}), [gesture.slotId]:position };
-            customPositionsRef.current = nextPositions;
-            setCustomPositions(nextPositions);
+            updateSlotPositionFromPoint(gesture.slotId, event.clientX, event.clientY, false);
           }
           function endSlotEdit(event) {
             let gesture = lineupSlotEditRef.current;
@@ -3245,7 +3255,7 @@
             saveLineup(formation, next);
           }
           function lineupFitClass(player, slot) {
-            if (!lineupDrag || !player || !slot || !window.PESLineups) return "";
+            if (!lineupDrag || lineupDrag.kind === "slot-position" || !player || !slot || !window.PESLineups) return "";
             let value = window.PESLineups.score(player, slot.position);
             return value >= 7000 ? " is-compatible" : value >= 1000 ? " is-secondary" : " is-incompatible";
           }
@@ -3255,11 +3265,13 @@
             lineupGestureRef.current = { timer:null, active:false, payload:null, pointerId:null };
             setLineupDrag(null);
             setLineupDragOver(null);
+            setLineupEditingSlotId(null);
             document.body.classList.remove("is-lineup-dragging");
           }
           function beginNativeLineupDrag(event, payload) {
             if (readOnly) return;
             setLineupDrag(payload);
+            if (payload && payload.kind === "slot-position") setLineupEditingSlotId(payload.slotId);
             document.body.classList.add("is-lineup-dragging");
             if (event.dataTransfer) {
               event.dataTransfer.effectAllowed = "move";
@@ -3272,6 +3284,7 @@
             let timer = window.setTimeout(() => {
               lineupGestureRef.current = { timer:null, active:true, payload, pointerId };
               setLineupDrag(payload);
+              if (payload && payload.kind === "slot-position") setLineupEditingSlotId(payload.slotId);
               document.body.classList.add("is-lineup-dragging");
               try { event.currentTarget.setPointerCapture(pointerId); } catch (error) {}
               if (navigator.vibrate) navigator.vibrate(20);
@@ -3289,6 +3302,10 @@
               return;
             }
             event.preventDefault();
+            if (gesture.payload && gesture.payload.kind === "slot-position") {
+              updateSlotPositionFromPoint(gesture.payload.slotId, event.clientX, event.clientY, false);
+              return;
+            }
             let target = document.elementFromPoint(event.clientX, event.clientY);
             let slot = target && target.closest ? target.closest("[data-lineup-slot]") : null;
             setLineupDragOver(slot ? slot.getAttribute("data-lineup-slot") : (target && target.closest && target.closest("[data-lineup-bench]") ? "bench" : null));
@@ -3299,10 +3316,14 @@
             if (gesture.timer) window.clearTimeout(gesture.timer);
             if (gesture.active) {
               event.preventDefault();
-              let target = document.elementFromPoint(event.clientX, event.clientY);
-              let slot = target && target.closest ? target.closest("[data-lineup-slot]") : null;
-              if (slot) moveLineupPlayer(gesture.payload, slot.getAttribute("data-lineup-slot"));
-              else if (target && target.closest && target.closest("[data-lineup-bench]")) moveLineupPlayerToBench(gesture.payload);
+              if (gesture.payload && gesture.payload.kind === "slot-position") {
+                updateSlotPositionFromPoint(gesture.payload.slotId, event.clientX, event.clientY, true);
+              } else {
+                let target = document.elementFromPoint(event.clientX, event.clientY);
+                let slot = target && target.closest ? target.closest("[data-lineup-slot]") : null;
+                if (slot) moveLineupPlayer(gesture.payload, slot.getAttribute("data-lineup-slot"));
+                else if (target && target.closest && target.closest("[data-lineup-bench]")) moveLineupPlayerToBench(gesture.payload);
+              }
             }
             clearLineupDrag();
           }
@@ -3361,41 +3382,45 @@
                     React.createElement("h1", { style:{ margin:0, fontSize:24 } }, s.name)
                   ),
                   React.createElement("div", { style:{ display:"flex", gap:8, flexWrap:"wrap" } },
-                    React.createElement("select", { value:formation, disabled:readOnly||lineupEditMode, onChange:(event)=>{let value=event.target.value;if(value==="Personalizada")startLineupEditor();else{setLineupEditMode(false);saveLineup(value,window.PESLineups?window.PESLineups.autoAssign(squad,value):{}, {}, value)}}, style:q }, [...Object.keys((window.PESLineups&&window.PESLineups.presets)||{}),"Personalizada"].map((name)=>React.createElement("option",{key:name,value:name},name))),
-                    !lineupEditMode && React.createElement("button", { disabled:readOnly||!squad.length, onClick:()=>autoOrganize(), className:"family-pill-primary", style:{ padding:"10px 16px", cursor:readOnly?"default":"pointer", opacity:readOnly?.55:1 } }, "Auto organizar"),
-                    !readOnly && React.createElement("button", { onClick:lineupEditMode?stopLineupEditor:startLineupEditor, className:lineupEditMode?"family-pill-primary":"family-pill-secondary", style:{ padding:"10px 16px", cursor:"pointer" } }, lineupEditMode?"Concluir edição":"Editar formação"),
-                    lineupEditMode && React.createElement("button", { onClick:resetCustomFormation, className:"family-pill-secondary", style:{ padding:"10px 16px", cursor:"pointer" } }, "Restaurar preset")
+                    React.createElement("select", { value:formation === "Personalizada" ? presetFormation : formation, disabled:readOnly, onChange:(event)=>{let value=event.target.value;setLineupEditMode(false);saveLineup(value,window.PESLineups?window.PESLineups.autoAssign(squad,value):{}, {}, value)}, style:q }, Object.keys((window.PESLineups&&window.PESLineups.presets)||{}).map((name)=>React.createElement("option",{key:name,value:name},name))),
+                    React.createElement("button", { disabled:readOnly||!squad.length, onClick:()=>autoOrganize(), className:"family-pill-primary", style:{ padding:"10px 16px", cursor:readOnly?"default":"pointer", opacity:readOnly?.55:1 } }, "Auto organizar"),
+                    !readOnly && formation === "Personalizada" && React.createElement("button", { onClick:()=>{let reset={};baseLineupSlots.forEach((slot)=>{reset[slot.id]={x:Number(slot.x),y:Number(slot.y)}});saveLineup(presetFormation,assignments,{},presetFormation)}, className:"family-pill-secondary", style:{ padding:"10px 16px", cursor:"pointer" } }, "Restaurar posições")
                   )
                 ),
                 !squad.length ? React.createElement("div", { style:{ padding:30, textAlign:"center", color:"var(--muted)" } }, "Seu elenco está vazio.") : React.createElement(React.Fragment,null,
                   React.createElement("div", { className:"lineup-workspace" },
                     React.createElement("div", { className:"lineup-field-column" },
-                      React.createElement("div", { ref:lineupFieldRef, className:`lineup-field${lineupDrag?" is-drag-active":""}${lineupEditMode?" is-editing":""}` },
+                      React.createElement("div", {
+                        ref:lineupFieldRef,
+                        className:`lineup-field${lineupDrag?" is-drag-active":""}${lineupEditingSlotId?" is-moving-slot":""}`,
+                        onDragOver:(event)=>{if(lineupDrag&&lineupDrag.kind==="slot-position"){event.preventDefault();updateSlotPositionFromPoint(lineupDrag.slotId,event.clientX,event.clientY,false)}},
+                        onDrop:(event)=>{if(lineupDrag&&lineupDrag.kind==="slot-position"){event.preventDefault();updateSlotPositionFromPoint(lineupDrag.slotId,event.clientX,event.clientY,true);clearLineupDrag()}}
+                      },
                         React.createElement("div", { className:"lineup-field-markings", "aria-hidden":"true" },
                           React.createElement("span", { className:"lineup-penalty-area lineup-penalty-area-top" }),
                           React.createElement("span", { className:"lineup-penalty-area lineup-penalty-area-bottom" })
                         ),
-                        lineupEditMode && lineupEditingSlotId && React.createElement("div", { className:"lineup-grid-targets", "aria-hidden":"true" }, LINEUP_GRID_Y.flatMap((gridY)=>LINEUP_GRID_X.map((gridX)=>{
+                        lineupEditingSlotId && React.createElement("div", { className:"lineup-grid-targets", "aria-hidden":"true" }, LINEUP_GRID_Y.flatMap((gridY)=>LINEUP_GRID_X.map((gridX)=>{
                           let allowed = !!safeSlotPosition(lineupEditingSlotId, gridX, gridY);
                           let current = lineupSlots.some((item)=>item.id===lineupEditingSlotId&&Number(item.x)===gridX&&Number(item.y)===gridY);
-                          return React.createElement("span", { key:`${gridX}-${gridY}`, className:`lineup-grid-target${allowed?" is-available":" is-unavailable"}${current?" is-current":""}`, style:{left:`${gridX}%`,top:`${gridY}%`} });
+                          return allowed && !current ? React.createElement("span", { key:`${gridX}-${gridY}`, className:"lineup-grid-target is-available", style:{left:`${gridX}%`,top:`${gridY}%`} }) : null;
                         }))),
                         lineupSlots.map((slot)=>{let player=playerById.get(String(assignments[slot.id]||""));let draggedPlayer=lineupDrag&&playerById.get(String(lineupDrag.playerId));return React.createElement("button", {
                           key:slot.id,
                           "data-lineup-slot":slot.id,
                           className:`lineup-slot${player?"":" is-empty"}${lineupFitClass(draggedPlayer,slot)}${lineupDragOver===slot.id?" is-drag-over":""}${lineupDrag&&String(lineupDrag.playerId)===String(player&&player.id)?" is-drag-source":""}${lineupEditMode?" is-editable":""}${lineupEditingSlotId===slot.id?" is-being-edited":""}`,
                           disabled:readOnly,
-                          draggable:!readOnly&&!lineupEditMode&&!!player,
-                          onClick:()=>{if(!lineupDrag&&!lineupEditMode)setLineupPicker({slotId:slot.id})},
-                          onDragStart:(event)=>player&&beginNativeLineupDrag(event,{playerId:String(player.id),sourceSlotId:slot.id}),
-                          onDragOver:(event)=>{if(!readOnly){event.preventDefault();setLineupDragOver(slot.id)}},
+                          draggable:!readOnly,
+                          onClick:()=>{if(!lineupDrag)setLineupPicker({slotId:slot.id})},
+                          onDragStart:(event)=>beginNativeLineupDrag(event,{kind:"slot-position",slotId:slot.id,playerId:player?String(player.id):null}),
+                          onDragOver:(event)=>{if(lineupDrag&&lineupDrag.kind!=="slot-position"&&!readOnly){event.preventDefault();event.stopPropagation();setLineupDragOver(slot.id)}},
                           onDragLeave:()=>{if(lineupDragOver===slot.id)setLineupDragOver(null)},
-                          onDrop:(event)=>{event.preventDefault();moveLineupPlayer(lineupDrag,slot.id);clearLineupDrag()},
-                          onDragEnd:clearLineupDrag,
-                          onPointerDown:(event)=>lineupEditMode?beginSlotEdit(event,slot.id):(player&&beginTouchLineupDrag(event,{playerId:String(player.id),sourceSlotId:slot.id})),
-                          onPointerMove:lineupEditMode?moveSlotEdit:moveTouchLineupDrag,
-                          onPointerUp:lineupEditMode?endSlotEdit:endTouchLineupDrag,
-                          onPointerCancel:lineupEditMode?cancelSlotEdit:clearLineupDrag,
+                          onDrop:(event)=>{if(lineupDrag&&lineupDrag.kind!=="slot-position"){event.preventDefault();event.stopPropagation();moveLineupPlayer(lineupDrag,slot.id);clearLineupDrag()}},
+                          onDragEnd:()=>{if(lineupDrag&&lineupDrag.kind==="slot-position")saveLineup("Personalizada",assignments,customPositionsRef.current,presetFormation);clearLineupDrag()},
+                          onPointerDown:(event)=>beginTouchLineupDrag(event,{kind:"slot-position",slotId:slot.id,playerId:player?String(player.id):null}),
+                          onPointerMove:moveTouchLineupDrag,
+                          onPointerUp:endTouchLineupDrag,
+                          onPointerCancel:clearLineupDrag,
                           style:{left:`${slot.x}%`,top:`${slot.y}%`}
                         },
                           React.createElement("span", { className:"lineup-slot-avatar" }, player&&player.photo?React.createElement("img",{src:player.photo,alt:""}):player?String(player.name||"?").slice(0,2).toUpperCase():slot.position),
@@ -3403,7 +3428,6 @@
                           React.createElement("span",{className:"lineup-slot-name"},player?(player.name||"Jogador"):slot.position)
                         )})
                       ),
-                      lineupEditMode && React.createElement("div",{className:"lineup-edit-hint"},"Arraste os slots entre as 40 posições da grade. O goleiro permanece nas duas linhas defensivas."),
                       lineupDrag && React.createElement("div",{className:"lineup-drag-hint"},"Solte em uma posição destacada ou arraste para Reservas")
                     ),
                     React.createElement("div", {
@@ -3418,17 +3442,16 @@
                         key:player.id,
                         className:`lineup-bench-player${lineupDrag&&String(lineupDrag.playerId)===String(player.id)?" is-drag-source":""}`,
                         draggable:!readOnly,
-                        onDragStart:(event)=>beginNativeLineupDrag(event,{playerId:String(player.id),sourceSlotId:null}),
+                        onDragStart:(event)=>beginNativeLineupDrag(event,{kind:"player",playerId:String(player.id),sourceSlotId:null}),
                         onDragEnd:clearLineupDrag,
-                        onPointerDown:(event)=>beginTouchLineupDrag(event,{playerId:String(player.id),sourceSlotId:null}),
+                        onPointerDown:(event)=>beginTouchLineupDrag(event,{kind:"player",playerId:String(player.id),sourceSlotId:null}),
                         onPointerMove:moveTouchLineupDrag,
                         onPointerUp:endTouchLineupDrag,
                         onPointerCancel:clearLineupDrag,
-                        style:{background:`linear-gradient(145deg,color-mix(in srgb,${overallColor(player.overall)} 16%,var(--surface)) 0%,var(--surface) 70%)`,borderColor:`color-mix(in srgb,${overallColor(player.overall)} 38%,var(--border))`}
+                        style:{background:`linear-gradient(145deg,color-mix(in srgb,${overallColor(player.overall)} 10%,var(--surface)) 0%,var(--surface) 78%)`,borderColor:`color-mix(in srgb,${overallColor(player.overall)} 32%,var(--border))`}
                       },
-                        React.createElement("div",{className:"lineup-bench-player-media"},player.photo?React.createElement("img",{src:player.photo,alt:""}):React.createElement("span",null,String(player.name||"?").slice(0,2).toUpperCase()),React.createElement("strong",{style:{color:overallColor(player.overall)}},player.overall)),
-                        React.createElement("div",{className:"lineup-bench-player-info"},React.createElement("div",{className:"lineup-bench-player-name"},player.name),React.createElement("div",{className:"lineup-bench-player-meta"},React.createElement("span",{style:{background:positionColor(player.position)}},player.position),React.createElement("span",null,nationalityFlag(player.nationality)),React.createElement("small",null,player.club||"Sem clube"))),
-                        React.createElement("div",{className:"lineup-bench-player-value"},React.createElement(BankIcon,{size:12,color:"currentColor"}),L(player.value))
+                        React.createElement("div",{className:"lineup-bench-player-overall",style:{color:overallColor(player.overall),borderColor:overallColor(player.overall)}},player.overall||"—"),
+                        React.createElement("div",{className:"lineup-bench-player-info"},React.createElement("div",{className:"lineup-bench-player-name"},player.name),React.createElement("div",{className:"lineup-bench-player-position"},player.position||"—"))
                       )))
                     )
                   )
