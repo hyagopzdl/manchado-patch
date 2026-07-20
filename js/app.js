@@ -1740,16 +1740,17 @@
             let transaction = Array.isArray(R.context && R.context.financialTransactions)
               ? R.context.financialTransactions.find((item) => item && String(item.id) === String(transactionId))
               : null;
-            if (!transaction || !["market_purchase","player_purchase"].includes(transaction.type)) {
-              window.alert("Esta movimentação não é uma compra que possa ser revertida.");
+            if (!transaction || !["market_purchase","player_purchase","market_sale"].includes(transaction.type)) {
+              window.alert("Esta movimentação não pode ser revertida.");
               return;
             }
             if (transaction.rolledBackAt) {
-              window.alert("Esta compra já foi revertida.");
+              window.alert("Esta movimentação já foi revertida.");
               return;
             }
-            let playerName = String(transaction.label || "jogador").replace(/^Compra de\s+/i, "");
-            if (!window.confirm(`Reverter a compra de ${playerName}? O jogador e os saldos voltarão ao estado anterior.`)) return;
+            let playerName = String(transaction.label || "jogador").replace(/^(Compra|Venda) de\s+/i, "").replace(/\s+ao mercado$/i, "");
+            let rollbackLabel = transaction.type === "market_sale" ? "venda ao mercado" : "compra";
+            if (!window.confirm(`Reverter a ${rollbackLabel} de ${playerName}? O jogador e o saldo voltarão ao estado anterior.`)) return;
             let db = Ee(), tournamentId = R.id, failureReason = null, rollbackId = _(), now = Date.now();
             let applyRollback = (tournament) => {
               let context = { ...(tournament.context || {}) };
@@ -1758,32 +1759,42 @@
               if (purchaseIndex < 0) { failureReason = "transaction_not_found"; return null; }
               let purchase = transactions[purchaseIndex];
               if (purchase.rolledBackAt) { failureReason = "already_rolled_back"; return null; }
-              if (!["market_purchase","player_purchase"].includes(purchase.type)) { failureReason = "invalid_type"; return null; }
+              if (!["market_purchase","player_purchase","market_sale"].includes(purchase.type)) { failureReason = "invalid_type"; return null; }
               let transfers = Array.isArray(context.transfers) ? context.transfers.map((item) => ({ ...item })) : [];
               let transfer = transfers.find((item) => item && !item.rolledBackAt && (
                 purchase.type === "player_purchase"
                   ? (String(item.offerId || "") === String(purchase.referenceId || purchase.refId || "") || (String(item.toTeamId) === String(purchase.teamId) && Math.abs(Number(item.createdAt || 0) - Number(purchase.createdAt || 0)) < 5000 && item.type === "user_transfer"))
-                  : (String(item.playerId) === String(purchase.referenceId || purchase.refId || "") && String(item.toTeamId) === String(purchase.teamId) && item.type === "market_purchase" && Math.abs(Number(item.createdAt || 0) - Number(purchase.createdAt || 0)) < 10000)
+                  : purchase.type === "market_sale"
+                    ? (String(item.playerId) === String(purchase.referenceId || purchase.refId || "") && String(item.fromTeamId) === String(purchase.teamId) && item.type === "market_sale" && Math.abs(Number(item.createdAt || 0) - Number(purchase.createdAt || 0)) < 10000)
+                    : (String(item.playerId) === String(purchase.referenceId || purchase.refId || "") && String(item.toTeamId) === String(purchase.teamId) && item.type === "market_purchase" && Math.abs(Number(item.createdAt || 0) - Number(purchase.createdAt || 0)) < 10000)
               ));
               if (!transfer) { failureReason = "transfer_not_found"; return null; }
               let playerKey = String(transfer.playerId);
               let ownership = { ...(context.ownership || {}) };
               let ownershipKey = Object.keys(ownership).find((key) => String(key) === playerKey) || playerKey;
               let owner = ownership[ownershipKey];
-              if (!owner || String(owner.teamId) !== String(transfer.toTeamId)) { failureReason = "player_changed"; return null; }
               let teams = Array.isArray(context.teams) ? context.teams.map((team) => ({ ...team })) : [];
-              let buyer = teams.find((team) => team && String(team.id) === String(transfer.toTeamId));
-              if (!buyer) { failureReason = "buyer_not_found"; return null; }
               let price = Math.abs(Number(transfer.price != null ? transfer.price : purchase.amount) || 0);
-              buyer.budget = (Number(buyer.budget) || 0) + price;
-              let seller = null;
-              if (transfer.fromTeamId != null && transfer.fromTeamId !== "") {
-                seller = teams.find((team) => team && String(team.id) === String(transfer.fromTeamId));
+              let buyer = null, seller = null;
+              if (purchase.type === "market_sale") {
+                if (owner && owner.teamId != null && owner.teamId !== "") { failureReason = "player_changed"; return null; }
+                seller = teams.find((team) => team && String(team.id) === String(transfer.fromTeamId || purchase.teamId));
                 if (!seller) { failureReason = "seller_not_found"; return null; }
                 seller.budget = (Number(seller.budget) || 0) - price;
-                ownership[ownershipKey] = { ...owner, teamId:seller.id, forSale:false, price:null, acquisitionSource:"rollback", acquiredAt:now };
+                ownership[ownershipKey] = { teamId:seller.id, forSale:false, price:null, acquisitionSource:"rollback", acquiredAt:now };
               } else {
-                delete ownership[ownershipKey];
+                if (!owner || String(owner.teamId) !== String(transfer.toTeamId)) { failureReason = "player_changed"; return null; }
+                buyer = teams.find((team) => team && String(team.id) === String(transfer.toTeamId));
+                if (!buyer) { failureReason = "buyer_not_found"; return null; }
+                buyer.budget = (Number(buyer.budget) || 0) + price;
+                if (transfer.fromTeamId != null && transfer.fromTeamId !== "") {
+                  seller = teams.find((team) => team && String(team.id) === String(transfer.fromTeamId));
+                  if (!seller) { failureReason = "seller_not_found"; return null; }
+                  seller.budget = (Number(seller.budget) || 0) - price;
+                  ownership[ownershipKey] = { ...owner, teamId:seller.id, forSale:false, price:null, acquisitionSource:"rollback", acquiredAt:now };
+                } else {
+                  delete ownership[ownershipKey];
+                }
               }
               let relatedReference = purchase.referenceId != null ? purchase.referenceId : purchase.refId;
               transactions = transactions.map((item) => {
@@ -1791,11 +1802,16 @@
                 let matchingSale = purchase.type === "player_purchase" && item.type === "player_sale" && String(item.referenceId != null ? item.referenceId : item.refId) === String(relatedReference) && Math.abs(Number(item.createdAt || 0) - Number(purchase.createdAt || 0)) < 5000;
                 return samePurchase || matchingSale ? { ...item, rolledBackAt:now, rolledBackByProfileId:te && te.id, rollbackId } : item;
               });
-              let buyerBefore = (Number(buyer.budget) || 0) - price;
-              transactions.unshift(financeEntry("purchase_rollback", buyer.id, price, `Estorno da compra de ${transfer.playerName || playerName}`, rollbackId, buyerBefore, now));
-              if (seller) {
+              if (purchase.type === "market_sale") {
                 let sellerBefore = (Number(seller.budget) || 0) + price;
-                transactions.unshift(financeEntry("sale_rollback", seller.id, -price, `Estorno da venda de ${transfer.playerName || playerName}`, rollbackId, sellerBefore, now));
+                transactions.unshift(financeEntry("market_sale_rollback", seller.id, -price, `Estorno da venda de ${transfer.playerName || playerName} ao mercado`, rollbackId, sellerBefore, now));
+              } else {
+                let buyerBefore = (Number(buyer.budget) || 0) - price;
+                transactions.unshift(financeEntry("purchase_rollback", buyer.id, price, `Estorno da compra de ${transfer.playerName || playerName}`, rollbackId, buyerBefore, now));
+                if (seller) {
+                  let sellerBefore = (Number(seller.budget) || 0) + price;
+                  transactions.unshift(financeEntry("sale_rollback", seller.id, -price, `Estorno da venda de ${transfer.playerName || playerName}`, rollbackId, sellerBefore, now));
+                }
               }
               transfers = transfers.map((item) => String(item.id) === String(transfer.id) ? { ...item, rolledBackAt:now, rolledBackByProfileId:te && te.id, rollbackId } : item);
               let tradeOffers = { ...(context.tradeOffers || {}) };
@@ -1822,11 +1838,11 @@
               if (committed) {
                 applyConfirmedTournamentSnapshot(snapshot);
                 signalImportantUpdate("market_purchase_rollback", tournamentId);
-                window.alert("Compra revertida com sucesso.");
+                window.alert("Movimentação revertida com sucesso.");
                 return;
               }
               let messages = {
-                already_rolled_back:"Esta compra já foi revertida.",
+                already_rolled_back:"Esta movimentação já foi revertida.",
                 player_changed:"O jogador já saiu do time comprador. O rollback foi bloqueado para evitar inconsistência.",
                 transfer_not_found:"Não foi possível localizar a transferência vinculada a esta compra.",
                 seller_not_found:"O time de origem não existe mais neste campeonato.",
@@ -2605,7 +2621,6 @@
                           onUpdateEconomyRules: updateEconomyRules,
                           onFinishTournament: finishCurrentTournament,
                           catalog: n, onImportRosters: importRosterPlan, onImportHistoricalCompetition: importHistoricalCompetition,
-                          onRollbackMarketPurchase: rollbackMarketPurchase,
                         }),
                       Y === "profile" &&
                         React.createElement(ProfileArea, {
@@ -4593,9 +4608,15 @@
             React.createElement("button",{onClick:()=>onSave(values.winReward,values.scoringDrawReward,values.scorelessDrawReward,values.lossReward,values.goalReward,values.redCardPenalty,values.championPrize,values.topScorerPrize),style:{...M,marginTop:4}},"Salvar regras e premiações")
           );
         }
-        function BalanceHistoryModal({ team, transactions, onClose }) {
-          let items=(Array.isArray(transactions)?transactions:[]).filter((item)=>item&&item.teamId===team.id).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-          return ReactDOM.createPortal(React.createElement("div", { className:"sports-modal-overlay",onClick:onClose,style:{ position:"fixed",inset:0,zIndex:1200,display:"grid",placeItems:"center",padding:16,background:"rgba(0,0,0,.72)",backdropFilter:"blur(12px)" } }, React.createElement("div", { onClick:(e)=>e.stopPropagation(),style:{ width:"min(560px,100%)",maxHeight:"82vh",overflow:"auto",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:24,padding:20 } }, React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 } }, React.createElement("div", null, React.createElement("div", { style:{ fontSize:12,color:"var(--muted)" } }, "Saldo atual"), React.createElement("strong", { style:{ fontSize:28,color:"var(--green)" } }, L(team.budget||0))), React.createElement("button", { onClick:onClose,style:{ width:34,height:34,borderRadius:"50%",border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)" } }, "×")), items.map((item)=>React.createElement("div", { key:item.id,style:{ display:"grid",gridTemplateColumns:"1fr auto",gap:12,padding:"12px 0",borderBottom:"1px solid var(--border)" } }, React.createElement("div", null, React.createElement("div", { style:{ fontWeight:750,fontSize:13.5 } }, item.label||"Movimentação"), React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginTop:3 } }, new Date(item.createdAt||Date.now()).toLocaleString("pt-BR"))), React.createElement("strong", { style:{ color:Number(item.amount)>=0?"var(--green)":"var(--danger)" } }, `${Number(item.amount)>=0?"+ ":"− "}${L(Math.abs(Number(item.amount)||0))}`))), !items.length&&React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:24 } }, "Nenhuma movimentação registrada ainda."))), document.body);
+        function BalanceHistoryModal({ team, transactions, canRollback, onRollback, onClose }) {
+          let reversibleTypes=["market_purchase","player_purchase","market_sale"];
+          let items=(Array.isArray(transactions)?transactions:[]).filter((item)=>item&&String(item.teamId)===String(team.id)).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+          let rollbackButton=(item)=>{
+            if(!canRollback||!reversibleTypes.includes(item.type)) return null;
+            let disabled=!!item.rolledBackAt;
+            return React.createElement("button",{type:"button",title:disabled?"Movimentação já revertida":"Dar rollback", "aria-label":disabled?"Movimentação já revertida":"Dar rollback",disabled,onClick:()=>onRollback&&onRollback(item.id),style:{width:30,height:30,borderRadius:"50%",border:"1px solid var(--border)",background:disabled?"var(--surface-soft)":"var(--heading)",color:disabled?"var(--muted)":"var(--surface)",display:"grid",placeItems:"center",fontSize:16,fontWeight:900,cursor:disabled?"default":"pointer",opacity:disabled?.5:1,flex:"0 0 auto"}},"↶");
+          };
+          return ReactDOM.createPortal(React.createElement("div", { className:"sports-modal-overlay",onClick:onClose,style:{ position:"fixed",inset:0,zIndex:1200,display:"grid",placeItems:"center",padding:16,background:"rgba(0,0,0,.72)",backdropFilter:"blur(12px)" } }, React.createElement("div", { onClick:(e)=>e.stopPropagation(),style:{ width:"min(560px,100%)",maxHeight:"82vh",overflow:"auto",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:24,padding:20 } }, React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 } }, React.createElement("div", null, React.createElement("div", { style:{ fontSize:12,color:"var(--muted)" } }, "Saldo atual"), React.createElement("strong", { style:{ fontSize:28,color:"var(--green)" } }, L(team.budget||0))), React.createElement("button", { onClick:onClose,style:{ width:34,height:34,borderRadius:"50%",border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)" } }, "×")), items.map((item)=>React.createElement("div", { key:item.id,style:{ display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:"12px 0",borderBottom:"1px solid var(--border)" } }, React.createElement("div", null, React.createElement("div", { style:{ fontWeight:750,fontSize:13.5 } }, item.label||"Movimentação"), React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginTop:3 } }, new Date(item.createdAt||Date.now()).toLocaleString("pt-BR")), item.rolledBackAt&&React.createElement("div",{style:{fontSize:10.5,color:"var(--green)",fontWeight:800,marginTop:4}},"Movimentação revertida")), React.createElement("div",{style:{display:"flex",alignItems:"center",gap:9}},React.createElement("strong", { style:{ color:Number(item.amount)>=0?"var(--green)":"var(--danger)" } }, `${Number(item.amount)>=0?"+ ":"− "}${L(Math.abs(Number(item.amount)||0))}`),rollbackButton(item)))), !items.length&&React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:24 } }, "Nenhuma movimentação registrada ainda."))), document.body);
         }
         function ChampionshipRulesModal({ tournament, onClose }) {
           let economy=economySettingsOf(tournament), prize=prizeSettingsOf(tournament), roster=tournament.rosterSettings||{minPlayers:23,maxPlayers:30}, market=tournament.marketSettings||{}, isCup=tournament&&tournament.type==="cup";
@@ -5546,7 +5567,7 @@
           return {version,type,name,groups,matches,champion,runner,names};
         }
 
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition, onRollbackMarketPurchase }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -5918,10 +5939,6 @@
                 React.createElement("button", { onClick:confirmHistoryImport,disabled:historyImportPreview.names.some((name)=>!historyMappings[name]),style:{...M,...W,opacity:historyImportPreview.names.some((name)=>!historyMappings[name])?.45:1} },historyImportPreview.names.some((name)=>!historyMappings[name])?"Vincule todos os participantes":"Confirmar importação")
               )
             ),
-            adminSection === "rules" && currentTournament && (()=>{ let purchases=(Array.isArray(currentTournament.context&&currentTournament.context.financialTransactions)?currentTournament.context.financialTransactions:[]).filter((item)=>item&&["market_purchase","player_purchase"].includes(item.type)).sort((a,b)=>(Number(b.createdAt)||0)-(Number(a.createdAt)||0)); return React.createElement("section", { style:{ ...E,padding:20,marginTop:18 } },
-              React.createElement("h3", { style:{ margin:"0 0 6px" } }, "Histórico de compras"),
-              React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5 } }, "Reverta compras do mercado ou transferências entre usuários. O rollback só é liberado enquanto o jogador continua no time comprador."),
-              purchases.length ? React.createElement("div", { style:{ display:"grid",gap:8,maxHeight:420,overflow:"auto" } }, purchases.map((item)=>{ let team=(teams||[]).find((candidate)=>candidate&&String(candidate.id)===String(item.teamId)); return React.createElement("div", { key:item.id,style:{ display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:12,border:"1px solid var(--border)",borderRadius:14,background:"var(--surface-soft)" } }, React.createElement("div", null, React.createElement("div", { style:{ fontWeight:800,fontSize:13.5 } }, item.label||"Compra de jogador"), React.createElement("div", { style:{ fontSize:11,color:"var(--muted)",marginTop:3 } }, `${team&&team.name?team.name:"Time removido"} · ${new Date(item.createdAt||Date.now()).toLocaleString("pt-BR")}`), item.rolledBackAt&&React.createElement("div", { style:{ fontSize:10.5,color:"var(--green)",fontWeight:800,marginTop:4 } }, "Compra revertida")), React.createElement("div", { style:{ display:"grid",justifyItems:"end",gap:7 } }, React.createElement("strong", { style:{ color:"var(--danger)",fontSize:13 } }, `− ${L(Math.abs(Number(item.amount)||0))}`), React.createElement("button", { type:"button",disabled:!!item.rolledBackAt,onClick:()=>onRollbackMarketPurchase&&onRollbackMarketPurchase(item.id),style:{ border:"1px solid var(--border)",background:item.rolledBackAt?"var(--surface)":"var(--heading)",color:item.rolledBackAt?"var(--muted)":"var(--surface)",borderRadius:999,padding:"7px 10px",fontSize:10.5,fontWeight:850,cursor:item.rolledBackAt?"default":"pointer",opacity:item.rolledBackAt?.55:1 } }, item.rolledBackAt?"Revertida":"Dar rollback")) ); })) : React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:20,fontSize:12.5 } }, "Nenhuma compra registrada neste campeonato.")); })(),
             adminSection === "rules" && currentTournament && React.createElement("section", { style:{ ...E,padding:20,marginTop:18 } },
               React.createElement("h3", { style:{ margin:"0 0 6px" } }, "Economia e premiação"),
               React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5 } }, "Defina recompensas por resultado e a faixa de premiação final."),
