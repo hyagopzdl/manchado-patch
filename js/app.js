@@ -76,6 +76,7 @@
               try { return sessionStorage.getItem("pes-admin-unlocked") === "1"; } catch (error) { return false; }
             }),
             [adminGate, setAdminGate] = b(null),
+            [profilePinGate, setProfilePinGate] = b(null),
             [playerReportModal, setPlayerReportModal] = b(null),
             [playerReviewsOpen, setPlayerReviewsOpen] = b(false),
             [marketActionKey, setMarketActionKey] = b(null),
@@ -722,7 +723,7 @@
             let contextTeams = (tournament.context && tournament.context.teams) || [];
             return !!contextTeams.find((team) => team.profileId === item.id || team.id === item.teamId || String(team.name || "").trim().toLowerCase() === String(item.name || "").trim().toLowerCase());
           }
-          function bt(o) {
+          function enterProfile(o) {
             if (!R || !profileBelongsToTournament(o, R)) return;
             let i = typeof o === "object" && o ? o : { name: String(o) },
               y = String(i.name || "").trim();
@@ -758,6 +759,34 @@
               ),
               z = w >= 0 ? x.map((S, J) => (J === w ? A : S)) : [...x, A];
             (T(z), U("profiles", z), oe("table"), De(D.id));
+          }
+          function bt(o) {
+            if (!R || !profileBelongsToTournament(o, R)) return;
+            let profile = typeof o === "object" && o ? o : { name: String(o) };
+            if (profile.pinHash) {
+              setProfilePinGate({ profile, digits:"", error:"", checking:false });
+              return;
+            }
+            enterProfile(profile);
+          }
+          async function appendProfilePinDigit(digit) {
+            let gate = profilePinGate;
+            if (!gate || gate.checking || gate.digits.length >= 4) return;
+            let digits = `${gate.digits}${digit}`.slice(0,4);
+            let next = { ...gate, digits, error:"" };
+            setProfilePinGate(next);
+            if (digits.length !== 4) return;
+            setProfilePinGate({ ...next, checking:true });
+            let hash = await hashAdminPassword(`profile-pin:${digits}`);
+            if (hash === gate.profile.pinHash) {
+              setProfilePinGate(null);
+              enterProfile(gate.profile);
+              return;
+            }
+            window.setTimeout(() => setProfilePinGate({ ...gate, digits:"", error:"PIN incorreto", checking:false }), 280);
+          }
+          function eraseProfilePinDigit() {
+            setProfilePinGate((gate) => gate && !gate.checking ? { ...gate, digits:gate.digits.slice(0,-1), error:"" } : gate);
           }
           function ht() {
             try { sessionStorage.removeItem("pes-admin-unlocked"); } catch (error) {}
@@ -2408,6 +2437,7 @@
                       ),
                       React.createElement("div", { style: { marginTop: 14, fontSize: 11.5, color: "var(--muted)", lineHeight: 1.45 } }, "A senha protege a interface administrativa. Para segurança completa dos dados, use Firebase Authentication e regras de acesso no banco.")
                     ),
+                    profilePinGate && React.createElement(ProfilePinLock, { gate:profilePinGate, onDigit:appendProfilePinDigit, onErase:eraseProfilePinDigit }),
                     viewedTeamId && $(viewedTeamId) && React.createElement(TeamViewer, {
                       team: $(viewedTeamId),
                       squadOf: Oe,
@@ -3704,10 +3734,12 @@
             [visibleCount, setVisibleCount] = b(24),
             [filtersOpen, setFiltersOpen] = b(false),
             [overallMin, setOverallMin] = b(70),
-            [overallMax, setOverallMax] = b(99),
+            [overallMax, setOverallMax] = b(() => marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Number(marketRules.freePlayerOverallLimit.maxOverall || 99) : 99),
             [valueMin, setValueMin] = b(3),
             [valueMax, setValueMax] = b(catalogValueCeiling),
             loadMoreSentinel = React.useRef(null);
+          let defaultMarketOverallMax = marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Math.min(99, Math.max(1, Number(marketRules.freePlayerOverallLimit.maxOverall || 99))) : 99;
+          He(() => { setOverallMax(defaultMarketOverallMax); setOverallMin((current)=>Math.min(Number(current)||1,defaultMarketOverallMax)); }, [defaultMarketOverallMax]);
 
           let favoriteSet = X(() => new Set((Array.isArray(favoritePlayerIds) ? favoritePlayerIds : []).map((id) => String(id))), [favoritePlayerIds]);
           let deferredClubQuery = React.useDeferredValue ? React.useDeferredValue(clubQuery) : clubQuery;
@@ -5100,9 +5132,56 @@
             ),
           );
         }
+        function ProfilePinLock({ gate, onDigit, onErase }) {
+          let profile = gate && gate.profile ? gate.profile : {};
+          let digits = String(gate && gate.digits || "");
+          return React.createElement("div", { className:"profile-pin-overlay", role:"dialog", "aria-modal":"true", "aria-label":`Digite o PIN de ${profile.name || "perfil"}` },
+            React.createElement("div", { className:"profile-pin-lock" },
+              React.createElement("div", { className:"profile-pin-avatar", style:{ background:profile.color || "var(--green)" } }, profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"" }) : String(profile.name || "?").charAt(0).toUpperCase()),
+              React.createElement("h2", null, profile.name || "Perfil"),
+              React.createElement("p", null, gate.error || "Digite seu PIN"),
+              React.createElement("div", { className:`profile-pin-dots${gate.error ? " is-error" : ""}` }, [0,1,2,3].map((index)=>React.createElement("span", { key:index, className:index < digits.length ? "is-filled" : "" }))),
+              React.createElement("div", { className:"profile-pin-keypad" },
+                [1,2,3,4,5,6,7,8,9].map((digit)=>React.createElement("button", { key:digit, type:"button", disabled:gate.checking, onClick:()=>onDigit(String(digit)), className:"profile-pin-key" }, digit)),
+                React.createElement("span", { className:"profile-pin-key-spacer" }),
+                React.createElement("button", { type:"button", disabled:gate.checking, onClick:()=>onDigit("0"), className:"profile-pin-key" }, "0"),
+                React.createElement("button", { type:"button", disabled:gate.checking || !digits.length, onClick:onErase, className:"profile-pin-delete", "aria-label":"Apagar último dígito" }, React.createElement("span", null, "⌫"))
+              )
+            )
+          );
+        }
+        function ProfilePinSetup({ profile, onSave, onClose }) {
+          let [step,setStep]=b("create"), [first,setFirst]=b(""), [digits,setDigits]=b(""), [error,setError]=b(""), [saving,setSaving]=b(false);
+          async function addDigit(digit) {
+            if (saving || digits.length >= 4) return;
+            let next=`${digits}${digit}`.slice(0,4); setDigits(next); setError("");
+            if (next.length !== 4) return;
+            if (step === "create") { window.setTimeout(()=>{ setFirst(next); setDigits(""); setStep("confirm"); },180); return; }
+            if (next !== first) { window.setTimeout(()=>{ setDigits(""); setFirst(""); setStep("create"); setError("Os PINs não coincidem. Tente novamente."); },220); return; }
+            setSaving(true);
+            let pinHash=await hashAdminPassword(`profile-pin:${next}`);
+            await Promise.resolve(onSave(pinHash));
+            setSaving(false); onClose();
+          }
+          return React.createElement("div", { className:"profile-pin-overlay profile-pin-setup", role:"dialog", "aria-modal":"true" },
+            React.createElement("button", { type:"button", onClick:onClose, className:"profile-pin-setup-close", "aria-label":"Fechar" }, "×"),
+            React.createElement("div", { className:"profile-pin-lock" },
+              React.createElement("div", { className:"profile-pin-avatar", style:{ background:profile.color || "var(--green)" } }, profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"" }) : String(profile.name || "?").charAt(0).toUpperCase()),
+              React.createElement("h2", null, step === "create" ? "Crie um PIN" : "Repita o PIN"),
+              React.createElement("p", null, error || "Use 4 dígitos para proteger seu perfil"),
+              React.createElement("div", { className:`profile-pin-dots${error ? " is-error" : ""}` }, [0,1,2,3].map((index)=>React.createElement("span", { key:index, className:index < digits.length ? "is-filled" : "" }))),
+              React.createElement("div", { className:"profile-pin-keypad" },
+                [1,2,3,4,5,6,7,8,9].map((digit)=>React.createElement("button", { key:digit, type:"button", disabled:saving, onClick:()=>addDigit(String(digit)), className:"profile-pin-key" }, digit)),
+                React.createElement("span", { className:"profile-pin-key-spacer" }),
+                React.createElement("button", { type:"button", disabled:saving, onClick:()=>addDigit("0"), className:"profile-pin-key" }, "0"),
+                React.createElement("button", { type:"button", disabled:saving || !digits.length, onClick:()=>setDigits(digits.slice(0,-1)), className:"profile-pin-delete", "aria-label":"Apagar último dígito" }, React.createElement("span", null, "⌫"))
+              )
+            )
+          );
+        }
         function ProfileArea({ profile, team, tournament, squad, stats, matches, transfers, theme, setTheme, onUpdateProfile, onUpdateTeamName, onSwitchProfile, onOpenBalanceHistory, tournaments, onOpenChampionshipSummary }) {
           let item = typeof profile === "object" && profile ? profile : { name: String(profile || "") };
-          let [name, setName] = b(item.name || ""), [teamName, setTeamName] = b(team ? team.name : ""), [editing, setEditing] = b(false);
+          let [name, setName] = b(item.name || ""), [teamName, setTeamName] = b(team ? team.name : ""), [editing, setEditing] = b(false), [pinSetupOpen, setPinSetupOpen] = b(false);
           He(() => { setName(item.name || ""); setTeamName(team ? team.name : ""); }, [item.id, item.name, team && team.id, team && team.name]);
           let played = matches.filter((match) => match && match.played && !match.bye && team && (match.homeId === team.id || match.awayId === team.id));
           let wins = 0, draws = 0, losses = 0, goalsFor = 0, goalsAgainst = 0;
@@ -5144,8 +5223,14 @@
               React.createElement("div", { style:{ fontSize:11, color:"var(--muted)", marginTop:7, marginBottom:14 } }, "Imagem JPG, PNG ou WebP de até 4 MB."),
               React.createElement("label", { style: P }, "Nome do perfil"), React.createElement("input", { style: q, value: name, onChange: (e) => setName(e.target.value), maxLength: 30 }),
               team && React.createElement(React.Fragment, null, React.createElement("label", { style: { ...P, marginTop: 14 } }, "Nome do time neste campeonato"), React.createElement("input", { style: q, value: teamName, onChange: (e) => setTeamName(e.target.value), maxLength: 40 })),
+              React.createElement("div", { className:"profile-pin-setting" },
+                React.createElement("div", null, React.createElement("strong", null, "PIN do perfil"), React.createElement("span", null, item.pinHash ? "Ativado" : "Proteja a troca de perfil com 4 dígitos")),
+                React.createElement("button", { type:"button", onClick:()=>setPinSetupOpen(true), className:"family-pill-secondary" }, item.pinHash ? "Alterar PIN" : "Criar PIN"),
+                item.pinHash && React.createElement("button", { type:"button", onClick:()=>{ if(window.confirm("Remover o PIN deste perfil?")) onUpdateProfile(item.id,{ pinHash:null, pinUpdatedAt:Date.now() }); }, className:"profile-pin-remove" }, "Remover")
+              ),
               React.createElement("button", { onClick: saveIdentity, style: { ...M, ...W, marginTop: 16 } }, "Salvar alterações")
             ),
+            pinSetupOpen && React.createElement(ProfilePinSetup, { profile:item, onClose:()=>setPinSetupOpen(false), onSave:(pinHash)=>onUpdateProfile(item.id,{ pinHash, pinUpdatedAt:Date.now() }) }),
             React.createElement("button", { onClick: onSwitchProfile, style: { ...M, width: "100%", marginTop: 16 } }, "Trocar perfil ou campeonato")
           );
         }

@@ -495,3 +495,116 @@
   .lineup-bench-player-info { width:100%; }
   .lineup-team-quality { margin-top:4px; }
 }
+
+/* Profile PIN */
+.profile-pin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2400;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow-y: auto;
+  color: #fff;
+  background:
+    radial-gradient(680px 460px at 50% 12%, rgba(33,228,147,.14), transparent 68%),
+    linear-gradient(180deg, rgba(5,8,7,.98), rgba(8,13,11,.99));
+  backdrop-filter: blur(26px);
+  -webkit-backdrop-filter: blur(26px);
+}
+.profile-pin-lock {
+  width: min(100%, 360px);
+  text-align: center;
+  animation: sportsModalIn .28s cubic-bezier(.2,.9,.2,1) both;
+}
+.profile-pin-avatar {
+  width: 88px;
+  height: 88px;
+  margin: 0 auto 16px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 34px;
+  font-weight: 850;
+  color: #fff;
+  box-shadow: 0 18px 48px rgba(0,0,0,.4), inset 0 0 0 2px rgba(255,255,255,.16);
+}
+.profile-pin-avatar img { width:100%; height:100%; object-fit:cover; }
+.profile-pin-lock h2 { margin:0; color:#fff !important; font-size:27px; letter-spacing:-.04em; }
+.profile-pin-lock p { min-height:20px; margin:8px 0 18px; color:rgba(255,255,255,.64); font-size:14px; }
+.profile-pin-dots { display:flex; justify-content:center; gap:15px; margin-bottom:30px; }
+.profile-pin-dots span {
+  width:12px;
+  height:12px;
+  border-radius:50%;
+  border:1.5px solid rgba(255,255,255,.72);
+  background:transparent;
+  transition:transform .14s ease, background .14s ease, border-color .14s ease;
+}
+.profile-pin-dots span.is-filled { background:#fff; transform:scale(1.08); }
+.profile-pin-dots.is-error span { border-color:#ff5864; animation:pinShake .28s ease; }
+.profile-pin-keypad { display:grid; grid-template-columns:repeat(3,72px); justify-content:center; gap:16px 22px; }
+.profile-pin-key,
+.profile-pin-delete {
+  width:72px;
+  height:72px;
+  border:0;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  color:#fff;
+  cursor:pointer;
+  background:rgba(255,255,255,.14);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  font-size:28px;
+  font-weight:500;
+  transform:none !important;
+}
+.profile-pin-key:hover,
+.profile-pin-delete:hover { background:rgba(255,255,255,.22); transform:none !important; }
+.profile-pin-key:active,
+.profile-pin-delete:active { background:rgba(255,255,255,.3); transform:scale(.95) !important; }
+.profile-pin-delete { background:transparent; box-shadow:none; font-size:27px; }
+.profile-pin-delete:disabled { opacity:.26; }
+.profile-pin-key-spacer { width:72px; height:72px; }
+.profile-pin-setup-close {
+  position:fixed;
+  top:max(18px,env(safe-area-inset-top));
+  right:18px;
+  width:42px;
+  height:42px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:50%;
+  background:rgba(255,255,255,.1);
+  color:#fff;
+  font-size:24px;
+  cursor:pointer;
+}
+.profile-pin-setting {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:10px;
+  margin-top:18px;
+  padding:14px;
+  border-radius:14px;
+  background:var(--surface-soft);
+  box-shadow:inset 0 0 0 1px var(--border);
+}
+.profile-pin-setting strong { display:block; color:var(--heading); font-size:14px; }
+.profile-pin-setting span { display:block; margin-top:3px; color:var(--muted); font-size:11.5px; line-height:1.35; }
+.profile-pin-setting button { margin:0; white-space:nowrap; padding:9px 13px; cursor:pointer; }
+.profile-pin-remove { grid-column:1 / -1; justify-self:start; padding:0 !important; border:0; background:transparent; color:var(--danger); font-size:12px; font-weight:750; }
+@keyframes pinShake { 0%,100%{transform:translateX(0)} 30%{transform:translateX(-4px)} 70%{transform:translateX(4px)} }
+@media (max-width:560px) {
+  .profile-pin-overlay { align-items:start; padding-top:max(46px,env(safe-area-inset-top)); }
+  .profile-pin-avatar { width:76px; height:76px; margin-bottom:12px; }
+  .profile-pin-lock h2 { font-size:24px; }
+  .profile-pin-keypad { grid-template-columns:repeat(3,68px); gap:14px 20px; }
+  .profile-pin-key,.profile-pin-delete,.profile-pin-key-spacer { width:68px; height:68px; }
+  .profile-pin-setting { grid-template-columns:1fr; }
+  .profile-pin-setting button { justify-self:start; }
+}
