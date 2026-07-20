@@ -769,29 +769,43 @@
             (T(z), U("profiles", z), oe("table"), De(D.id));
           }
           function bt(o) {
-            if (!R || !profileBelongsToTournament(o, R)) return;
-            let profile = typeof o === "object" && o ? o : { name: String(o) };
-            if (profile.pinHash) {
-              setProfilePinGate({ profile, digits:"", error:"", checking:false });
+            if (!R) return;
+            let selected = typeof o === "object" && o ? o : { name: String(o) };
+            let profile = selected && selected.id
+              ? (x.find((item) => item && typeof item === "object" && String(item.id) === String(selected.id)) || selected)
+              : selected;
+            if (!profileBelongsToTournament(profile, R)) return;
+            let storedPinHash = String(profile.pinHash || "").trim();
+            if (storedPinHash) {
+              setProfilePinGate({ profile:{ ...profile, pinHash:storedPinHash }, digits:"", error:"", checking:false, openedAt:Date.now() });
               return;
             }
             enterProfile(profile);
           }
           async function appendProfilePinDigit(digit) {
             let gate = profilePinGate;
-            if (!gate || gate.checking || gate.digits.length >= 4) return;
-            let digits = `${gate.digits}${digit}`.slice(0,4);
+            if (!gate || gate.checking || String(gate.digits || "").length >= 4) return;
+            let digits = `${gate.digits || ""}${digit}`.replace(/\D/g, "").slice(0,4);
             let next = { ...gate, digits, error:"" };
             setProfilePinGate(next);
             if (digits.length !== 4) return;
             setProfilePinGate({ ...next, checking:true });
-            let hash = await hashProfilePin(digits);
-            if (hash === gate.profile.pinHash) {
-              setProfilePinGate(null);
-              enterProfile(gate.profile);
-              return;
+            try {
+              let hash = await hashProfilePin(digits);
+              let currentProfile = gate.profile && gate.profile.id
+                ? (x.find((item) => item && typeof item === "object" && String(item.id) === String(gate.profile.id)) || gate.profile)
+                : gate.profile;
+              let expectedHash = String((currentProfile && currentProfile.pinHash) || gate.profile.pinHash || "").trim();
+              if (hash === expectedHash) {
+                setProfilePinGate(null);
+                enterProfile(currentProfile || gate.profile);
+                return;
+              }
+              window.setTimeout(() => setProfilePinGate((current) => current ? { ...current, digits:"", error:"PIN incorreto", checking:false } : current), 280);
+            } catch (error) {
+              console.error("profile pin validation failed", error);
+              setProfilePinGate((current) => current ? { ...current, digits:"", error:"Não foi possível validar o PIN. Tente novamente.", checking:false } : current);
             }
-            window.setTimeout(() => setProfilePinGate({ ...gate, digits:"", error:"PIN incorreto", checking:false }), 280);
           }
           function eraseProfilePinDigit() {
             setProfilePinGate((gate) => gate && !gate.checking ? { ...gate, digits:gate.digits.slice(0,-1), error:"" } : gate);
@@ -1721,6 +1735,107 @@
               throw error;
             }
           }
+          function rollbackMarketPurchase(transactionId) {
+            if (!R || !isAdminProfile(te) || !transactionId) return;
+            let transaction = Array.isArray(R.context && R.context.financialTransactions)
+              ? R.context.financialTransactions.find((item) => item && String(item.id) === String(transactionId))
+              : null;
+            if (!transaction || !["market_purchase","player_purchase"].includes(transaction.type)) {
+              window.alert("Esta movimentação não é uma compra que possa ser revertida.");
+              return;
+            }
+            if (transaction.rolledBackAt) {
+              window.alert("Esta compra já foi revertida.");
+              return;
+            }
+            let playerName = String(transaction.label || "jogador").replace(/^Compra de\s+/i, "");
+            if (!window.confirm(`Reverter a compra de ${playerName}? O jogador e os saldos voltarão ao estado anterior.`)) return;
+            let db = Ee(), tournamentId = R.id, failureReason = null, rollbackId = _(), now = Date.now();
+            let applyRollback = (tournament) => {
+              let context = { ...(tournament.context || {}) };
+              let transactions = Array.isArray(context.financialTransactions) ? context.financialTransactions.map((item) => ({ ...item })) : [];
+              let purchaseIndex = transactions.findIndex((item) => item && String(item.id) === String(transactionId));
+              if (purchaseIndex < 0) { failureReason = "transaction_not_found"; return null; }
+              let purchase = transactions[purchaseIndex];
+              if (purchase.rolledBackAt) { failureReason = "already_rolled_back"; return null; }
+              if (!["market_purchase","player_purchase"].includes(purchase.type)) { failureReason = "invalid_type"; return null; }
+              let transfers = Array.isArray(context.transfers) ? context.transfers.map((item) => ({ ...item })) : [];
+              let transfer = transfers.find((item) => item && !item.rolledBackAt && (
+                purchase.type === "player_purchase"
+                  ? (String(item.offerId || "") === String(purchase.referenceId || purchase.refId || "") || (String(item.toTeamId) === String(purchase.teamId) && Math.abs(Number(item.createdAt || 0) - Number(purchase.createdAt || 0)) < 5000 && item.type === "user_transfer"))
+                  : (String(item.playerId) === String(purchase.referenceId || purchase.refId || "") && String(item.toTeamId) === String(purchase.teamId) && item.type === "market_purchase" && Math.abs(Number(item.createdAt || 0) - Number(purchase.createdAt || 0)) < 10000)
+              ));
+              if (!transfer) { failureReason = "transfer_not_found"; return null; }
+              let playerKey = String(transfer.playerId);
+              let ownership = { ...(context.ownership || {}) };
+              let ownershipKey = Object.keys(ownership).find((key) => String(key) === playerKey) || playerKey;
+              let owner = ownership[ownershipKey];
+              if (!owner || String(owner.teamId) !== String(transfer.toTeamId)) { failureReason = "player_changed"; return null; }
+              let teams = Array.isArray(context.teams) ? context.teams.map((team) => ({ ...team })) : [];
+              let buyer = teams.find((team) => team && String(team.id) === String(transfer.toTeamId));
+              if (!buyer) { failureReason = "buyer_not_found"; return null; }
+              let price = Math.abs(Number(transfer.price != null ? transfer.price : purchase.amount) || 0);
+              buyer.budget = (Number(buyer.budget) || 0) + price;
+              let seller = null;
+              if (transfer.fromTeamId != null && transfer.fromTeamId !== "") {
+                seller = teams.find((team) => team && String(team.id) === String(transfer.fromTeamId));
+                if (!seller) { failureReason = "seller_not_found"; return null; }
+                seller.budget = (Number(seller.budget) || 0) - price;
+                ownership[ownershipKey] = { ...owner, teamId:seller.id, forSale:false, price:null, acquisitionSource:"rollback", acquiredAt:now };
+              } else {
+                delete ownership[ownershipKey];
+              }
+              let relatedReference = purchase.referenceId != null ? purchase.referenceId : purchase.refId;
+              transactions = transactions.map((item) => {
+                let samePurchase = String(item.id) === String(purchase.id);
+                let matchingSale = purchase.type === "player_purchase" && item.type === "player_sale" && String(item.referenceId != null ? item.referenceId : item.refId) === String(relatedReference) && Math.abs(Number(item.createdAt || 0) - Number(purchase.createdAt || 0)) < 5000;
+                return samePurchase || matchingSale ? { ...item, rolledBackAt:now, rolledBackByProfileId:te && te.id, rollbackId } : item;
+              });
+              let buyerBefore = (Number(buyer.budget) || 0) - price;
+              transactions.unshift(financeEntry("purchase_rollback", buyer.id, price, `Estorno da compra de ${transfer.playerName || playerName}`, rollbackId, buyerBefore, now));
+              if (seller) {
+                let sellerBefore = (Number(seller.budget) || 0) + price;
+                transactions.unshift(financeEntry("sale_rollback", seller.id, -price, `Estorno da venda de ${transfer.playerName || playerName}`, rollbackId, sellerBefore, now));
+              }
+              transfers = transfers.map((item) => String(item.id) === String(transfer.id) ? { ...item, rolledBackAt:now, rolledBackByProfileId:te && te.id, rollbackId } : item);
+              let tradeOffers = { ...(context.tradeOffers || {}) };
+              if (transfer.offerId && tradeOffers[transfer.offerId]) tradeOffers[transfer.offerId] = { ...tradeOffers[transfer.offerId], status:"rolled_back", rolledBackAt:now, updatedAt:now };
+              failureReason = null;
+              return { ...tournament, context:{ ...context, teams, ownership, transfers, financialTransactions:transactions, tradeOffers } };
+            };
+            if (!db) {
+              let updated = applyRollback(R);
+              if (!updated) { window.alert("Não foi possível reverter esta compra."); return; }
+              ae(m.map((item) => String(item.id) === String(tournamentId) ? updated : item));
+              return;
+            }
+            db.ref("pes/tournaments").transaction((serverValue) => {
+              let isArray = Array.isArray(serverValue), list = isArray ? [...serverValue] : Object.values(serverValue || {});
+              let index = list.findIndex((item) => item && String(item.id) === String(tournamentId));
+              if (index < 0) { failureReason = "tournament_not_found"; return; }
+              let updated = applyRollback(list[index]);
+              if (!updated) return;
+              list[index] = updated;
+              return isArray ? list : Object.fromEntries(list.map((item, idx) => [item.id || String(idx), item]));
+            }, (error, committed, snapshot) => {
+              if (error) { console.error("market rollback failed", error); window.alert("Não foi possível reverter a compra. Tente novamente."); return; }
+              if (committed) {
+                applyConfirmedTournamentSnapshot(snapshot);
+                signalImportantUpdate("market_purchase_rollback", tournamentId);
+                window.alert("Compra revertida com sucesso.");
+                return;
+              }
+              let messages = {
+                already_rolled_back:"Esta compra já foi revertida.",
+                player_changed:"O jogador já saiu do time comprador. O rollback foi bloqueado para evitar inconsistência.",
+                transfer_not_found:"Não foi possível localizar a transferência vinculada a esta compra.",
+                seller_not_found:"O time de origem não existe mais neste campeonato.",
+                buyer_not_found:"O time comprador não existe mais neste campeonato.",
+                transaction_not_found:"A movimentação não existe mais no histórico."
+              };
+              window.alert(messages[failureReason] || "A compra não pôde ser revertida.");
+            }, false);
+          }
           function deleteGlobalProfile(profileId) {
             let profile = x.find((item) => item && typeof item === "object" && item.id === profileId);
             if (!profile || isAdminProfile(profile)) {
@@ -2490,6 +2605,7 @@
                           onUpdateEconomyRules: updateEconomyRules,
                           onFinishTournament: finishCurrentTournament,
                           catalog: n, onImportRosters: importRosterPlan, onImportHistoricalCompetition: importHistoricalCompetition,
+                          onRollbackMarketPurchase: rollbackMarketPurchase,
                         }),
                       Y === "profile" &&
                         React.createElement(ProfileArea, {
@@ -2655,7 +2771,7 @@
                         onClose: () => setOfferModal(null),
                         onConfirm: sendTradeOffer,
                       }),
-                    balanceHistoryOpen && ProfileTeam && React.createElement(BalanceHistoryModal, { team: ProfileTeam, transactions: R && R.context && Array.isArray(R.context.financialTransactions) ? R.context.financialTransactions : [], onClose:()=>setBalanceHistoryOpen(false) }),
+                    balanceHistoryOpen && ProfileTeam && React.createElement(BalanceHistoryModal, { team: ProfileTeam, transactions: R && R.context && Array.isArray(R.context.financialTransactions) ? R.context.financialTransactions : [], canRollback:isAdminProfile(te), onRollback:rollbackMarketPurchase, onClose:()=>setBalanceHistoryOpen(false) }),
                     rulesOpen && R && React.createElement(ChampionshipRulesModal, { tournament:R, onClose:()=>setRulesOpen(false) }),
                     saleModal &&
                       React.createElement(MarketSaleModal, {
@@ -5220,20 +5336,22 @@
         function ProfilePinLock({ gate, onDigit, onErase }) {
           let profile = gate && gate.profile ? gate.profile : {};
           let digits = String(gate && gate.digits || "");
-          return React.createElement("div", { className:"profile-pin-overlay", role:"dialog", "aria-modal":"true", "aria-label":`Digite o PIN de ${profile.name || "perfil"}` },
-            React.createElement("div", { className:"profile-pin-lock" },
-              React.createElement("div", { className:"profile-pin-avatar", style:{ background:profile.color || "var(--green)" } }, profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"" }) : String(profile.name || "?").charAt(0).toUpperCase()),
-              React.createElement("h2", null, profile.name || "Perfil"),
-              React.createElement("p", null, gate.error || "Digite seu PIN"),
-              React.createElement("div", { className:`profile-pin-dots${gate.error ? " is-error" : ""}` }, [0,1,2,3].map((index)=>React.createElement("span", { key:index, className:index < digits.length ? "is-filled" : "" }))),
-              React.createElement("div", { className:"profile-pin-keypad" },
-                [1,2,3,4,5,6,7,8,9].map((digit)=>React.createElement("button", { key:digit, type:"button", disabled:gate.checking, onClick:()=>onDigit(String(digit)), className:"profile-pin-key" }, digit)),
-                React.createElement("span", { className:"profile-pin-key-spacer" }),
-                React.createElement("button", { type:"button", disabled:gate.checking, onClick:()=>onDigit("0"), className:"profile-pin-key" }, "0"),
-                React.createElement("button", { type:"button", disabled:gate.checking || !digits.length, onClick:onErase, className:"profile-pin-delete", "aria-label":"Apagar último dígito" }, React.createElement("span", null, "⌫"))
+          let keyStyle={width:74,height:74,borderRadius:999,border:"1px solid rgba(255,255,255,.22)",background:"rgba(255,255,255,.12)",color:"#fff",fontSize:27,fontWeight:600,cursor:"pointer",display:"grid",placeItems:"center",WebkitTapHighlightColor:"transparent"};
+          let content=React.createElement("div", { role:"dialog", "aria-modal":"true", "aria-label":`Digite o PIN de ${profile.name || "perfil"}`, style:{ position:"fixed",inset:0,zIndex:99999,display:"grid",placeItems:"center",padding:"max(28px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom))",overflowY:"auto",color:"#fff",background:"radial-gradient(680px 460px at 50% 10%, rgba(33,228,147,.16), transparent 68%), linear-gradient(180deg, #050807, #080d0b)",fontFamily:"Manrope,system-ui,-apple-system,sans-serif" } },
+            React.createElement("div", { style:{ width:"min(360px,100%)",display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center" } },
+              React.createElement("div", { style:{ width:82,height:82,borderRadius:999,overflow:"hidden",display:"grid",placeItems:"center",background:profile.color||"#21e493",fontSize:32,fontWeight:850,boxShadow:"0 18px 50px rgba(0,0,0,.35)",marginBottom:14 } }, profile.avatar ? React.createElement("img", { src:profile.avatar,alt:"",style:{width:"100%",height:"100%",objectFit:"cover"} }) : String(profile.name||"?").charAt(0).toUpperCase()),
+              React.createElement("h2", { style:{ margin:"0 0 6px",fontSize:26,letterSpacing:"-.03em" } }, profile.name||"Perfil"),
+              React.createElement("p", { style:{ margin:"0 0 22px",minHeight:20,color:gate.error?"#ff6b72":"rgba(255,255,255,.68)",fontSize:14,fontWeight:650 } }, gate.checking?"Verificando...":gate.error||"Digite seu PIN"),
+              React.createElement("div", { style:{ display:"flex",gap:14,marginBottom:32 } }, [0,1,2,3].map((index)=>React.createElement("span", { key:index,style:{ width:13,height:13,borderRadius:999,border:`1.5px solid ${gate.error?"#ff6b72":"rgba(255,255,255,.82)"}`,background:index<digits.length?(gate.error?"#ff6b72":"#fff"):"transparent",transition:"all .12s ease" } }))),
+              React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(3,74px)",gap:"15px 22px",justifyContent:"center" } },
+                [1,2,3,4,5,6,7,8,9].map((digit)=>React.createElement("button", { key:digit,type:"button",disabled:gate.checking,onClick:()=>onDigit(String(digit)),style:{...keyStyle,opacity:gate.checking?.55:1} }, digit)),
+                React.createElement("span", { style:{width:74,height:74} }),
+                React.createElement("button", { type:"button",disabled:gate.checking,onClick:()=>onDigit("0"),style:{...keyStyle,opacity:gate.checking?.55:1} }, "0"),
+                React.createElement("button", { type:"button",disabled:gate.checking||!digits.length,onClick:onErase,"aria-label":"Apagar último dígito",style:{...keyStyle,border:"none",background:"transparent",fontSize:25,opacity:digits.length&&!gate.checking?1:.3} }, "⌫")
               )
             )
           );
+          return ReactDOM.createPortal(content, document.body);
         }
         function ProfilePinSetup({ profile, onSave, onClose }) {
           let [step,setStep]=b("create"), [first,setFirst]=b(""), [digits,setDigits]=b(""), [error,setError]=b(""), [saving,setSaving]=b(false);
@@ -5428,7 +5546,7 @@
           return {version,type,name,groups,matches,champion,runner,names};
         }
 
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition, onRollbackMarketPurchase }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -5800,6 +5918,10 @@
                 React.createElement("button", { onClick:confirmHistoryImport,disabled:historyImportPreview.names.some((name)=>!historyMappings[name]),style:{...M,...W,opacity:historyImportPreview.names.some((name)=>!historyMappings[name])?.45:1} },historyImportPreview.names.some((name)=>!historyMappings[name])?"Vincule todos os participantes":"Confirmar importação")
               )
             ),
+            adminSection === "rules" && currentTournament && (()=>{ let purchases=(Array.isArray(currentTournament.context&&currentTournament.context.financialTransactions)?currentTournament.context.financialTransactions:[]).filter((item)=>item&&["market_purchase","player_purchase"].includes(item.type)).sort((a,b)=>(Number(b.createdAt)||0)-(Number(a.createdAt)||0)); return React.createElement("section", { style:{ ...E,padding:20,marginTop:18 } },
+              React.createElement("h3", { style:{ margin:"0 0 6px" } }, "Histórico de compras"),
+              React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5 } }, "Reverta compras do mercado ou transferências entre usuários. O rollback só é liberado enquanto o jogador continua no time comprador."),
+              purchases.length ? React.createElement("div", { style:{ display:"grid",gap:8,maxHeight:420,overflow:"auto" } }, purchases.map((item)=>{ let team=(teams||[]).find((candidate)=>candidate&&String(candidate.id)===String(item.teamId)); return React.createElement("div", { key:item.id,style:{ display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:12,border:"1px solid var(--border)",borderRadius:14,background:"var(--surface-soft)" } }, React.createElement("div", null, React.createElement("div", { style:{ fontWeight:800,fontSize:13.5 } }, item.label||"Compra de jogador"), React.createElement("div", { style:{ fontSize:11,color:"var(--muted)",marginTop:3 } }, `${team&&team.name?team.name:"Time removido"} · ${new Date(item.createdAt||Date.now()).toLocaleString("pt-BR")}`), item.rolledBackAt&&React.createElement("div", { style:{ fontSize:10.5,color:"var(--green)",fontWeight:800,marginTop:4 } }, "Compra revertida")), React.createElement("div", { style:{ display:"grid",justifyItems:"end",gap:7 } }, React.createElement("strong", { style:{ color:"var(--danger)",fontSize:13 } }, `− ${L(Math.abs(Number(item.amount)||0))}`), React.createElement("button", { type:"button",disabled:!!item.rolledBackAt,onClick:()=>onRollbackMarketPurchase&&onRollbackMarketPurchase(item.id),style:{ border:"1px solid var(--border)",background:item.rolledBackAt?"var(--surface)":"var(--heading)",color:item.rolledBackAt?"var(--muted)":"var(--surface)",borderRadius:999,padding:"7px 10px",fontSize:10.5,fontWeight:850,cursor:item.rolledBackAt?"default":"pointer",opacity:item.rolledBackAt?.55:1 } }, item.rolledBackAt?"Revertida":"Dar rollback")) ); })) : React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:20,fontSize:12.5 } }, "Nenhuma compra registrada neste campeonato.")); })(),
             adminSection === "rules" && currentTournament && React.createElement("section", { style:{ ...E,padding:20,marginTop:18 } },
               React.createElement("h3", { style:{ margin:"0 0 6px" } }, "Economia e premiação"),
               React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5 } }, "Defina recompensas por resultado e a faixa de premiação final."),
