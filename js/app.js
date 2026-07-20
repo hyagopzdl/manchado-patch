@@ -305,7 +305,9 @@
             c = effectiveContext ? (effectiveContext.ownership && typeof effectiveContext.ownership === "object" ? effectiveContext.ownership : {}) : (baseOwnership && typeof baseOwnership === "object" ? baseOwnership : {}),
             s = R && R.context ? (R.context.playerStats && typeof R.context.playerStats === "object" ? R.context.playerStats : {}) : (baseStats && typeof baseStats === "object" ? baseStats : {}),
             k = effectiveContext ? (Array.isArray(effectiveContext.transfers) ? effectiveContext.transfers : []) : (Array.isArray(baseTransfers) ? baseTransfers : []),
-            tradeOffers = effectiveContext && effectiveContext.tradeOffers && typeof effectiveContext.tradeOffers === "object" ? effectiveContext.tradeOffers : {};
+            tradeOffers = effectiveContext && effectiveContext.tradeOffers && typeof effectiveContext.tradeOffers === "object" ? effectiveContext.tradeOffers : {},
+            marketTournament = linkedLeague || R,
+            marketTournamentId = marketTournament && marketTournament.id ? marketTournament.id : null;
 
           He(() => {
             if (!R || !R.id || R.type === "cup" || !R.context || R.context.originSchemaVersion >= 1) return;
@@ -826,7 +828,7 @@
               );
             }, [te, p, ProfileName]),
             ProfileTeams = ProfileTeam ? [ProfileTeam] : [],
-            unreadOfferCount = ProfileTeam ? Object.values(tradeOffers).filter((offer) => isOfferOpen(offer) && offer.lastActorTeamId !== ProfileTeam.id && (offer.buyerTeamId === ProfileTeam.id || offer.sellerTeamId === ProfileTeam.id)).length : 0;
+            unreadOfferCount = ProfileTeam ? Object.values(tradeOffers).filter((offer) => isOfferOpen(offer) && String(offer.lastActorTeamId) !== String(ProfileTeam.id) && (String(offer.buyerTeamId) === String(ProfileTeam.id) || String(offer.sellerTeamId) === String(ProfileTeam.id))).length : 0;
           function At() {
             (le({ name: "", color: se[p.length % se.length], budget: 300 }),
               ge(!0));
@@ -895,33 +897,61 @@
             setOfferModal({ player: o, status, amount: status.kind === "listed" && status.price ? status.price : o.value });
           }
 
-          function saveTradeOffers(nextOffers) {
-            saveContextField("tradeOffers", nextOffers);
+          function mutateTradeOffersAtomic(actionKey, mutate, updateType = "trade_offer") {
+            let db = Ee();
+            if (!db || !marketTournamentId) return Promise.resolve({ committed:false, reason:"database_unavailable" });
+            if (!beginMarketAction(actionKey)) {
+              window.alert("Aguarde a operação atual ser concluída.");
+              return Promise.resolve({ committed:false, reason:"busy" });
+            }
+            let failureReason = null;
+            return new Promise((resolve) => {
+              db.ref("pes/tournaments").transaction((serverValue) => {
+                let isArray = Array.isArray(serverValue);
+                let list = isArray ? [...serverValue] : Object.values(serverValue || {});
+                let index = list.findIndex((item) => item && String(item.id) === String(marketTournamentId));
+                if (index < 0) { failureReason = "championship_not_found"; return; }
+                let tournament = list[index] || {}, context = tournament.context && typeof tournament.context === "object" ? { ...tournament.context } : {};
+                let offers = context.tradeOffers && typeof context.tradeOffers === "object" ? { ...context.tradeOffers } : {};
+                let nextOffers = mutate(offers, tournament, (reason) => { failureReason = reason; });
+                if (!nextOffers) return;
+                list[index] = { ...tournament, context:{ ...context, tradeOffers:nextOffers } };
+                failureReason = null;
+                return isArray ? list : Object.fromEntries(list.map((item, idx) => [item.id || String(idx), item]));
+              }, (error, committed, snapshot) => {
+                endMarketAction(actionKey);
+                if (error) {
+                  console.error("trade offer transaction failed", error);
+                  resolve({ committed:false, reason:"firebase_error", error });
+                  return;
+                }
+                if (committed) {
+                  applyConfirmedTournamentSnapshot(snapshot);
+                  signalImportantUpdate(updateType, marketTournamentId);
+                }
+                resolve({ committed:!!committed, reason:failureReason, snapshot });
+              }, false);
+            });
           }
-          function sendTradeOffer(player, amount) {
-            if (!R || !ProfileTeam) return;
+          async function sendTradeOffer(player, amount) {
+            if (!R || !ProfileTeam || !marketTournamentId) return;
             let status = Pe(player), sellerTeamId = status.teamId;
-            let operationBlock = marketOperationBlock(player, status);
+            let operationBlock = marketOperationBlock(player, status, marketTournament || R);
             if (operationBlock.blocked) { window.alert(operationBlock.message); return; }
             let value = Math.max(1, Number(amount) || player.value);
-            if (!sellerTeamId || sellerTeamId === ProfileTeam.id) return;
-            if (ProfileTeam.budget < value) {
+            if (!sellerTeamId || String(sellerTeamId) === String(ProfileTeam.id)) return;
+            if ((Number(ProfileTeam.budget) || 0) < value) {
               window.alert("Seu saldo é insuficiente para enviar esta oferta.");
               return;
             }
-            let balanceCheck = evaluateMarketBalance(player, ProfileTeam.id);
+            let balanceCheck = evaluateMarketBalance(player, ProfileTeam.id, marketTournament || R);
             if (!balanceCheck.allowed) {
               window.alert(marketBalanceMessage(balanceCheck));
               return;
             }
-            let duplicate = Object.values(tradeOffers).find((offer) => isOfferOpen(offer) && offer.playerId === player.id && offer.buyerTeamId === ProfileTeam.id);
-            if (duplicate) {
-              window.alert("Você já possui uma negociação em andamento por este jogador.");
-              return;
-            }
             let id = _(), now = Date.now();
             let offer = {
-              id, championshipId: R.id, playerId: player.id, playerName: player.name,
+              id, championshipId: marketTournamentId, playerId: player.id, playerName: player.name,
               buyerTeamId: ProfileTeam.id, sellerTeamId,
               status: "pending", currentAmount: value,
               marketValueAtCreation: player.value, createdAt: now, updatedAt: now,
@@ -929,25 +959,55 @@
               lastActorTeamId: ProfileTeam.id,
               history: [{ id: _(), type: "offer", amount: value, actorTeamId: ProfileTeam.id, createdAt: now }]
             };
-            saveTradeOffers({ ...tradeOffers, [id]: offer });
-            setOfferModal(null);
-          }
-          function updateTradeOffer(offerId, action, amount) {
-            let offer = tradeOffers[offerId];
-            if (!offer || !ProfileTeam || !isOfferOpen(offer)) return;
-            if (!marketAccessSettings(R).isOpen) { window.alert("O mercado está fechado pela administração."); return; }
-            if (offer.buyerTeamId !== ProfileTeam.id && offer.sellerTeamId !== ProfileTeam.id) return;
-            let now = Date.now(), next = { ...offer, updatedAt: now };
-            if (action === "decline") next.status = "declined";
-            if (action === "cancel") next.status = "cancelled";
-            if (action === "counter") {
-              let value = Math.max(1, Number(amount) || offer.currentAmount);
-              next.status = "countered";
-              next.currentAmount = value;
-              next.lastActorTeamId = ProfileTeam.id;
-              next.history = [...(offer.history || []), { id: _(), type: "counteroffer", amount: value, actorTeamId: ProfileTeam.id, createdAt: now }];
+            let result = await mutateTradeOffersAtomic(`offer-send:${marketTournamentId}:${player.id}:${ProfileTeam.id}`, (offers, tournament, fail) => {
+              let duplicate = Object.values(offers).find((item) => item && isOfferOpen(item) && String(item.playerId) === String(player.id) && String(item.buyerTeamId) === String(ProfileTeam.id));
+              if (duplicate) { fail("duplicate"); return null; }
+              let owner = tournament.context && tournament.context.ownership && tournament.context.ownership[player.id];
+              let actualSellerId = owner && owner.teamId != null ? owner.teamId : sellerTeamId;
+              if (!actualSellerId || String(actualSellerId) === String(ProfileTeam.id)) { fail("owner_changed"); return null; }
+              return { ...offers, [id]:{ ...offer, sellerTeamId:actualSellerId } };
+            }, "trade_offer_created");
+            if (result.committed) {
+              setOfferModal(null);
+              return;
             }
-            saveTradeOffers({ ...tradeOffers, [offerId]: next });
+            let messages = {
+              duplicate:"Você já possui uma negociação em andamento por este jogador.",
+              owner_changed:"O jogador não pertence mais ao time selecionado.",
+              championship_not_found:"O campeonato da negociação não foi encontrado.",
+              database_unavailable:"Não foi possível acessar o Firebase."
+            };
+            if (result.reason !== "busy") window.alert(messages[result.reason] || "Não foi possível enviar a proposta. Tente novamente.");
+          }
+          async function updateTradeOffer(offerId, action, amount) {
+            if (!ProfileTeam || !marketTournamentId) return;
+            if (!marketAccessSettings(marketTournament || R).isOpen) { window.alert("O mercado está fechado pela administração."); return; }
+            let result = await mutateTradeOffersAtomic(`offer-update:${marketTournamentId}:${offerId}`, (offers, tournament, fail) => {
+              let offer = offers[offerId];
+              if (!offer || !isOfferOpen(offer)) { fail("unavailable"); return null; }
+              let isBuyer = String(offer.buyerTeamId) === String(ProfileTeam.id), isSeller = String(offer.sellerTeamId) === String(ProfileTeam.id);
+              if (!isBuyer && !isSeller) { fail("forbidden"); return null; }
+              let now = Date.now(), next = { ...offer, updatedAt:now };
+              if (action === "decline") {
+                if (!isSeller) { fail("forbidden"); return null; }
+                next.status = "declined";
+              } else if (action === "cancel") {
+                if (!isBuyer) { fail("forbidden"); return null; }
+                next.status = "cancelled";
+              } else if (action === "counter") {
+                if (String(offer.lastActorTeamId) === String(ProfileTeam.id)) { fail("not_your_turn"); return null; }
+                let value = Math.max(1, Number(amount) || offer.currentAmount);
+                next.status = "countered";
+                next.currentAmount = value;
+                next.lastActorTeamId = ProfileTeam.id;
+                next.history = [...(offer.history || []), { id:_(), type:"counteroffer", amount:value, actorTeamId:ProfileTeam.id, createdAt:now }];
+              } else { fail("invalid_action"); return null; }
+              return { ...offers, [offerId]:next };
+            }, "trade_offer_updated");
+            if (!result.committed && result.reason !== "busy") {
+              let messages = { unavailable:"A proposta não está mais disponível.", forbidden:"Você não pode alterar esta proposta.", not_your_turn:"Aguarde a resposta do outro usuário." };
+              window.alert(messages[result.reason] || "Não foi possível atualizar a proposta.");
+            }
           }
           function acceptTradeOffer(offerId) {
             if (!R || !ProfileTeam) return;
@@ -989,13 +1049,13 @@
 
             let db = Ee();
             if (!db) return;
-            let actionKey = `offer:${R.id}:${offerId}`;
+            let actionKey = `offer:${marketTournamentId}:${offerId}`;
             if (!beginMarketAction(actionKey)) { window.alert("Aguarde a operação atual ser concluída."); return; }
             let failureReason = null;
             db.ref("pes/tournaments").transaction((serverValue) => {
               let isArray = Array.isArray(serverValue);
               let list = isArray ? [...serverValue] : Object.values(serverValue || {});
-              let index = list.findIndex((item) => item && String(item.id) === String(R.id));
+              let index = list.findIndex((item) => item && String(item.id) === String(marketTournamentId));
               if (index < 0) { failureReason = "championship_not_found"; return; }
               let tournament = list[index], context = tournament.context || {};
               if (!marketAccessSettings(tournament).isOpen) { failureReason = "market_closed"; return; }
@@ -1052,7 +1112,7 @@
               }
               if (committed) {
                 applyConfirmedTournamentSnapshot(snapshot);
-                signalImportantUpdate("player_transfer", R && R.id ? R.id : null);
+                signalImportantUpdate("player_transfer", marketTournamentId);
                 return;
               }
               let messages = {
@@ -3969,7 +4029,7 @@
 
           function recommendationCard(item, index) {
             let player = item.player, status = item.status;
-            let activeOffer = Object.values(offers || {}).find((offer) => isOfferOpen(offer) && offer.playerId === player.id && activeTeam && offer.buyerTeamId === activeTeam.id);
+            let activeOffer = Object.values(offers || {}).find((offer) => isOfferOpen(offer) && String(offer.playerId) === String(player.id) && activeTeam && String(offer.buyerTeamId) === String(activeTeam.id));
             let price = status.kind === "listed" && status.price ? status.price : player.value;
             let insufficient = status.kind === "free" && activeTeam && Number(activeTeam.budget || 0) < Number(price || 0);
             let balanceCheck = activeTeam && typeof balanceCheckFor === "function" ? balanceCheckFor(player) : { allowed:true };
@@ -4148,7 +4208,7 @@
                     ),
                     React.createElement("div", { className:"unified-player-grid" }, filteredPlayers.slice(0, visibleCount).map((player) => {
                       let status = n(player);
-                      let activeOffer = Object.values(offers || {}).find((offer) => isOfferOpen(offer) && offer.playerId === player.id && activeTeam && offer.buyerTeamId === activeTeam.id);
+                      let activeOffer = Object.values(offers || {}).find((offer) => isOfferOpen(offer) && String(offer.playerId) === String(player.id) && activeTeam && String(offer.buyerTeamId) === String(activeTeam.id));
                       let price = status.kind === "listed" && status.price ? status.price : player.value;
                       let insufficient = status.kind === "free" && activeTeam && Number(activeTeam.budget || 0) < Number(price || 0);
                       let balanceCheck = activeTeam && typeof balanceCheckFor === "function" ? balanceCheckFor(player) : { allowed:true };
@@ -4580,7 +4640,7 @@
           if (!activeTeam) return React.createElement("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Este perfil não possui um time neste campeonato.");
           let now = Date.now();
           let all = Object.values(offers || {}).map((offer) => offer.expiresAt && offer.expiresAt <= now && isOfferOpen(offer) ? { ...offer, status: "expired" } : offer);
-          let list = all.filter((offer) => section === "received" ? offer.sellerTeamId === activeTeam.id : offer.buyerTeamId === activeTeam.id).sort((a,b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          let list = all.filter((offer) => section === "received" ? String(offer.sellerTeamId) === String(activeTeam.id) : String(offer.buyerTeamId) === String(activeTeam.id)).sort((a,b) => (b.updatedAt || 0) - (a.updatedAt || 0));
           return React.createElement("div", null,
             React.createElement(Z, { icon: React.createElement(OfferIcon, { size: 15 }), text: "Negociações" }),
             React.createElement("div", { style: { display: "flex", gap: 8, marginBottom: 14 } },
@@ -4593,8 +4653,8 @@
               React.createElement("button", { className: "tapbtn", onClick: onExplorePlayers, style: { ...M, ...W, width: "auto", display: "inline-flex" } }, "Explorar jogadores")
             ),
             list.map((offer) => {
-              let player = catalog.get(offer.playerId), open = isOfferOpen(offer), isSeller = offer.sellerTeamId === activeTeam.id;
-              let waitingForMe = open && offer.lastActorTeamId !== activeTeam.id;
+              let player = catalog.get(offer.playerId), open = isOfferOpen(offer), isSeller = String(offer.sellerTeamId) === String(activeTeam.id);
+              let waitingForMe = open && String(offer.lastActorTeamId) !== String(activeTeam.id);
               return React.createElement("div", { key: offer.id, style: { ...E, padding: 16 } },
                 React.createElement("div", { style: { display: "flex", gap: 10, alignItems: "center" } },
                   player && React.createElement("span", { style: { background: positionColor(player.position), color: "#fff", borderRadius: 6, padding: "4px 7px", fontSize: 11, fontWeight: 700 } }, player.position),
