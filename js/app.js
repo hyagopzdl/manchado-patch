@@ -9,6 +9,12 @@
         } = window.ManchaApp;
         const MagicWandIcon = SvgIcon(["M15 4l5 5", "M13.5 5.5 18.5 10.5", "M4 20l11-11", "M5 4v3", "M3.5 5.5h3", "M18 16v4", "M16 18h4"]);
         const EraserIcon = SvgIcon(["m4 15 8-8a2.5 2.5 0 0 1 3.5 0l2.5 2.5a2.5 2.5 0 0 1 0 3.5L11 20H7l-3-3a1.4 1.4 0 0 1 0-2Z", "m9 10 6 6", "M11 20h9"]);
+        async function hashProfilePin(value) {
+          if (!window.crypto || !window.crypto.subtle) throw new Error("Criptografia indisponível neste navegador.");
+          let bytes = new TextEncoder().encode(`profile-pin:${String(value || "")}`);
+          let digest = await window.crypto.subtle.digest("SHA-256", bytes);
+          return Array.from(new Uint8Array(digest)).map((item) => item.toString(16).padStart(2, "0")).join("");
+        }
         function to() {
           let [e, t] = b(!0),
             [l, a] = b(!1),
@@ -777,7 +783,7 @@
             setProfilePinGate(next);
             if (digits.length !== 4) return;
             setProfilePinGate({ ...next, checking:true });
-            let hash = await hashAdminPassword(`profile-pin:${digits}`);
+            let hash = await hashProfilePin(digits);
             if (hash === gate.profile.pinHash) {
               setProfilePinGate(null);
               enterProfile(gate.profile);
@@ -5172,7 +5178,7 @@
             if (next !== first) { window.setTimeout(()=>{ setDigits(""); setFirst(""); setStep("create"); setError("Os PINs não coincidem. Tente novamente."); },220); return; }
             setSaving(true);
             try {
-              let pinHash=await hashAdminPassword(`profile-pin:${next}`);
+              let pinHash=await hashProfilePin(next);
               await onSave(pinHash);
               onClose();
             } catch (saveError) {
