@@ -45,3 +45,11 @@ Ignore trechos antigos de outros READMEs que falem em:
 - Realtime em `sync_events`
 
 O runtime atual usa `apply_direct_patch`.
+
+## Correcao v3 - erro 42702 offer_id ambiguous
+
+Se o projeto ja foi criado com a versao anterior e o app retorna `column reference "offer_id" is ambiguous`, execute no SQL Editor apenas:
+
+`supabase/HOTFIX-AMBIGUOUS-OFFER-ID.sql`
+
+Depois recarregue o app. Nao e necessario refazer a importacao.
