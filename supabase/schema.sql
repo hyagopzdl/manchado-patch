@@ -56,6 +56,7 @@ create table if not exists public.tournaments (
   final_prize_settings jsonb,
   market_balance_settings jsonb,
   market_settings jsonb,
+  roster_settings jsonb,
   raw_data jsonb not null default '{}'::jsonb,
   created_at timestamptz,
   finished_at timestamptz,
