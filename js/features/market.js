@@ -14,7 +14,9 @@
   function marketAccessSettings(tournament) {
     let settings = tournament && tournament.marketSettings && typeof tournament.marketSettings === "object" ? tournament.marketSettings : {};
     let limit = settings.freePlayerOverallLimit && typeof settings.freePlayerOverallLimit === "object" ? settings.freePlayerOverallLimit : {};
-    return { isOpen: settings.isOpen !== false, freePlayerOverallLimit: { enabled: limit.enabled === true, maxOverall: Math.min(99, Math.max(1, Number(limit.maxOverall != null ? limit.maxOverall : 99) || 99)) } };
+    let minOverall = Math.min(99, Math.max(1, Number(limit.minOverall != null ? limit.minOverall : 1) || 1));
+    let maxOverall = Math.min(99, Math.max(minOverall, Number(limit.maxOverall != null ? limit.maxOverall : 99) || 99));
+    return { isOpen: settings.isOpen !== false, freePlayerOverallLimit: { enabled: limit.enabled === true, minOverall, maxOverall } };
   }
   function inferPlayerAcquisition(playerId, ownershipItem, transfersValue) {
     let item = ownershipItem && typeof ownershipItem === "object" ? ownershipItem : {};
@@ -43,8 +45,14 @@
   function marketOperationBlock(player, status, tournament) {
     let settings = marketAccessSettings(tournament);
     if (!settings.isOpen) return { blocked:true, reason:"market_closed", message:"O mercado está fechado pela administração." };
-    if (status && status.kind === "free" && settings.freePlayerOverallLimit.enabled && Number(player && player.overall || 0) > settings.freePlayerOverallLimit.maxOverall) {
-      return { blocked:true, reason:"overall_limit", maxOverall:settings.freePlayerOverallLimit.maxOverall, message:`Esta Liga permite comprar jogadores livres de até ${settings.freePlayerOverallLimit.maxOverall} OVR.` };
+    if (status && status.kind === "free" && settings.freePlayerOverallLimit.enabled) {
+      let overall = Number(player && player.overall || 0);
+      if (overall < settings.freePlayerOverallLimit.minOverall) {
+        return { blocked:true, reason:"overall_min_limit", minOverall:settings.freePlayerOverallLimit.minOverall, maxOverall:settings.freePlayerOverallLimit.maxOverall, message:`Esta Liga permite comprar jogadores livres a partir de ${settings.freePlayerOverallLimit.minOverall} OVR.` };
+      }
+      if (overall > settings.freePlayerOverallLimit.maxOverall) {
+        return { blocked:true, reason:"overall_max_limit", minOverall:settings.freePlayerOverallLimit.minOverall, maxOverall:settings.freePlayerOverallLimit.maxOverall, message:`Esta Liga permite comprar jogadores livres de até ${settings.freePlayerOverallLimit.maxOverall} OVR.` };
+      }
     }
     return { blocked:false, settings };
   }

@@ -468,7 +468,7 @@
                   participants: [],
                   teamIds: [],
                   createdAt: Date.now(),
-                  marketSettings: { depreciationPct: 10, initialRosterDepreciationPct: 50, isOpen: true, freePlayerOverallLimit: { enabled:false, maxOverall:99 } },
+                  marketSettings: { depreciationPct: 10, initialRosterDepreciationPct: 50, isOpen: true, freePlayerOverallLimit: { enabled:false, minOverall:1, maxOverall:99 } },
                   rosterSettings: { minPlayers: 23, maxPlayers: 30 },
                   economySettings: { version: 2, winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
                   finalPrizeSettings: { firstPlacePrize: 20, lastPlacePercentage: 50 },
@@ -1160,7 +1160,7 @@
                 signalImportantUpdate("player_purchase", tournamentId);
                 return;
               }
-              let messages={market_closed:"O mercado está fechado pela administração.",overall_limit:"Este jogador está acima do limite de overall permitido para jogadores livres.",market_balance_lock:"Esta compra está bloqueada pela regra de equilíbrio do mercado.",insufficient_funds:"Saldo insuficiente para esta compra.",buyer_roster_full:"Seu elenco atingiu o limite máximo de jogadores.",player_unavailable:"Este jogador não está mais livre no mercado.",team_not_found:"Seu time não foi encontrado.",championship_not_found:"O campeonato não foi encontrado."};
+              let messages={market_closed:"O mercado está fechado pela administração.",overall_min_limit:"Este jogador está abaixo do overall mínimo permitido para jogadores livres.",overall_max_limit:"Este jogador está acima do overall máximo permitido para jogadores livres.",overall_limit:"Este jogador está fora do intervalo de overall permitido para jogadores livres.",market_balance_lock:"Esta compra está bloqueada pela regra de equilíbrio do mercado.",insufficient_funds:"Saldo insuficiente para esta compra.",buyer_roster_full:"Seu elenco atingiu o limite máximo de jogadores.",player_unavailable:"Este jogador não está mais livre no mercado.",team_not_found:"Seu time não foi encontrado.",championship_not_found:"O campeonato não foi encontrado."};
               window.alert(messages[failureReason]||"A compra não pôde ser concluída.");
             }, false);
           }
@@ -1593,7 +1593,7 @@
               champion: null, createdAt: Date.now(),
               sourceChampionshipId: source ? source.id : null,
               inheritance: source ? inheritance : null,
-              marketSettings: source && source.marketSettings ? { ...source.marketSettings } : { depreciationPct: 10, initialRosterDepreciationPct:50, isOpen:true, freePlayerOverallLimit:{enabled:false,maxOverall:99} },
+              marketSettings: source && source.marketSettings ? { ...source.marketSettings } : { depreciationPct: 10, initialRosterDepreciationPct:50, isOpen:true, freePlayerOverallLimit:{enabled:false,minOverall:1,maxOverall:99} },
               rosterSettings: source && source.rosterSettings ? { ...source.rosterSettings } : { minPlayers: 23, maxPlayers: 30 },
               economySettings: source && source.economySettings ? { ...source.economySettings } : { winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
               finalPrizeSettings: source && source.finalPrizeSettings ? { ...source.finalPrizeSettings } : { firstPlacePrize: 20, lastPlacePercentage: 50 },
@@ -1952,9 +1952,12 @@
             let safeField = field === "initialRosterDepreciationPct" ? "initialRosterDepreciationPct" : "depreciationPct";
             ae(m.map((item) => item.id === R.id ? { ...item, marketSettings: { ...(item.marketSettings || {}), [safeField]: pct } } : item));
           }
-          function updateMarketAccessRules(isOpen, limitEnabled, maxOverall) {
+          function updateMarketAccessRules(isOpen, limitEnabled, minOverall, maxOverall) {
             if (!R) return;
-            let nextSettings = { ...(R.marketSettings || {}), isOpen: isOpen === true, freePlayerOverallLimit: { enabled: limitEnabled === true, maxOverall: Math.min(99, Math.max(1, Math.round(Number(maxOverall) || 99))) } };
+            let normalizedMin = Math.min(99, Math.max(1, Math.round(Number(minOverall) || 1)));
+            let normalizedMax = Math.min(99, Math.max(1, Math.round(Number(maxOverall) || 99)));
+            if (normalizedMin > normalizedMax) { window.alert("O overall mínimo não pode ser maior que o overall máximo."); return; }
+            let nextSettings = { ...(R.marketSettings || {}), isOpen: isOpen === true, freePlayerOverallLimit: { enabled: limitEnabled === true, minOverall: normalizedMin, maxOverall: normalizedMax } };
             ae(m.map((item) => item.id === R.id ? { ...item, marketSettings: nextSettings } : item));
           }
           function updateMarketBalanceRules(enabled, maxDifference) {
@@ -3882,7 +3885,7 @@
           onToggleFavorite: onToggleFavorite,
           balanceCheckFor: balanceCheckFor,
           pendingReviews: pendingReviews = [],
-          marketRules = { isOpen:true, freePlayerOverallLimit:{enabled:false,maxOverall:99} },
+          marketRules = { isOpen:true, freePlayerOverallLimit:{enabled:false,minOverall:1,maxOverall:99} },
           onOpenReviews: onOpenReviews,
           isAdmin: isAdmin = false,
         }) {
@@ -3893,13 +3896,14 @@
             [sortBy, setSortBy] = b("overall"),
             [visibleCount, setVisibleCount] = b(24),
             [filtersOpen, setFiltersOpen] = b(false),
-            [overallMin, setOverallMin] = b(70),
+            [overallMin, setOverallMin] = b(() => marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1) : 70),
             [overallMax, setOverallMax] = b(() => marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Number(marketRules.freePlayerOverallLimit.maxOverall || 99) : 99),
             [valueMin, setValueMin] = b(3),
             [valueMax, setValueMax] = b(catalogValueCeiling),
             loadMoreSentinel = React.useRef(null);
-          let defaultMarketOverallMax = marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Math.min(99, Math.max(1, Number(marketRules.freePlayerOverallLimit.maxOverall || 99))) : 99;
-          He(() => { setOverallMax(defaultMarketOverallMax); setOverallMin((current)=>Math.min(Number(current)||1,defaultMarketOverallMax)); }, [defaultMarketOverallMax]);
+          let defaultMarketOverallMin = marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Math.min(99, Math.max(1, Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1))) : 70;
+          let defaultMarketOverallMax = marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Math.min(99, Math.max(defaultMarketOverallMin, Number(marketRules.freePlayerOverallLimit.maxOverall || 99))) : 99;
+          He(() => { setOverallMin(defaultMarketOverallMin); setOverallMax(defaultMarketOverallMax); }, [defaultMarketOverallMin, defaultMarketOverallMax]);
 
           let favoriteSet = X(() => new Set((Array.isArray(favoritePlayerIds) ? favoritePlayerIds : []).map((id) => String(id))), [favoritePlayerIds]);
           let deferredClubQuery = React.useDeferredValue ? React.useDeferredValue(clubQuery) : clubQuery;
@@ -3980,7 +3984,7 @@
                 if (status.teamId === activeTeam.id) return null;
                 let price = Number(status.kind === "listed" && status.price ? status.price : player.value) || 0;
                 if (price > Number(activeTeam.budget || 0)) return null;
-                let operationBlock = marketRules.isOpen ? (status.kind === "free" && marketRules.freePlayerOverallLimit.enabled && Number(player.overall||0) > marketRules.freePlayerOverallLimit.maxOverall) : true;
+                let operationBlock = marketRules.isOpen ? (status.kind === "free" && marketRules.freePlayerOverallLimit.enabled && (Number(player.overall||0) < Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1) || Number(player.overall||0) > Number(marketRules.freePlayerOverallLimit.maxOverall || 99))) : true;
                 if (operationBlock) return null;
                 let balanceCheck = typeof balanceCheckFor === "function" ? balanceCheckFor(player) : { allowed:true };
                 if (!balanceCheck.allowed) return null;
@@ -4184,9 +4188,9 @@
                         let own=!!(activeTeam&&status.teamId===activeTeam.id);
                         let balanceCheck=activeTeam&&typeof balanceCheckFor==="function"?balanceCheckFor(player):{allowed:true};
                         let balanceBlocked=!balanceCheck.allowed;
-                        let overallBlocked=status.kind==="free"&&marketRules.freePlayerOverallLimit.enabled&&Number(player.overall||0)>marketRules.freePlayerOverallLimit.maxOverall;
+                        let overallBlocked=status.kind==="free"&&marketRules.freePlayerOverallLimit.enabled&&(Number(player.overall||0)<Number(marketRules.freePlayerOverallLimit.minOverall!=null?marketRules.freePlayerOverallLimit.minOverall:1)||Number(player.overall||0)>Number(marketRules.freePlayerOverallLimit.maxOverall||99));
                         let closed=!marketRules.isOpen;
-                        let label=own?null:closed?"Mercado fechado":overallBlocked?"Acima do limite":balanceBlocked?"Bloqueado pelo equilíbrio":status.kind==="free"?(insufficient?"Saldo insuficiente":`Comprar · ${L(price)}`):activeOffer?"Ver negociação":`Ofertar · ${L(price)}`;
+                        let label=own?null:closed?"Mercado fechado":overallBlocked?(Number(player.overall||0)<Number(marketRules.freePlayerOverallLimit.minOverall!=null?marketRules.freePlayerOverallLimit.minOverall:1)?"Abaixo do limite":"Acima do limite"):balanceBlocked?"Bloqueado pelo equilíbrio":status.kind==="free"?(insufficient?"Saldo insuficiente":`Comprar · ${L(price)}`):activeOffer?"Ver negociação":`Ofertar · ${L(price)}`;
                         return React.createElement(UnifiedPlayerCard,{ key:player.id,player,onOpen:f,currentTeamName:status.teamId&&l(status.teamId)?l(status.teamId).name:null,actionLabel:label,actionDisabled:closed||insufficient||balanceBlocked||overallBlocked,dimmed:overallBlocked,isFavorite:true,onToggleFavorite,onAction:()=>{activeOffer?setMarketSection("negotiations"):r(player)}});
                       }))
                     )) : React.createElement("div", { style:{ ...E,padding:24,textAlign:"center",color:"var(--muted)" } }, "Você ainda não adicionou jogadores aos favoritos."))
@@ -4288,9 +4292,9 @@
                       let insufficient = status.kind === "free" && activeTeam && Number(activeTeam.budget || 0) < Number(price || 0);
                       let balanceCheck = activeTeam && typeof balanceCheckFor === "function" ? balanceCheckFor(player) : { allowed:true };
                       let balanceBlocked = !balanceCheck.allowed;
-                      let overallBlocked = status.kind === "free" && marketRules.freePlayerOverallLimit.enabled && Number(player.overall || 0) > marketRules.freePlayerOverallLimit.maxOverall;
+                      let overallBlocked = status.kind === "free" && marketRules.freePlayerOverallLimit.enabled && (Number(player.overall || 0) < Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1) || Number(player.overall || 0) > Number(marketRules.freePlayerOverallLimit.maxOverall || 99));
                       let closed = !marketRules.isOpen;
-                      let label = closed ? "Mercado fechado" : overallBlocked ? "Acima do limite" : balanceBlocked ? "Bloqueado pelo equilíbrio" : status.kind === "free" ? (insufficient ? "Saldo insuficiente" : `Comprar · ${L(price)}`) : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`;
+                      let label = closed ? "Mercado fechado" : overallBlocked ? (Number(player.overall || 0) < Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1) ? "Abaixo do limite" : "Acima do limite") : balanceBlocked ? "Bloqueado pelo equilíbrio" : status.kind === "free" ? (insufficient ? "Saldo insuficiente" : `Comprar · ${L(price)}`) : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`;
                       return React.createElement(UnifiedPlayerCard, {
                         key:player.id, player, onOpen:f, actionLabel:label,
                         currentTeamName:status.teamId && l(status.teamId) ? l(status.teamId).name : null, actionDisabled:closed || insufficient || balanceBlocked || overallBlocked, dimmed:overallBlocked,
@@ -4582,7 +4586,7 @@
             section("👥","Elencos",row("Jogadores por time",`${roster.minPlayers} a ${roster.maxPlayers} jogadores`)),
             !isCup&&section("💸","Mercado",React.createElement(React.Fragment,null,
               row("Mercado",market.isOpen===false?"Fechado":"Aberto",market.isOpen!==false),
-              row("Overall máximo para contratação",market.freePlayerOverallLimit&&market.freePlayerOverallLimit.enabled?String(Number(market.freePlayerOverallLimit.maxOverall||99)):"Sem limite"),
+              row("Overall permitido para contratação",market.freePlayerOverallLimit&&market.freePlayerOverallLimit.enabled?`${Number(market.freePlayerOverallLimit.minOverall!=null?market.freePlayerOverallLimit.minOverall:1)} a ${Number(market.freePlayerOverallLimit.maxOverall||99)} OVR`:"Sem limite"),
               row("Equilíbrio entre elencos",balance.enabled===true?`Diferença máxima de ${Number(balance.maxDifference!=null?balance.maxDifference:10)} OVR`:"Desativado"),
               React.createElement("div",{style:{marginTop:10,padding:12,borderRadius:14,background:"var(--surface)",border:"1px solid var(--border)",fontSize:11.5,color:"var(--muted)",lineHeight:1.45}},balance.enabled===true?`Compras que fariam a diferença entre o melhor e o pior elenco passar de ${Number(balance.maxDifference!=null?balance.maxDifference:10)} OVR são bloqueadas.`:"A trava de equilíbrio entre os elencos está desativada nesta competição."),
               balance.enabled===true&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8,marginTop:10}},
@@ -4600,15 +4604,21 @@
         function MarketAccessAdminForm({ tournament, onSave }) {
           let settings=tournament&&tournament.marketSettings&&typeof tournament.marketSettings==="object"?tournament.marketSettings:{};
           let limit=settings.freePlayerOverallLimit&&typeof settings.freePlayerOverallLimit==="object"?settings.freePlayerOverallLimit:{};
-          let [isOpen,setIsOpen]=b(settings.isOpen!==false),[limitEnabled,setLimitEnabled]=b(limit.enabled===true),[maxOverall,setMaxOverall]=b(limit.maxOverall!=null?limit.maxOverall:99);
-          He(()=>{setIsOpen(settings.isOpen!==false);setLimitEnabled(limit.enabled===true);setMaxOverall(limit.maxOverall!=null?limit.maxOverall:99)},[tournament&&tournament.id,settings.isOpen,limit.enabled,limit.maxOverall]);
+          let [isOpen,setIsOpen]=b(settings.isOpen!==false),[limitEnabled,setLimitEnabled]=b(limit.enabled===true),[minOverall,setMinOverall]=b(limit.minOverall!=null?limit.minOverall:1),[maxOverall,setMaxOverall]=b(limit.maxOverall!=null?limit.maxOverall:99);
+          He(()=>{setIsOpen(settings.isOpen!==false);setLimitEnabled(limit.enabled===true);setMinOverall(limit.minOverall!=null?limit.minOverall:1);setMaxOverall(limit.maxOverall!=null?limit.maxOverall:99)},[tournament&&tournament.id,settings.isOpen,limit.enabled,limit.minOverall,limit.maxOverall]);
           return React.createElement("div",{style:{marginTop:18,paddingTop:18,borderTop:"1px solid var(--border)"}},
             React.createElement("h3",{style:{margin:"0 0 6px"}},"Mercado"),
-            React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginBottom:14}},"Controle quando as negociações podem acontecer e o overall máximo para compras diretas de jogadores livres."),
+            React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginBottom:14}},"Controle quando as negociações podem acontecer e o intervalo de overall permitido para compras diretas de jogadores livres."),
             React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Mercado aberto"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},"Quando fechado, nenhuma compra, venda, oferta ou contraproposta pode ser concluída.")),React.createElement("input",{type:"checkbox",checked:isOpen,onChange:(event)=>setIsOpen(event.target.checked)})),
             React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Limitar overall de jogadores livres"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},"Não afeta ofertas e transferências entre usuários.")),React.createElement("input",{type:"checkbox",checked:limitEnabled,onChange:(event)=>setLimitEnabled(event.target.checked)})),
-            limitEnabled&&React.createElement(React.Fragment,null,React.createElement("label",{style:P},"Overall máximo permitido"),React.createElement("input",{type:"number",min:1,max:99,step:1,value:maxOverall,onChange:(event)=>setMaxOverall(event.target.value),style:q})),
-            React.createElement("button",{onClick:()=>onSave(isOpen,limitEnabled,maxOverall),style:{...M,...W,marginTop:12}},"Salvar regras do mercado")
+            limitEnabled&&React.createElement(React.Fragment,null,
+              React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}},
+                React.createElement("div",null,React.createElement("label",{style:P},"Overall mínimo permitido"),React.createElement("input",{type:"number",min:1,max:99,step:1,value:minOverall,onChange:(event)=>setMinOverall(event.target.value),style:q})),
+                React.createElement("div",null,React.createElement("label",{style:P},"Overall máximo permitido"),React.createElement("input",{type:"number",min:1,max:99,step:1,value:maxOverall,onChange:(event)=>setMaxOverall(event.target.value),style:q}))
+              ),
+              Number(minOverall)>Number(maxOverall)&&React.createElement("div",{style:{fontSize:11.5,color:"var(--danger)",marginTop:8}},"O overall mínimo não pode ser maior que o máximo.")
+            ),
+            React.createElement("button",{onClick:()=>onSave(isOpen,limitEnabled,minOverall,maxOverall),disabled:limitEnabled&&Number(minOverall)>Number(maxOverall),style:{...M,...W,marginTop:12,opacity:limitEnabled&&Number(minOverall)>Number(maxOverall)?.55:1}},"Salvar regras do mercado")
           );
         }
         function MarketBalanceAdminForm({ tournament, teams, catalog, onSave }) {
