@@ -13,6 +13,46 @@
             redCardPenalty: Math.max(0, Number(settings.redCardPenalty != null ? settings.redCardPenalty : 1) || 0),
           };
         }
+
+        function balanceLoanSettingsOf(tournament) {
+          let economy=tournament&&tournament.economySettings&&typeof tournament.economySettings==="object"?tournament.economySettings:{};
+          let raw=economy.balanceLoanSettings&&typeof economy.balanceLoanSettings==="object"?economy.balanceLoanSettings:{};
+          return {
+            enabled: raw.enabled===true,
+            referenceMethod: raw.referenceMethod||"top_half_median",
+            toleranceGames: Math.max(0,Math.round(Number(raw.toleranceGames!=null?raw.toleranceGames:5)||0)),
+            minimumGapPercentage: Math.min(100,Math.max(0,Math.round(Number(raw.minimumGapPercentage!=null?raw.minimumGapPercentage:20)||0))),
+            compensationPercentage: Math.min(100,Math.max(0,Math.round(Number(raw.compensationPercentage!=null?raw.compensationPercentage:60)||0))),
+            minimumAmount: Math.max(0,Math.round(Number(raw.minimumAmount!=null?raw.minimumAmount:10)||0)),
+            maximumAmount: Math.max(0,Math.round(Number(raw.maximumAmount!=null?raw.maximumAmount:30)||0)),
+            repaymentPercentage: Math.min(100,Math.max(0,Math.round(Number(raw.repaymentPercentage!=null?raw.repaymentPercentage:40)||0))),
+            allowTopUps: raw.allowTopUps!==false,
+            minimumAdditionalGap: Math.max(0,Math.round(Number(raw.minimumAdditionalGap!=null?raw.minimumAdditionalGap:3)||0)),
+            minimumDaysBetweenTopUps: Math.max(0,Math.round(Number(raw.minimumDaysBetweenTopUps!=null?raw.minimumDaysBetweenTopUps:7)||0)),
+            minimumTopUpAmount: Math.max(0,Math.round(Number(raw.minimumTopUpAmount!=null?raw.minimumTopUpAmount:5)||0)),
+            maximumTopUpAmount: Math.max(0,Math.round(Number(raw.maximumTopUpAmount!=null?raw.maximumTopUpAmount:30)||0)),
+            maximumTotalAmount: Math.max(0,Math.round(Number(raw.maximumTotalAmount!=null?raw.maximumTotalAmount:60)||0)),
+          };
+        }
+        function balanceLoansOf(tournament) {
+          let economy=tournament&&tournament.economySettings&&typeof tournament.economySettings==="object"?tournament.economySettings:{};
+          return economy.balanceLoans&&typeof economy.balanceLoans==="object"?economy.balanceLoans:{};
+        }
+        function balanceLoanAnalysis(tournament, teams, teamId) {
+          let settings=balanceLoanSettingsOf(tournament), active=(Array.isArray(teams)?teams:[]).filter(team=>team&&team.active!==false), matches=(Array.isArray(tournament&&tournament.matches)?tournament.matches:[]).filter(match=>match&&match.played&&match.status!=="voided"&&!match.bye);
+          let rows=active.map(team=>{let played=matches.filter(match=>String(match.homeId)===String(team.id)||String(match.awayId)===String(team.id)).length;let rewardTotal=matches.reduce((sum,match)=>sum+Number(match.economyRewards&&match.economyRewards[team.id]||0),0);return{team,played,rewardTotal,rewardPerMatch:played?rewardTotal/played:0};}).sort((a,b)=>b.played-a.played);
+          let leaders=rows.slice(0,Math.max(1,Math.ceil(rows.length/2))), counts=leaders.map(row=>row.played).sort((a,b)=>a-b), middle=Math.floor(counts.length/2), referenceGames=counts.length%2?counts[middle]:Math.round(((counts[middle-1]||0)+(counts[middle]||0))/2);
+          let rates=leaders.filter(row=>row.played>0).map(row=>row.rewardPerMatch).sort((a,b)=>a-b);if(rates.length>=4)rates=rates.slice(1,-1);let averageReward=rates.length?Math.round(rates.reduce((sum,value)=>sum+value,0)/rates.length):0;
+          let row=rows.find(entry=>String(entry.team.id)===String(teamId)), played=row?row.played:0, rawGap=Math.max(0,referenceGames-played), compensableGames=Math.max(0,rawGap-settings.toleranceGames), gapPercentage=referenceGames?Math.round((rawGap/referenceGames)*100):0;
+          let eligible=settings.enabled&&compensableGames>0&&gapPercentage>=settings.minimumGapPercentage;
+          let calculated=Math.round(compensableGames*averageReward*(settings.compensationPercentage/100));
+          let suggested=eligible?Math.min(settings.maximumAmount,Math.max(settings.minimumAmount,calculated)):0;
+          let loans=balanceLoansOf(tournament), loan=loans[String(teamId)]||null,totalGranted=Math.round(Number(loan&&loan.totalGranted)||0), maxRemaining=Math.max(0,settings.maximumTotalAmount-totalGranted), topUpBase=Math.max(0,Math.round(calculated-totalGranted)), topUpSuggested=settings.allowTopUps&&loan?Math.min(settings.maximumTopUpAmount,maxRemaining,topUpBase):0;
+          if(topUpSuggested>0&&topUpSuggested<settings.minimumTopUpAmount)topUpSuggested=0;
+          let lastGrant=loan&&Array.isArray(loan.grants)&&loan.grants.length?loan.grants[loan.grants.length-1]:null, daysSince=lastGrant?((Date.now()-Number(lastGrant.createdAt||0))/86400000):Infinity, gapAtLast=lastGrant&&lastGrant.snapshot?Number(lastGrant.snapshot.rawGap)||0:0;
+          if(loan&&((rawGap-gapAtLast)<settings.minimumAdditionalGap||daysSince<settings.minimumDaysBetweenTopUps))topUpSuggested=0;
+          return {settings,referenceGames,played,rawGap,compensableGames,gapPercentage,averageReward,calculated,suggested,loan,totalGranted,topUpSuggested,eligible:loan?topUpSuggested>0:eligible,rows};
+        }
         function matchEconomyForTeam(match, teamId, settings) {
           let home = String(match && match.homeId) === String(teamId), score = home ? Number(match.homeScore)||0 : Number(match.awayScore)||0, opponentScore = home ? Number(match.awayScore)||0 : Number(match.homeScore)||0;
           let resultReward = score > opponentScore ? settings.winReward : score < opponentScore ? settings.lossReward : score > 0 ? settings.scoringDrawReward : settings.scorelessDrawReward;
@@ -41,5 +81,5 @@
           return { id: _(), type, teamId, amount: Number(amount) || 0, label, referenceId: referenceId || null, balanceBefore: Number(balanceBefore) || 0, balanceAfter: (Number(balanceBefore) || 0) + (Number(amount) || 0), createdAt };
         }
 
-  Object.assign(window.ManchaApp, { economySettingsOf, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry });
+  Object.assign(window.ManchaApp, { economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry });
 })();
