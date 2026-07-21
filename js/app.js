@@ -86,37 +86,9 @@
             [playerReportModal, setPlayerReportModal] = b(null),
             [playerReviewsOpen, setPlayerReviewsOpen] = b(false),
             [marketActionKey, setMarketActionKey] = b(null),
-            lastSyncRevisionRef = Rf(null),
             marketActionRef = Rf(null);
-          function refreshCriticalSnapshot() {
-            let db = Ee();
-            if (!db) return Promise.resolve(false);
-            return db.ref("pes").once("value").then((snapshot) => {
-              let root = snapshot.val();
-              if (!root || typeof root !== "object") return false;
-              let tournaments = Array.isArray(root.tournaments) ? root.tournaments.filter(Boolean) : (root.tournaments && typeof root.tournaments === "object" ? Object.values(root.tournaments).filter(Boolean) : []);
-              g(tournaments);
-              setTournamentsLoaded(true);
-              if (Array.isArray(root.teams)) setBaseTeams(root.teams.filter(Boolean));
-              if (root.ownership && typeof root.ownership === "object") setBaseOwnership(root.ownership);
-              if (Array.isArray(root.transfers)) setBaseTransfers(root.transfers.filter(Boolean));
-              if (root.meta && typeof root.meta === "object") u(root.meta);
-              return true;
-            }).catch((error) => {
-              console.error("critical snapshot refresh failed", error);
-              return false;
-            });
-          }
-          function signalImportantUpdate(type, tournamentId = null) {
-            let db = Ee();
-            if (!db) return Promise.resolve();
-            return db.ref("pes/sync/revision").set({
-              id: _(),
-              type: String(type || "update"),
-              tournamentId: tournamentId || null,
-              actorProfileId: te && te.id ? te.id : null,
-              updatedAt: firebase.database.ServerValue.TIMESTAMP,
-            }).catch((error) => console.error("sync revision signal failed", error));
+          function signalImportantUpdate() {
+            return Promise.resolve();
           }
           function beginMarketAction(key) {
             if (marketActionRef.current) return false;
@@ -185,13 +157,6 @@
               Q("ownership", (i) => setBaseOwnership(i || {})),
               Q("playerStats", (i) => setBaseStats(i || {})),
               Q("tournaments", (i) => { let list = Array.isArray(i) ? i.filter(Boolean) : (i && typeof i === "object" ? Object.values(i).filter(Boolean) : []); g(list); setTournamentsLoaded(!0); }),
-              Q("sync/revision", (revision) => {
-                if (!revision || !revision.id) return;
-                if (lastSyncRevisionRef.current == null) { lastSyncRevisionRef.current = revision.id; return; }
-                if (lastSyncRevisionRef.current === revision.id) return;
-                lastSyncRevisionRef.current = revision.id;
-                refreshCriticalSnapshot();
-              }),
               Q("transfers", (i) => setBaseTransfers(i || [])),
               Q("meta", (i) =>
                 u(i || { currentTournamentId: null, seasonCounter: 1 }),
@@ -200,7 +165,6 @@
               Q("adminSecurity", (i) => setAdminSecurity(i && typeof i === "object" ? i : null)),
               Q("playerCatalogOverrides", (i) => setPlayerCatalogOverrides(i && typeof i === "object" ? i : {})),
               Q("playerReviews", (i) => setPlayerReviews(i && typeof i === "object" ? i : {})),
-              Q("profileChampionshipPreferences", (i) => setProfileChampionshipPreferences(i && typeof i === "object" ? i : {})),
               Q("profiles", (i) => {
                 let list = Array.isArray(i) ? i : [];
                 T(list);
@@ -214,32 +178,6 @@
               }),
             ];
             return () => o.forEach((i) => i());
-          }, []);
-          He(() => {
-            let db = Ee();
-            if (!db) return;
-            let cancelled = false;
-            let refreshTournaments = () => {
-              if (cancelled || document.visibilityState === "hidden") return;
-              db.ref("pes/tournaments").once("value").then((snapshot) => {
-                if (cancelled) return;
-                let value = snapshot.val();
-                let list = Array.isArray(value) ? value.filter(Boolean) : (value && typeof value === "object" ? Object.values(value).filter(Boolean) : []);
-                g(list);
-                setTournamentsLoaded(!0);
-              }).catch((error) => console.error("tournament refresh failed", error));
-            };
-            let onVisible = () => { if (document.visibilityState === "visible") refreshTournaments(); };
-            let onFocus = () => refreshTournaments();
-            document.addEventListener("visibilitychange", onVisible);
-            window.addEventListener("focus", onFocus);
-            let timer = window.setInterval(refreshTournaments, 15000);
-            return () => {
-              cancelled = true;
-              document.removeEventListener("visibilitychange", onVisible);
-              window.removeEventListener("focus", onFocus);
-              window.clearInterval(timer);
-            };
           }, []);
           He(() => {
             let db = Ee();
@@ -294,6 +232,17 @@
               return root;
             }).catch((error) => console.error("favorite migration failed", error));
           }, [R && R.id, te && te.id, te && Array.isArray(te.favoritePlayerIds) ? te.favoritePlayerIds.join("|") : ""]);
+          He(() => {
+            if (!R || !R.id || !te || !te.id) {
+              setProfileChampionshipPreferences({});
+              return;
+            }
+            return Q(`profileChampionshipPreferences/${R.id}/${te.id}`, (value) => {
+              setProfileChampionshipPreferences({
+                [R.id]: { [te.id]: value && typeof value === "object" ? value : {} },
+              });
+            });
+          }, [R && R.id, te && te.id]);
           let currentFavoriteIds = X(() => {
             if (!R || !R.id || !te || !te.id) return [];
             let favorites = profileChampionshipPreferences && profileChampionshipPreferences[R.id] && profileChampionshipPreferences[R.id][te.id] && profileChampionshipPreferences[R.id][te.id].favorites;
@@ -384,7 +333,7 @@
               };
               return list;
             }).then((result) => {
-              if (result && result.committed && ["teams","ownership","transfers","matches","tradeOffers","financialTransactions"].includes(field)) signalImportantUpdate(field, tournamentId);
+              if (result && result.committed && result.snapshot) applyConfirmedTournamentSnapshot(result.snapshot);
             }).catch((error) => console.error("firebase context transaction failed", field, error));
             return true;
           }
@@ -462,7 +411,7 @@
             db.ref("pes/tournaments").transaction((serverList) =>
               applySafeDiff(Array.isArray(serverList) ? serverList : [], previousList, nextList),
             ).then((result) => {
-              if (result && result.committed) signalImportantUpdate("tournaments", selectedTournamentId || null);
+              if (result && result.committed && result.snapshot) applyConfirmedTournamentSnapshot(result.snapshot);
             }).catch((error) => console.error("firebase tournament transaction failed", error));
           }, [m]);
           function vt(o) {
@@ -1386,7 +1335,7 @@
             }
             let db=Ee();
             if (!db) { ae([...m,tournament]); window.alert(`${name} foi importado como competição encerrada.`); return; }
-            db.ref("pes/tournaments").transaction((serverList)=>{ let list=Array.isArray(serverList)?[...serverList]:[]; if(list.some((item)=>item&&String(item.name||"").trim().toLowerCase()===name.toLowerCase())) return; list.push(tournament); return list; },(error,committed)=>{ if(error) window.alert("Não foi possível importar a competição. Tente novamente."); else if(!committed) window.alert("A importação foi cancelada porque já existe uma competição com este nome."); else window.alert(`${name} foi importado como competição encerrada.`); });
+            db.ref("pes/tournaments").transaction((serverList)=>{ let list=Array.isArray(serverList)?[...serverList]:[]; if(list.some((item)=>item&&String(item.name||"").trim().toLowerCase()===name.toLowerCase())) return; list.push(tournament); return list; },(error,committed,snapshot)=>{ if(error) window.alert("Não foi possível importar a competição. Tente novamente."); else if(!committed) window.alert("A importação foi cancelada porque já existe uma competição com este nome."); else { applyConfirmedTournamentSnapshot(snapshot); window.alert(`${name} foi importado como competição encerrada.`); } });
           }
 
           function cupShuffle(values) {

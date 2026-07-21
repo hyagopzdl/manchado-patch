@@ -22,12 +22,40 @@
                 .catch((a) => console.error("firebase set failed", e, a))
             : Promise.resolve();
         }
+        const sharedValueListeners = new Map();
         function Q(e, t) {
           let l = Ee();
           if (!l) return (t(null), () => {});
-          let a = l.ref("pes/" + e),
-            n = (r) => t(r.val());
-          return (a.on("value", n), () => a.off("value", n));
+          let path = "pes/" + e;
+          let entry = sharedValueListeners.get(path);
+          if (!entry) {
+            let ref = l.ref(path);
+            entry = {
+              ref,
+              subscribers: new Set(),
+              hasValue: false,
+              value: null,
+              handler: null,
+            };
+            entry.handler = (snapshot) => {
+              entry.value = snapshot.val();
+              entry.hasValue = true;
+              entry.subscribers.forEach((subscriber) => subscriber(entry.value));
+            };
+            ref.on("value", entry.handler);
+            sharedValueListeners.set(path, entry);
+          }
+          entry.subscribers.add(t);
+          if (entry.hasValue) t(entry.value);
+          return () => {
+            let current = sharedValueListeners.get(path);
+            if (!current) return;
+            current.subscribers.delete(t);
+            if (current.subscribers.size === 0) {
+              current.ref.off("value", current.handler);
+              sharedValueListeners.delete(path);
+            }
+          };
         }
         const IDENTITY_SCHEMA_VERSION = 4;
         let identityMigrationPromise = null;
