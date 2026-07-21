@@ -1,13 +1,35 @@
 (() => {
   window.ManchaApp = window.ManchaApp || {};
 
-  const config = window.__SUPABASE_CONFIG__ || {};
-  const client = window.supabase && config.url && config.anonKey
-    ? window.supabase.createClient(config.url, config.anonKey, {
+  const rawConfig = window.__SUPABASE_CONFIG__ || {};
+  const DEFAULT_SUPABASE_URL = "https://snamfpafcvoyzilkktvd.supabase.co";
+  const DEFAULT_SUPABASE_ANON_KEY = "sb_publishable_WdoTS1XAmXCuee76_arQ7w_A5ZkDEKn";
+
+  function normalizeSupabaseUrl(value) {
+    const candidate = String(value || "").trim();
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") return parsed.origin;
+    } catch (error) {}
+    return DEFAULT_SUPABASE_URL;
+  }
+
+  const config = {
+    url: normalizeSupabaseUrl(rawConfig.url),
+    anonKey: String(rawConfig.anonKey || DEFAULT_SUPABASE_ANON_KEY).trim() || DEFAULT_SUPABASE_ANON_KEY
+  };
+
+  let client = null;
+  if (window.supabase && typeof window.supabase.createClient === "function") {
+    try {
+      client = window.supabase.createClient(config.url, config.anonKey, {
         auth: { persistSession: false, autoRefreshToken: false },
         realtime: { params: { eventsPerSecond: 1 } }
-      })
-    : null;
+      });
+    } catch (error) {
+      console.error("Falha ao iniciar o Supabase", error, { url: config.url });
+    }
+  }
 
   let state = { pes: {} };
   let loadPromise = null;
