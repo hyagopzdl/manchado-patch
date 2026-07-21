@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, loadFinancialTransactions, loadPlayerReviews, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -164,7 +164,6 @@
               Q("presence", (i) => setPresence(i && typeof i === "object" ? i : {})),
               Q("adminSecurity", (i) => setAdminSecurity(i && typeof i === "object" ? i : null)),
               Q("playerCatalogOverrides", (i) => setPlayerCatalogOverrides(i && typeof i === "object" ? i : {})),
-              Q("playerReviews", (i) => setPlayerReviews(i && typeof i === "object" ? i : {})),
               Q("profiles", (i) => {
                 let list = Array.isArray(i) ? i : [];
                 T(list);
@@ -179,6 +178,12 @@
             ];
             return () => o.forEach((i) => i());
           }, []);
+          He(() => {
+            if (!playerReviewsOpen || typeof loadPlayerReviews !== "function") return;
+            let active = true;
+            loadPlayerReviews().then((reviews) => { if (active) setPlayerReviews(reviews && typeof reviews === "object" ? reviews : {}); }).catch((error) => console.error("Falha ao carregar revisões", error));
+            return () => { active = false; };
+          }, [playerReviewsOpen]);
           He(() => {
             let db = Ee();
             if (!db || !te || !te.id) return;
@@ -2732,7 +2737,7 @@
                         onClose: () => setOfferModal(null),
                         onConfirm: sendTradeOffer,
                       }),
-                    balanceHistoryOpen && (ProfileTeam || isAdminProfile(te)) && React.createElement(BalanceHistoryModal, { team: ProfileTeam || null, transactions: R && R.context && Array.isArray(R.context.financialTransactions) ? R.context.financialTransactions : [], teams:p, canRollback:isAdminProfile(te), showAll:isAdminProfile(te)&&!ProfileTeam, onRollback:rollbackMarketPurchase, onClose:()=>setBalanceHistoryOpen(false) }),
+                    balanceHistoryOpen && R && (ProfileTeam || isAdminProfile(te)) && React.createElement(BalanceHistoryModal, { tournamentId:R.id, team: ProfileTeam || null, teams:p, canRollback:isAdminProfile(te), showAll:isAdminProfile(te)&&!ProfileTeam, onRollback:rollbackMarketPurchase, onClose:()=>setBalanceHistoryOpen(false) }),
                     rulesOpen && R && React.createElement(ChampionshipRulesModal, { tournament:R, teams:p, ownership:c, catalog:n, onClose:()=>setRulesOpen(false) }),
                     saleModal &&
                       React.createElement(MarketSaleModal, {
@@ -4559,18 +4564,19 @@
             React.createElement("button",{onClick:()=>onSave(values.winReward,values.scoringDrawReward,values.scorelessDrawReward,values.lossReward,values.goalReward,values.redCardPenalty,values.championPrize,values.topScorerPrize),style:{...M,marginTop:4}},"Salvar regras e premiações")
           );
         }
-        function BalanceHistoryModal({ team, transactions, teams = [], canRollback, showAll = false, onRollback, onClose }) {
-          let reversibleTypes=["market_purchase","player_purchase","market_sale"];
-          let allItems=(Array.isArray(transactions)?transactions:[]).filter(Boolean);
-          let items=(showAll||!team?allItems:allItems.filter((item)=>String(item.teamId)===String(team.id))).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
-          let teamName=(teamId)=>{let found=(Array.isArray(teams)?teams:[]).find((entry)=>entry&&String(entry.id)===String(teamId));return found&&found.name?found.name:"Time";};
-          let rollbackButton=(item)=>{
-            if(!canRollback||!reversibleTypes.includes(item.type)) return null;
-            let disabled=!!item.rolledBackAt;
-            return React.createElement("button",{type:"button",title:disabled?"Movimentação já revertida":"Dar rollback", "aria-label":disabled?"Movimentação já revertida":"Dar rollback",disabled,onClick:()=>onRollback&&onRollback(item.id),style:{width:30,height:30,borderRadius:"50%",border:"1px solid var(--border)",background:disabled?"var(--surface-soft)":"var(--heading)",color:disabled?"var(--muted)":"var(--surface)",display:"grid",placeItems:"center",fontSize:16,fontWeight:900,cursor:disabled?"default":"pointer",opacity:disabled?.5:1,flex:"0 0 auto"}},"↶");
+        function BalanceHistoryModal({ tournamentId, team, teams = [], canRollback, showAll = false, onRollback, onClose }) {
+          let [items,setItems]=b([]),[loading,setLoading]=b(true),[loadingMore,setLoadingMore]=b(false),[hasMore,setHasMore]=b(false),[cursor,setCursor]=b(null),[error,setError]=b(null);
+          let teamName=(teamId)=>{let current=teams.find((item)=>item&&String(item.id)===String(teamId));return current&&current.name?current.name:"Time removido"};
+          let fetchTransactions=async(reset=false)=>{
+            if(typeof loadFinancialTransactions!=="function")return;
+            reset?setLoading(true):setLoadingMore(true);setError(null);
+            try{let page=await loadFinancialTransactions({tournamentId,teamId:showAll?null:team&&team.id,limit:50,before:reset?null:cursor});setItems((current)=>reset?page.items:[...current,...page.items]);setHasMore(page.hasMore);setCursor(page.nextCursor);}catch(fetchError){console.error("Falha ao carregar histórico financeiro",fetchError);setError("Não foi possível carregar o histórico.");}finally{setLoading(false);setLoadingMore(false);}
           };
-          return ReactDOM.createPortal(React.createElement("div", { className:"sports-modal-overlay",onClick:onClose,style:{ position:"fixed",inset:0,zIndex:1200,display:"grid",placeItems:"center",padding:16,background:"rgba(0,0,0,.72)",backdropFilter:"blur(12px)" } }, React.createElement("div", { onClick:(e)=>e.stopPropagation(),style:{ width:"min(560px,100%)",maxHeight:"82vh",overflow:"auto",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:24,padding:20 } }, React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 } }, React.createElement("div", null, React.createElement("div", { style:{ fontSize:12,color:"var(--muted)" } }, showAll?"Mercado":"Saldo atual"), React.createElement("strong", { style:{ fontSize:showAll?22:28,color:showAll?"var(--heading)":"var(--green)" } }, showAll?"Histórico de transações":L(team&&team.budget||0))), React.createElement("button", { onClick:onClose,style:{ width:34,height:34,borderRadius:"50%",border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)" } }, "×")), items.map((item)=>React.createElement("div", { key:item.id,style:{ display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:"12px 0",borderBottom:"1px solid var(--border)" } }, React.createElement("div", null, React.createElement("div", { style:{ fontWeight:750,fontSize:13.5 } }, item.label||"Movimentação"), showAll&&React.createElement("div",{style:{fontSize:11,color:"var(--muted)",marginTop:3}},teamName(item.teamId)), React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginTop:3 } }, new Date(item.createdAt||Date.now()).toLocaleString("pt-BR")), item.rolledBackAt&&React.createElement("div",{style:{fontSize:10.5,color:"var(--green)",fontWeight:800,marginTop:4}},"Movimentação revertida")), React.createElement("div",{style:{display:"flex",alignItems:"center",gap:9}},React.createElement("strong", { style:{ color:Number(item.amount)>=0?"var(--green)":"var(--danger)" } }, `${Number(item.amount)>=0?"+ ":"− "}${L(Math.abs(Number(item.amount)||0))}`),rollbackButton(item)))), !items.length&&React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:24 } }, "Nenhuma movimentação registrada ainda."))), document.body);
+          He(()=>{let active=true;setItems([]);setCursor(null);setHasMore(false);Promise.resolve().then(()=>active&&fetchTransactions(true));return()=>{active=false}},[tournamentId,team&&team.id,showAll]);
+          let rollbackButton=(item)=>{let can=canRollback&&item&&["market_purchase","player_purchase","market_sale","user_transfer"].includes(item.type)&&!item.rolledBackAt;return can?React.createElement("button",{onClick:()=>onRollback&&onRollback(item.id),style:{border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)",borderRadius:10,padding:"7px 9px",fontSize:10.5,fontWeight:800,cursor:"pointer"}},"Estornar"):null};
+          return ReactDOM.createPortal(React.createElement("div", { className:"sports-modal-overlay",onClick:onClose,style:{ position:"fixed",inset:0,zIndex:1200,display:"grid",placeItems:"center",padding:16,background:"rgba(0,0,0,.72)",backdropFilter:"blur(12px)" } }, React.createElement("div", { onClick:(e)=>e.stopPropagation(),style:{ width:"min(560px,100%)",maxHeight:"82vh",overflow:"auto",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:24,padding:20 } }, React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 } }, React.createElement("div", null, React.createElement("div", { style:{ fontSize:12,color:"var(--muted)" } }, showAll?"Mercado":"Saldo atual"), React.createElement("strong", { style:{ fontSize:showAll?22:28,color:showAll?"var(--heading)":"var(--green)" } }, showAll?"Histórico de transações":L(team&&team.budget||0))), React.createElement("button", { onClick:onClose,style:{ width:34,height:34,borderRadius:"50%",border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)" } }, "×")), loading&&React.createElement("div",{style:{color:"var(--muted)",textAlign:"center",padding:28}},"Carregando histórico…"), error&&React.createElement("div",{style:{color:"var(--danger)",textAlign:"center",padding:18}},error), !loading&&items.map((item)=>React.createElement("div", { key:item.id,style:{ display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:"12px 0",borderBottom:"1px solid var(--border)" } }, React.createElement("div", null, React.createElement("div", { style:{ fontWeight:750,fontSize:13.5 } }, item.label||"Movimentação"), showAll&&React.createElement("div",{style:{fontSize:11,color:"var(--muted)",marginTop:3}},teamName(item.teamId)), React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginTop:3 } }, new Date(item.createdAt||Date.now()).toLocaleString("pt-BR"))), React.createElement("div",{style:{display:"flex",alignItems:"center",gap:9}},React.createElement("strong", { style:{ color:Number(item.amount)>=0?"var(--green)":"var(--danger)" } }, `${Number(item.amount)>=0?"+ ":"− "}${L(Math.abs(Number(item.amount)||0))}`),rollbackButton(item)))), !loading&&!items.length&&!error&&React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:24 } }, "Nenhuma movimentação registrada ainda."), hasMore&&React.createElement("button",{disabled:loadingMore,onClick:()=>fetchTransactions(false),style:{width:"100%",marginTop:16,padding:12,borderRadius:12,border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)",fontWeight:800,cursor:loadingMore?"wait":"pointer"}},loadingMore?"Carregando…":"Carregar mais 50"))), document.body);
         }
+
         function ChampionshipRulesModal({ tournament, teams = [], ownership = {}, catalog = [], onClose }) {
           let economy=economySettingsOf(tournament), prize=prizeSettingsOf(tournament), roster=tournament.rosterSettings||{minPlayers:23,maxPlayers:30}, market=tournament.marketSettings||{}, balance=tournament.marketBalanceSettings||{}, isCup=tournament&&tournament.type==="cup";
           let ruleTeams=(Array.isArray(teams)?teams:[]).filter((team)=>team&&team.active!==false);
