@@ -1910,9 +1910,23 @@
             let finalPrizeSettings = { championPrize:Math.max(0,Number(championPrize)||0), firstPlacePrize:Math.max(0,Number(championPrize)||0), lastPlacePercentage:50, topScorerPrize:Math.max(0,Number(topScorerPrize)||0) };
             ae(m.map((item)=>item.id===R.id ? { ...item, economySettings, finalPrizeSettings } : item));
           }
-          // A migração retroativa automática foi desativada após a conversão para Supabase.
-          // Partidas já persistidas são hidratadas como liquidadas em js/supabase.js, evitando
-          // que abrir ou atualizar o app pague novamente recompensas já processadas.
+          let pendingEconomyMigrationKey = R && Array.isArray(R.matches) ? R.matches.filter((match)=>match&&match.played&&match.status!=="voided"&&!match.bye&&(!match.economySettlement||Number(match.economySettlement.version)<2)).map((match)=>match.id).join("|") : "";
+          He(()=>{
+            if (!R || !pendingEconomyMigrationKey) return;
+            let settings=economySettingsOf(R), context=R.context||{}, teams=Array.isArray(context.teams)?context.teams.map((team)=>({...team})):[], transactions=Array.isArray(context.financialTransactions)?[...context.financialTransactions]:[], now=Date.now(), changed=false;
+            let matches=(Array.isArray(R.matches)?R.matches:[]).map((match)=>{
+              if(!match||!match.played||match.status==="voided"||match.bye||(match.economySettlement&&Number(match.economySettlement.version)>=2)) return match;
+              let rewards={...(match.economyRewards||{})}, breakdown={}, previousPaid={};
+              [match.homeId,match.awayId].filter(Boolean).forEach((teamId)=>{
+                let detail=matchEconomyForTeam(match,teamId,settings), already=Number(rewards[teamId])||0, delta=Math.max(0,detail.total-already), team=teams.find((item)=>String(item.id)===String(teamId));
+                previousPaid[teamId]=already; breakdown[teamId]=detail;
+                if(delta>0&&team){let before=Number(team.budget)||0;team.budget=before+delta;transactions.unshift(financeEntry("match_reward_migration",teamId,delta,"Ajuste retroativo de recompensas da partida",match.id,before,now));rewards[teamId]=already+delta;}
+              });
+              changed=true;
+              return {...match,economyRewards:rewards,economySettlement:{version:2,settledAt:now,retroactive:true,settingsSnapshot:{...settings},breakdown,previousPaid}};
+            });
+            if(changed) ae(m.map((item)=>item.id===R.id?{...item,matches,context:{...(item.context||{}),teams,financialTransactions:transactions}}:item));
+          },[R&&R.id,pendingEconomyMigrationKey]);
           function finishCurrentTournament() {
             if (!R || R.status === "finished") return;
             let activeTeams = p.filter((team)=>team && team.active !== false);

@@ -109,26 +109,7 @@
     const tournamentList = tournaments.map(row => {
       const id = row.id;
       const tournamentTeams = teams.filter(x => x.tournament_id === id).map(x => ({ id:x.id, profileId:x.profile_id, name:x.name, color:x.color, budget:Number(x.budget||0), active:x.active, historical:x.historical, lineup:x.lineup }));
-      const tournamentMatches = matches.filter(x => x.tournament_id === id).map(x => {
-        const rewardRows = financial.filter(tx =>
-          tx.tournament_id === id &&
-          String(tx.reference_id || "") === String(x.id) &&
-          ["match_reward", "match_reward_migration", "match_win_reward", "match_draw_reward"].includes(String(tx.transaction_type || ""))
-        );
-        const economyRewards = {};
-        rewardRows.forEach(tx => {
-          const teamId = tx.team_id;
-          if (!teamId) return;
-          economyRewards[teamId] = (Number(economyRewards[teamId]) || 0) + (Number(tx.amount) || 0);
-        });
-        return {
-          id:x.id, homeId:x.home_team_id, awayId:x.away_team_id, homeTeamId:x.home_team_id, awayTeamId:x.away_team_id,
-          homeProfileId:x.home_profile_id, awayProfileId:x.away_profile_id, stage:x.stage, round:x.round, leg:x.leg,
-          status:x.status, played:x.played, homeScore:x.home_score, awayScore:x.away_score, playedAt:ms(x.played_at), createdAt:ms(x.created_at),
-          economyRewards,
-          economySettlement: x.played ? { version:2, settledAt:ms(x.played_at) || ms(x.created_at), retroactive:false, restoredFromTransactions:true } : null
-        };
-      });
+      const tournamentMatches = matches.filter(x => x.tournament_id === id).map(x => ({ id:x.id, homeId:x.home_team_id, awayId:x.away_team_id, homeTeamId:x.home_team_id, awayTeamId:x.away_team_id, homeProfileId:x.home_profile_id, awayProfileId:x.away_profile_id, stage:x.stage, round:x.round, leg:x.leg, status:x.status, played:x.played, homeScore:x.home_score, awayScore:x.away_score, playedAt:ms(x.played_at), createdAt:ms(x.created_at) }));
       const tournamentOwnership = {};
       ownership.filter(x => x.tournament_id === id).forEach(x => { tournamentOwnership[x.player_id] = { teamId:x.team_id, initialTeamId:x.initial_team_id, squadRole:x.squad_role, acquisitionSource:x.acquisition_source, acquiredAt:ms(x.acquired_at), forSale:x.for_sale }; });
       const tournamentStats = {};
