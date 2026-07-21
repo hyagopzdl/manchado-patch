@@ -198,6 +198,19 @@
     const base=clone(state), current=clone(getAt(base,path)), updated=updater(current);
     if(updated===undefined){const snapshot={val:()=>current}; if(completion)completion(null,false,snapshot); return{committed:false,snapshot};}
     const next=setAt(base,path,clone(updated));
+
+    // Firebase presence depended on a real socket and onDisconnect(). This
+    // compatibility runtime has no realtime connection, so persisting presence
+    // through the generic patch RPC creates self-triggered write loops. Keep
+    // presence local-only until it is replaced by a dedicated heartbeat RPC.
+    if(path === "pes/presence" || path.startsWith("pes/presence/")){
+      state=next;
+      emitAll();
+      const snapshot={val:()=>clone(getAt(state,path))};
+      if(completion)completion(null,true,snapshot);
+      return{committed:true,snapshot};
+    }
+
     try{await commit(next,`transaction:${path}`);const snapshot={val:()=>clone(getAt(state,path))};if(completion)completion(null,true,snapshot);return{committed:true,snapshot};}
     catch(error){if(completion)completion(error,false,{val:()=>clone(getAt(state,path))});throw error;}
   }
