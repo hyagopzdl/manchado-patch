@@ -47,6 +47,8 @@
   const pendingQueries = new Map();
   const deferredLoaded = { financial: new Set(), reviews: false, imports: new Set() };
   const CACHE_TTL_MS = 60 * 1000;
+  const SELECT_PAGE_SIZE = 100;
+  const SELECT_MAX_ROWS = 50000;
 
   const clone = (value) => value == null ? value : JSON.parse(JSON.stringify(value));
   const asObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -105,6 +107,39 @@
     finally { if (key) pendingQueries.delete(key); }
   }
 
+  async function selectAll(table, columns, configure, cacheKey = null, ttl = CACHE_TTL_MS) {
+    const key = cacheKey || null;
+    const now = Date.now();
+    const cached = key ? queryCache.get(key) : null;
+    if (cached && now - cached.at < ttl) return clone(cached.data);
+    if (key && pendingQueries.has(key)) return clone(await pendingQueries.get(key));
+    const request = (async () => {
+      const rows = [];
+      let offset = 0;
+      let total = null;
+      while (true) {
+        let query = client.from(table).select(columns, { count: "exact" });
+        if (configure) query = configure(query);
+        query = query.range(offset, offset + SELECT_PAGE_SIZE - 1);
+        const { data, error, count } = await query;
+        if (error) throw error;
+        const page = data || [];
+        rows.push(...page);
+        if (total == null && Number.isFinite(Number(count))) total = Number(count);
+        if (!page.length || (total != null && rows.length >= total)) break;
+        offset += page.length;
+        if (rows.length >= SELECT_MAX_ROWS) {
+          throw new Error(`Consulta ${table} excedeu o limite de segurança de ${SELECT_MAX_ROWS} registros.`);
+        }
+      }
+      if (key) queryCache.set(key, { at: Date.now(), data: rows });
+      return rows;
+    })();
+    if (key) pendingQueries.set(key, request);
+    try { return clone(await request); }
+    finally { if (key) pendingQueries.delete(key); }
+  }
+
   function invalidateCache(prefix = "") {
     for (const key of queryCache.keys()) if (!prefix || key.startsWith(prefix)) queryCache.delete(key);
   }
@@ -112,22 +147,22 @@
   async function loadNormalizedState() {
     const started = performance.now();
     const [profiles, tournaments, meta, security, participants, teams, matches, ownership, stats, offers, histories, transfers, favorites, presence, globalOwnership, overrides] = await Promise.all([
-      select("profiles", "id,name,color,avatar,role,active,pin_hash,pin_updated_at,recovered_from_tournament,recovered_at,created_at,source_order", q => q.order("source_order"), "boot:profiles"),
-      select("tournaments", "id,name,format,type,status,champion,cup_stage,groups_data,cup_snapshot,final_standings,economy_settings,final_prize_settings,market_balance_settings,market_settings,created_at,finished_at,reset_at,reset_by_profile_id,source_order,raw_data", q => q.order("source_order"), "boot:tournaments"),
+      selectAll("profiles", "id,name,color,avatar,role,active,pin_hash,pin_updated_at,recovered_from_tournament,recovered_at,created_at,source_order", q => q.order("source_order").order("id"), "boot:profiles"),
+      selectAll("tournaments", "id,name,format,type,status,champion,cup_stage,groups_data,cup_snapshot,final_standings,economy_settings,final_prize_settings,market_balance_settings,market_settings,created_at,finished_at,reset_at,reset_by_profile_id,source_order,raw_data", q => q.order("source_order").order("id"), "boot:tournaments"),
       select("app_meta", "current_tournament_id,identity_schema_version,identity_migrated_at,season_counter", q => q.limit(1), "boot:meta"),
       (async () => { const {data,error}=await client.rpc("get_app_security"); if(error) throw error; return data || {}; })(),
-      select("tournament_participants", "tournament_id,profile_id,position", q => q.order("position"), "boot:participants"),
-      select("teams", "id,tournament_id,profile_id,name,color,budget,active,historical,lineup,source_order,raw_data", q => q.order("source_order"), "boot:teams"),
-      select("matches", "id,tournament_id,home_team_id,away_team_id,home_profile_id,away_profile_id,stage,round,leg,status,played,home_score,away_score,played_at,created_at,source_order,raw_data", q => q.order("source_order"), "boot:matches"),
-      select("player_ownership", "tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale,raw_data", null, "boot:ownership"),
-      select("player_stats", "tournament_id,player_id,team_id,player_name_snapshot,goals,red_cards,updated_at,raw_data", null, "boot:stats"),
-      select("trade_offers", "id,tournament_id,player_id,player_name,buyer_team_id,seller_team_id,buyer_profile_id,seller_profile_id,current_amount,market_value_at_creation,last_actor_team_id,status,expires_at,created_at,updated_at,raw_data", null, "boot:offers"),
-      select("trade_offer_history", "id,offer_id,actor_team_id,action_type,amount,created_at", q => q.order("created_at"), "boot:offer-history"),
-      select("transfers", "id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at,raw_data", q => q.order("created_at"), "boot:transfers"),
-      select("profile_favorites", "tournament_id,profile_id,player_id,created_at", null, "boot:favorites"),
-      select("presence", "profile_id,online,updated_at", null, "boot:presence", 15000),
-      select("global_player_ownership", "player_id,team_id,for_sale", null, "boot:global-ownership"),
-      select("player_catalog_overrides", "player_id,overall,market_value,updated_by_profile_id,updated_at", null, "boot:overrides")
+      selectAll("tournament_participants", "tournament_id,profile_id,position", q => q.order("tournament_id").order("position").order("profile_id"), "boot:participants"),
+      selectAll("teams", "id,tournament_id,profile_id,name,color,budget,active,historical,lineup,source_order,raw_data", q => q.order("tournament_id").order("source_order").order("id"), "boot:teams"),
+      selectAll("matches", "id,tournament_id,home_team_id,away_team_id,home_profile_id,away_profile_id,stage,round,leg,status,played,home_score,away_score,played_at,created_at,source_order,raw_data", q => q.order("tournament_id").order("source_order").order("id"), "boot:matches"),
+      selectAll("player_ownership", "tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale,raw_data", q => q.order("tournament_id").order("player_id"), "boot:ownership"),
+      selectAll("player_stats", "tournament_id,player_id,team_id,player_name_snapshot,goals,red_cards,updated_at,raw_data", q => q.order("tournament_id").order("player_id"), "boot:stats"),
+      selectAll("trade_offers", "id,tournament_id,player_id,player_name,buyer_team_id,seller_team_id,buyer_profile_id,seller_profile_id,current_amount,market_value_at_creation,last_actor_team_id,status,expires_at,created_at,updated_at,raw_data", q => q.order("tournament_id").order("created_at").order("id"), "boot:offers"),
+      selectAll("trade_offer_history", "id,offer_id,actor_team_id,action_type,amount,created_at", q => q.order("offer_id").order("created_at").order("id"), "boot:offer-history"),
+      selectAll("transfers", "id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at,raw_data", q => q.order("tournament_id").order("created_at").order("id"), "boot:transfers"),
+      selectAll("profile_favorites", "tournament_id,profile_id,player_id,created_at", q => q.order("tournament_id").order("profile_id").order("player_id"), "boot:favorites"),
+      selectAll("presence", "profile_id,online,updated_at", q => q.order("profile_id"), "boot:presence", 15000),
+      selectAll("global_player_ownership", "player_id,team_id,for_sale", q => q.order("player_id"), "boot:global-ownership"),
+      selectAll("player_catalog_overrides", "player_id,overall,market_value,updated_by_profile_id,updated_at", q => q.order("player_id"), "boot:overrides")
     ]);
 
     const historyByOffer = new Map();
@@ -188,15 +223,15 @@
   async function hydrateTournamentFinancial(tournamentId) {
     await load();
     const id=String(tournamentId||""); if(!id||deferredLoaded.financial.has(id)) return;
-    const rows=await select("financial_transactions", "id,tournament_id,team_id,transaction_type,amount,balance_before,balance_after,label,reference_id,operation_id,created_at,raw_data", q=>q.eq("tournament_id",id).order("created_at",{ascending:false}), `financial:all:${id}`);
+    const rows=await selectAll("financial_transactions", "id,tournament_id,team_id,transaction_type,amount,balance_before,balance_after,label,reference_id,operation_id,created_at,raw_data", q=>q.eq("tournament_id",id).order("created_at",{ascending:false}).order("id"), `financial:all:${id}`);
     const tournaments=asArray(getAt(state,"pes/tournaments")).map(t=>String(t&&t.id)===id?{...t,context:{...asObject(t.context),financialTransactions:rows.map(mapFinancialRow),__financialLoaded:true}}:t);
     setAt(state,"pes/tournaments",tournaments); deferredLoaded.financial.add(id); emitAll();
   }
   async function loadPlayerReviews({ force=false }={}) {
     await load(); if(deferredLoaded.reviews&&!force) return clone(getAt(state,"pes/playerReviews")||{});
     const [reviews,votes]=await Promise.all([
-      select("player_reviews", "id,player_id,player_name_snapshot,created_by_profile_id,created_by_name_snapshot,original,proposed,status,applying_by_profile_id,applying_at,resolved_by_profile_id,resolved_at,resolution_reason,created_at,updated_at", null, force?null:"reviews:all"),
-      select("player_review_votes", "review_id,profile_id,vote,name_snapshot,created_at", null, force?null:"reviews:votes")
+      selectAll("player_reviews", "id,player_id,player_name_snapshot,created_by_profile_id,created_by_name_snapshot,original,proposed,status,applying_by_profile_id,applying_at,resolved_by_profile_id,resolved_at,resolution_reason,created_at,updated_at", q=>q.order("created_at").order("id"), force?null:"reviews:all"),
+      selectAll("player_review_votes", "review_id,profile_id,vote,name_snapshot,created_at", q=>q.order("review_id").order("profile_id"), force?null:"reviews:votes")
     ]);
     const votesByReview=new Map(); votes.forEach(v=>{if(!votesByReview.has(v.review_id))votesByReview.set(v.review_id,[]);votesByReview.get(v.review_id).push(v);});
     const map={}; reviews.forEach(row=>{const reviewVotes={};(votesByReview.get(row.id)||[]).forEach(v=>{reviewVotes[v.profile_id]={decision:v.vote,profileId:v.profile_id,profileNameSnapshot:v.name_snapshot,createdAt:ms(v.created_at)}});map[row.id]={id:row.id,playerId:row.player_id,playerNameSnapshot:row.player_name_snapshot,createdByProfileId:row.created_by_profile_id,createdByNameSnapshot:row.created_by_name_snapshot,original:row.original,proposed:row.proposed,status:row.status,applyingByProfileId:row.applying_by_profile_id,applyingAt:ms(row.applying_at),resolvedByProfileId:row.resolved_by_profile_id,resolvedAt:ms(row.resolved_at),resolutionReason:row.resolution_reason,createdAt:ms(row.created_at),updatedAt:ms(row.updated_at),votes:reviewVotes};});
@@ -300,8 +335,10 @@
     value.context=context;
     return value;
   }
-  function addListDelta(target,beforeList,afterList,tournamentId){
-    const before=indexById(beforeList), after=indexById(afterList);
+  function addListDelta(target,beforeList,afterList,tournamentId,{sourceOrder=false}={}){
+    const before=indexById(beforeList);
+    const normalizedAfter=asArray(afterList).map((item,index)=>sourceOrder&&item&&item.sourceOrder==null?{...item,sourceOrder:index}:item);
+    const after=indexById(normalizedAfter);
     after.forEach((value,id)=>{if(JSON.stringify(before.get(id))!==JSON.stringify(value))target.upsert.push({tournamentId:String(tournamentId),value:clone(value)});});
     before.forEach((_,id)=>{if(!after.has(id))target.delete.push({tournamentId:String(tournamentId),id:String(id)});});
   }
@@ -322,8 +359,8 @@
       const previousContext=asObject(previous&&previous.context), nextContext=asObject(nextTournament&&nextTournament.context);
       if(!previous||JSON.stringify(tournamentMetadata(previous))!==JSON.stringify(tournamentMetadata(nextTournament)))delta.tournaments.upsert.push(clone(nextTournament));
       if(!previous||JSON.stringify(asArray(previous.participants))!==JSON.stringify(asArray(nextTournament.participants)))delta.participants.replace.push({tournamentId:String(id),profileIds:clone(asArray(nextTournament.participants))});
-      addListDelta(delta.teams,previousContext.teams,nextContext.teams,id);
-      addListDelta(delta.matches,tournamentMatches(previous),tournamentMatches(nextTournament),id);
+      addListDelta(delta.teams,previousContext.teams,nextContext.teams,id,{sourceOrder:true});
+      addListDelta(delta.matches,tournamentMatches(previous),tournamentMatches(nextTournament),id,{sourceOrder:true});
       addMapDelta(delta.ownership,previousContext.ownership,nextContext.ownership,id,"playerId");
       addMapDelta(delta.stats,previousContext.playerStats,nextContext.playerStats,id,"playerId");
       addMapDelta(delta.offers,previousContext.tradeOffers,nextContext.tradeOffers,id,"id");
@@ -367,8 +404,10 @@
       const nonTournamentPatch=buildNonTournamentPatch(remoteState,mergedState);
       if(tournamentDeltaHasChanges(tournamentDelta)){
         console.info("[Tournament Delta] apply",{eventType,tournamentDelta});
-        const {error}=await client.rpc("apply_tournament_delta",{p_delta:tournamentDelta,p_actor_profile_id:actorProfileId(),p_event_type:eventType||"state_change"});
+        const {data,error}=await client.rpc("apply_tournament_delta",{p_delta:tournamentDelta,p_actor_profile_id:actorProfileId(),p_event_type:eventType||"state_change"});
         if(error)throw error;
+        if(!data||data.ok!==true)throw new Error("O Supabase não confirmou a gravação do campeonato.");
+        console.info("[Tournament Delta] confirmed",data);
       }
       if(Object.keys(nonTournamentPatch.documents).length||nonTournamentPatch.deleteKeys.length){
         const {error}=await client.rpc("apply_non_tournament_patch",{p_documents:nonTournamentPatch.documents,p_delete_keys:nonTournamentPatch.deleteKeys,p_actor_profile_id:actorProfileId(),p_event_type:eventType||"state_change"});
@@ -383,31 +422,11 @@
     return writeQueue;
   }
 
-  function financialMutationTournamentIds(path,current,updated) {
-    if (!(path === "pes/tournaments" || path.startsWith("pes/tournaments/"))) return [];
-    const explicit=path.match(/^pes\/tournaments\/([^/]+)/);
-    if (explicit && path.includes("financialTransactions")) return [explicit[1]];
-    if (path !== "pes/tournaments") return [];
-    const beforeById=indexById(current), ids=[];
-    asArray(updated).forEach((nextTournament)=>{
-      if(!nextTournament||nextTournament.id==null)return;
-      const previous=beforeById.get(String(nextTournament.id));
-      const previousTransactions=asArray(previous&&previous.context&&previous.context.financialTransactions);
-      const nextTransactions=asArray(nextTournament&&nextTournament.context&&nextTournament.context.financialTransactions);
-      if(JSON.stringify(previousTransactions)!==JSON.stringify(nextTransactions)) ids.push(String(nextTournament.id));
-    });
-    return ids;
-  }
 
   async function runTransaction(path,updater,completion){
     await load();
     if (path === "pes/playerReviews" || path.startsWith("pes/playerReviews/")) await loadPlayerReviews();
     let base=clone(state), current=clone(getAt(base,path)), updated=updater(current);
-    const financialIds=financialMutationTournamentIds(path,current,updated).filter((id)=>!deferredLoaded.financial.has(String(id)));
-    if(financialIds.length){
-      await Promise.all(financialIds.map(hydrateTournamentFinancial));
-      base=clone(state); current=clone(getAt(base,path)); updated=updater(current);
-    }
     if(updated===undefined){const snapshot={val:()=>current}; if(completion)completion(null,false,snapshot); return{committed:false,snapshot};}
     const next=setAt(base,path,clone(updated));
 

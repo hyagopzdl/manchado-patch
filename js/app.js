@@ -365,16 +365,33 @@
             }
             return nextValue;
           }
+          function tournamentSaveErrorMessage(error) {
+            let parts = [error && error.message, error && error.details, error && error.hint, error && error.code]
+              .map((value) => String(value || "").trim())
+              .filter(Boolean);
+            return [...new Set(parts)].join(" · ") || "Erro desconhecido do Supabase.";
+          }
           let ae = H((nextList) => {
             let previousList = Array.isArray(m) ? m : [];
             g(nextList);
             let db = Ee();
-            if (!db) return;
-            db.ref("pes/tournaments").transaction((serverList) =>
+            if (!db) return Promise.resolve({ committed: true, snapshot: { val: () => nextList } });
+            return db.ref("pes/tournaments").transaction((serverList) =>
               applySafeDiff(Array.isArray(serverList) ? serverList : [], previousList, nextList),
             ).then((result) => {
-              if (result && result.committed && result.snapshot) applyConfirmedTournamentSnapshot(result.snapshot);
-            }).catch((error) => console.error("Supabase tournament transaction failed", error));
+              if (result && result.committed && result.snapshot) {
+                applyConfirmedTournamentSnapshot(result.snapshot);
+                return result;
+              }
+              g(previousList);
+              window.alert("A alteração não foi confirmada pelo banco e foi desfeita.");
+              return { ...(result || {}), committed: false };
+            }).catch((error) => {
+              g(previousList);
+              console.error("Supabase tournament transaction failed", error);
+              window.alert(`Não foi possível salvar a alteração. Nenhum dado foi modificado.\n\n${tournamentSaveErrorMessage(error)}`);
+              return { committed: false, error };
+            });
           }, [m]);
           function vt(o) {
             if (!saveContextField("transfers", o)) {
@@ -1996,12 +2013,14 @@
             }
             setMatchWizard({ step: 1, leftTeamId: null, rightTeamId: null, leftScore: 0, rightScore: 0, leftScorers: [], rightScorers: [], scorerPanel: null, hadCrime: false, leftRedCards: [], rightRedCards: [], playedAt: Date.now() });
           }
-          function saveQuickMatch(data) {
-            if (!R || !data) return;
+          async function saveQuickMatch(data) {
+            if (!R || !data || data.saving) return;
             let left = p.find((team) => team.id === data.leftTeamId), right = p.find((team) => team.id === data.rightTeamId);
             if (!left || !right || left.id === right.id) return;
             let leftScore = Math.max(0, Number(data.leftScore) || 0), rightScore = Math.max(0, Number(data.rightScore) || 0);
             let now = Date.now(), matchId = _(), rewards = economySettingsOf(R);
+            let existingMatches = Array.isArray(R.matches) ? R.matches : Array.isArray(R.context && R.context.matches) ? R.context.matches : [];
+            let nextSourceOrder = existingMatches.reduce((max,entry)=>Math.max(max,Number(entry&&entry.sourceOrder)||-1),-1)+1;
             let leftScorerIds = Array.isArray(data.leftScorers) ? data.leftScorers.slice(0,leftScore) : [], rightScorerIds = Array.isArray(data.rightScorers) ? data.rightScorers.slice(0,rightScore) : [];
             while (leftScorerIds.length < leftScore) leftScorerIds.push("__unknown__"); while (rightScorerIds.length < rightScore) rightScorerIds.push("__unknown__");
             let leftRedCardIds = data.hadCrime && Array.isArray(data.leftRedCards) ? [...new Set(data.leftRedCards.filter(Boolean))] : [], rightRedCardIds = data.hadCrime && Array.isArray(data.rightRedCards) ? [...new Set(data.rightRedCards.filter(Boolean))] : [];
@@ -2009,7 +2028,7 @@
             let scorerEvent=(playerId,teamId)=>{let special=playerId==="__own_goal__"||playerId==="__unknown__"||!playerId;return {playerId:special?null:playerId,teamId,playerNameSnapshot:special?null:playerSnapshot(playerId),type:playerId==="__own_goal__"?"own_goal":special?"unknown":"normal"};};
             let scorers = [...leftScorerIds.map((playerId)=>scorerEvent(playerId,left.id)),...rightScorerIds.map((playerId)=>scorerEvent(playerId,right.id))];
             let redCards = [...leftRedCardIds.map((playerId)=>({ playerId, teamId:left.id, playerNameSnapshot:playerSnapshot(playerId) })),...rightRedCardIds.map((playerId)=>({ playerId, teamId:right.id, playerNameSnapshot:playerSnapshot(playerId) }))];
-            let baseMatch = { id: matchId, stage:"league", round:0, manual:true, played:true, bye:false, homeId:left.id, awayId:right.id, homeScore:leftScore, awayScore:rightScore, homeTeamNameSnapshot:left.name, awayTeamNameSnapshot:right.name, homeProfileId:left.profileId||null, awayProfileId:right.profileId||null, scorers, redCards, playedAt:data.playedAt||now, createdAt:now, createdByProfileId:te&&typeof te==="object"?te.id:null, status:"confirmed" };
+            let baseMatch = { id: matchId, sourceOrder:nextSourceOrder, stage:"league", round:0, manual:true, played:true, bye:false, homeId:left.id, awayId:right.id, homeTeamId:left.id, awayTeamId:right.id, homeScore:leftScore, awayScore:rightScore, homeTeamNameSnapshot:left.name, awayTeamNameSnapshot:right.name, homeProfileId:left.profileId||null, awayProfileId:right.profileId||null, scorers, redCards, playedAt:data.playedAt||now, createdAt:now, createdByProfileId:te&&typeof te==="object"?te.id:null, status:"confirmed" };
             let leftBreakdown=matchEconomyForTeam(baseMatch,left.id,rewards), rightBreakdown=matchEconomyForTeam(baseMatch,right.id,rewards), economyRewards={ [left.id]:Math.round(leftBreakdown.total),[right.id]:Math.round(rightBreakdown.total) };
             let loanSettings=balanceLoanSettingsOf(R), loans={...balanceLoansOf(R)}, loanRepayments={};
             [left,right].forEach(team=>{let loan=loans[String(team.id)],gross=Math.round(Number(economyRewards[team.id])||0),payment=loan&&loan.status==="active"&&gross>0?Math.min(Math.round(Number(loan.remaining)||0),Math.round(gross*(Math.round(Number(loan.repaymentPercentage)||loanSettings.repaymentPercentage)/100))):0;loanRepayments[team.id]=payment;if(payment>0){let remaining=Math.max(0,Math.round(Number(loan.remaining)||0)-payment);loans[String(team.id)]={...loan,totalPaid:Math.round(Number(loan.totalPaid)||0)+payment,remaining,status:remaining===0?"paid":"active",paidAt:remaining===0?now:null,updatedAt:now};}});
@@ -2020,8 +2039,10 @@
             redCards.forEach((event)=>{ let current=nextStats[event.playerId]&&typeof nextStats[event.playerId]==="object"?nextStats[event.playerId]:{}; nextStats[event.playerId]={...current,playerId:event.playerId,playerNameSnapshot:event.playerNameSnapshot,teamId:event.teamId,goals:Number(current.goals)||0,redCards:(Number(current.redCards)||0)+1,updatedAt:now}; });
             let transactions = Array.isArray(context.financialTransactions)?[...context.financialTransactions]:[];
             [[left,right,leftBreakdown],[right,left,rightBreakdown]].forEach(([team,opponent,detail])=>{if(detail.total!==0){let result=leftScore===rightScore?(leftScore>0?"Empate com gols":"Empate sem gols"):(team.id===left.id?(leftScore>rightScore?"Vitória":"Derrota"):(rightScore>leftScore?"Vitória":"Derrota"));let gross=Math.round(Number(detail.total)||0), repayment=Math.round(Number(loanRepayments[team.id])||0), before=Number(team.budget)||0;transactions.unshift(financeEntry("match_reward",team.id,gross,`${result} contra ${opponent.name} · ${detail.eligibleGoals} gol(s) · ${detail.redCards} vermelho(s)`,matchId,before,now));if(repayment>0)transactions.unshift(financeEntry("balance_loan_repayment",team.id,-repayment,"Pagamento do empréstimo de equilíbrio",matchId,before+gross,now));}});
-            ae(m.map((item)=>{if(item.id!==R.id)return item;let nextMatches=[...(Array.isArray(item.matches)?item.matches:[]),match];return {...item,matches:nextMatches,economySettings:{...((item.economySettings)||{}),balanceLoans:loans},context:{...(item.context||{}),matches:nextMatches,teams,playerStats:nextStats,financialTransactions:transactions}};}));
-            setMatchWizard(null);
+            setMatchWizard({ ...data, saving:true });
+            let result = await ae(m.map((item)=>{if(item.id!==R.id)return item;let nextMatches=[...(Array.isArray(item.matches)?item.matches:[]),match];return {...item,matches:nextMatches,economySettings:{...((item.economySettings)||{}),balanceLoans:loans},context:{...(item.context||{}),matches:nextMatches,teams,playerStats:nextStats,financialTransactions:transactions}};}));
+            if (result && result.committed) setMatchWizard(null);
+            else setMatchWizard({ ...data, saving:false });
           }
           function deleteQuickMatch(match) {
             if (!R || !match) return;
@@ -6510,7 +6531,7 @@
           let scoreColumn=(team,side)=>React.createElement("div",{style:{textAlign:"center"}},profileAvatar(team),React.createElement("div",{style:{fontWeight:700,minHeight:42,marginTop:8}},team.name),React.createElement("button",{onClick:()=>score(side,1),style:{border:0,background:"none",color:"var(--heading)",fontSize:24,cursor:"pointer"}},"⌃"),React.createElement("div",{style:{fontSize:48,fontWeight:850,lineHeight:1}},side==="left"?data.leftScore:data.rightScore),React.createElement("button",{onClick:()=>score(side,-1),style:{border:0,background:"none",color:"var(--heading)",fontSize:24,cursor:"pointer"}},"⌄"),scorerButton(team,side));
           function scorerPanel(side,team){if(data.scorerPanel!==side)return null;let total=Number(data[side+"Score"])||0,list=Array.isArray(data[side+"Scorers"])?data[side+"Scorers"]:[],teamRoster=roster(team.id);return React.createElement("div",{style:{padding:14,border:"1px solid var(--border)",borderRadius:16,background:"var(--surface-soft)",marginBottom:14}},React.createElement("div",{style:{fontWeight:850,marginBottom:10}},`Gols de ${team.name}`),teamRoster.length?Array.from({length:total},(_,index)=>React.createElement("label",{key:index,style:{display:"grid",gridTemplateColumns:"52px minmax(0,1fr)",gap:8,alignItems:"center",marginBottom:8,fontSize:12,color:"var(--muted)"}},`Gol ${index+1}`,React.createElement("select",{style:{...q,margin:0},value:list[index]||"",onChange:(event)=>updateScorer(side,index,event.target.value)},React.createElement("option",{value:""},"Autoria não informada"),React.createElement("option",{value:"__own_goal__"},"Gol contra"),teamRoster.map((player)=>React.createElement("option",{key:player.id,value:String(player.id)},player.name||player.fullName||`Jogador ${player.id}`))))):React.createElement("div",{style:{fontSize:13,color:"var(--muted)"}},"Este time ainda não possui jogadores no elenco."));}
           function crimeRoster(side,team){let selected=Array.isArray(data[side+"RedCards"])?data[side+"RedCards"]:[],teamRoster=roster(team.id);return React.createElement("div",null,React.createElement("div",{style:{fontWeight:850,fontSize:12,marginBottom:8,textAlign:"center"}},team.name),React.createElement("div",{style:{display:"grid",gap:7}},teamRoster.length?teamRoster.map((player)=>{let id=String(player.id),active=selected.includes(id);return React.createElement("button",{key:id,onClick:()=>toggleRed(side,id),style:{padding:"9px 7px",borderRadius:11,border:active?"1px solid #ff3b30":"1px solid var(--border)",background:active?"rgba(255,59,48,.12)":"var(--surface)",color:active?"#ff5a52":"var(--heading)",fontWeight:750,fontSize:11,cursor:"pointer"}},`${active?"🟥 ":""}${player.name||player.fullName||`Jogador ${id}`}`);}):React.createElement("div",{style:{fontSize:12,color:"var(--muted)",textAlign:"center"}},"Sem jogadores")));}
-          let stepTwo=data.step===2&&React.createElement("div",null,React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"start",gap:12,margin:"14px 0 18px"}},scoreColumn(left,"left"),React.createElement("div",{style:{fontWeight:800,color:"var(--muted)",paddingTop:70}},"×"),scoreColumn(right,"right")),scorerPanel("left",left),scorerPanel("right",right),React.createElement("div",{style:{margin:"18px 0",padding:14,border:"1px solid var(--border)",borderRadius:16}},React.createElement("div",{style:{textAlign:"center",fontWeight:900,marginBottom:10}},"🟥 Teve crime?"),React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,maxWidth:280,margin:"0 auto"}},React.createElement("button",{onClick:()=>setData({...data,hadCrime:false,leftRedCards:[],rightRedCards:[]}),style:{padding:10,borderRadius:12,border:!data.hadCrime?"1px solid var(--green)":"1px solid var(--border)",background:!data.hadCrime?"color-mix(in srgb,var(--green) 12%,var(--surface))":"var(--surface)",color:"var(--heading)",fontWeight:800}},"Não"),React.createElement("button",{onClick:()=>setData({...data,hadCrime:true}),style:{padding:10,borderRadius:12,border:data.hadCrime?"1px solid #ff3b30":"1px solid var(--border)",background:data.hadCrime?"rgba(255,59,48,.12)":"var(--surface)",color:data.hadCrime?"#ff5a52":"var(--heading)",fontWeight:800}},"Sim")),data.hadCrime&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:14}},crimeRoster("left",left),crimeRoster("right",right))),React.createElement("div",{style:{display:"flex",gap:8}},React.createElement("button",{onClick:()=>setData({...data,step:1}),style:{...M,background:"var(--surface-soft)",color:"var(--heading)"}},"Voltar"),React.createElement("button",{onClick:()=>onSave(data),style:{...M,...W}},"Salvar partida")));
+          let stepTwo=data.step===2&&React.createElement("div",null,React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"start",gap:12,margin:"14px 0 18px"}},scoreColumn(left,"left"),React.createElement("div",{style:{fontWeight:800,color:"var(--muted)",paddingTop:70}},"×"),scoreColumn(right,"right")),scorerPanel("left",left),scorerPanel("right",right),React.createElement("div",{style:{margin:"18px 0",padding:14,border:"1px solid var(--border)",borderRadius:16}},React.createElement("div",{style:{textAlign:"center",fontWeight:900,marginBottom:10}},"🟥 Teve crime?"),React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,maxWidth:280,margin:"0 auto"}},React.createElement("button",{onClick:()=>setData({...data,hadCrime:false,leftRedCards:[],rightRedCards:[]}),style:{padding:10,borderRadius:12,border:!data.hadCrime?"1px solid var(--green)":"1px solid var(--border)",background:!data.hadCrime?"color-mix(in srgb,var(--green) 12%,var(--surface))":"var(--surface)",color:"var(--heading)",fontWeight:800}},"Não"),React.createElement("button",{onClick:()=>setData({...data,hadCrime:true}),style:{padding:10,borderRadius:12,border:data.hadCrime?"1px solid #ff3b30":"1px solid var(--border)",background:data.hadCrime?"rgba(255,59,48,.12)":"var(--surface)",color:data.hadCrime?"#ff5a52":"var(--heading)",fontWeight:800}},"Sim")),data.hadCrime&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:14}},crimeRoster("left",left),crimeRoster("right",right))),React.createElement("div",{style:{display:"flex",gap:8}},React.createElement("button",{onClick:()=>setData({...data,step:1}),style:{...M,background:"var(--surface-soft)",color:"var(--heading)"}},"Voltar"),React.createElement("button",{onClick:()=>onSave(data),disabled:data.saving===true,style:{...M,...W,opacity:data.saving===true?.6:1,cursor:data.saving===true?"wait":"pointer"}},data.saving===true?"Salvando…":"Salvar partida")));
           return React.createElement(ee,{title,onClose},stepOne,stepTwo);
         }
         function mo({ tab: e, setTab: t, isAdmin: l, unreadOffers, profile, presence, tournamentFinished }) {
