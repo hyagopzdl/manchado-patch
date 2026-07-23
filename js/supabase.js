@@ -375,25 +375,106 @@
     return {documents,deleteKeys};
   }
 
+  function applySafeDiff(serverValue, previousValue, nextValue) {
+    if (JSON.stringify(previousValue) === JSON.stringify(nextValue)) return clone(serverValue);
+    if (Array.isArray(previousValue) && Array.isArray(nextValue)) {
+      const objectList=[...previousValue,...nextValue].every(item=>!item||(typeof item==="object"&&item.id!=null));
+      if(!objectList)return clone(nextValue);
+      const serverList=Array.isArray(serverValue)?clone(serverValue):[];
+      const previousById=indexById(previousValue), nextById=indexById(nextValue), serverById=indexById(serverList);
+      previousById.forEach((_,id)=>{if(!nextById.has(id))serverById.delete(id);});
+      nextById.forEach((nextItem,id)=>{
+        const previousItem=previousById.get(id);
+        if(previousItem==null)serverById.set(id,clone(nextItem));
+        else if(JSON.stringify(previousItem)!==JSON.stringify(nextItem))serverById.set(id,applySafeDiff(serverById.get(id),previousItem,nextItem));
+      });
+      const order=nextValue.map(item=>String(item.id));
+      const result=order.map(id=>serverById.get(id)).filter(Boolean);
+      serverList.forEach(item=>{const id=item&&item.id!=null?String(item.id):null;if(id&&serverById.has(id)&&!order.includes(id))result.push(serverById.get(id));});
+      return result;
+    }
+    if(previousValue&&nextValue&&typeof previousValue==="object"&&typeof nextValue==="object"&&!Array.isArray(previousValue)&&!Array.isArray(nextValue)){
+      const result=serverValue&&typeof serverValue==="object"&&!Array.isArray(serverValue)?clone(serverValue):{};
+      Object.keys(previousValue).forEach(key=>{if(!(key in nextValue))delete result[key];});
+      Object.keys(nextValue).forEach(key=>{
+        if(!(key in previousValue))result[key]=clone(nextValue[key]);
+        else if(JSON.stringify(previousValue[key])!==JSON.stringify(nextValue[key]))result[key]=applySafeDiff(result[key],previousValue[key],nextValue[key]);
+      });
+      return result;
+    }
+    return clone(nextValue);
+  }
+
+  function buildMutationIntent(beforeState,nextState){
+    const before=indexById(asObject(beforeState&&beforeState.pes).tournaments);
+    const after=indexById(asObject(nextState&&nextState.pes).tournaments);
+    const intent={tournaments:{}};
+    const removedIds=(beforeValue,afterValue,isMap=false)=>{
+      const beforeIds=isMap?new Set(Object.keys(asObject(beforeValue))):new Set(asArray(beforeValue).map(x=>String(x&&x.id)).filter(Boolean));
+      const afterIds=isMap?new Set(Object.keys(asObject(afterValue))):new Set(asArray(afterValue).map(x=>String(x&&x.id)).filter(Boolean));
+      return [...beforeIds].filter(id=>!afterIds.has(id));
+    };
+    after.forEach((nextTournament,id)=>{
+      const previous=before.get(id); if(!previous)return;
+      const pc=asObject(previous.context), nc=asObject(nextTournament.context);
+      intent.tournaments[id]={delete:{
+        teams:removedIds(pc.teams,nc.teams),
+        matches:removedIds(previous.matches,nextTournament.matches),
+        ownership:removedIds(pc.ownership,nc.ownership,true),
+        playerStats:removedIds(pc.playerStats,nc.playerStats,true),
+        tradeOffers:removedIds(pc.tradeOffers,nc.tradeOffers,true),
+        transfers:removedIds(pc.transfers,nc.transfers),
+        financialTransactions:(pc.__financialLoaded===true&&nc.__financialLoaded===true)?removedIds(pc.financialTransactions,nc.financialTransactions):[]
+      }};
+    });
+    return intent;
+  }
+
+  function hydrateRemoteDeferredCollections(remoteState,baseState){
+    const remoteById=indexById(asObject(remoteState&&remoteState.pes).tournaments);
+    indexById(asObject(baseState&&baseState.pes).tournaments).forEach((baseTournament,id)=>{
+      const remote=remoteById.get(id); if(!remote)return;
+      const baseContext=asObject(baseTournament.context), remoteContext=asObject(remote.context);
+      if(baseContext.__financialLoaded===true){
+        remoteContext.financialTransactions=clone(asArray(baseContext.financialTransactions));
+        remoteContext.__financialLoaded=true;
+      }
+      if(baseContext.__importsLoaded===true){
+        remoteContext.adminImports=clone(asArray(baseContext.adminImports));
+        remoteContext.__importsLoaded=true;
+      }
+      remote.context=remoteContext;
+    });
+    return remoteState;
+  }
+
   async function commit(nextState,eventType) {
     const baseState=clone(state);
-    const patch=buildPatch(baseState,nextState);
-    if(!Object.keys(patch.documents).length&&!patch.deleteKeys.length){state=nextState;emitAll();return;}
-    validateTournamentPatch(baseState,nextState,patch,eventType);
-    const hasTournamentWrite = Object.keys(patch.documents).some((key) => key.startsWith("tournament:"))
-      || patch.deleteKeys.some((key) => key.startsWith("tournament:"));
-    if (hasTournamentWrite && !explicitUserInteraction) {
-      console.error("[Tournament Sync] Escrita automática durante carregamento bloqueada", { eventType, patch });
+    const localPatch=buildPatch(baseState,nextState);
+    if(!Object.keys(localPatch.documents).length&&!localPatch.deleteKeys.length){state=nextState;emitAll();return;}
+    const hasTournamentWrite=Object.keys(localPatch.documents).some(key=>key.startsWith("tournament:"))||localPatch.deleteKeys.some(key=>key.startsWith("tournament:"));
+    if(hasTournamentWrite&&!explicitUserInteraction){
+      console.error("[Tournament Sync] Escrita automática durante carregamento bloqueada",{eventType,localPatch});
       throw new Error("Sincronização bloqueada: abrir ou atualizar a página não pode alterar o campeonato.");
     }
     const operation=async()=>{
-      // A SQL recovery, another tab, or another user may have changed the
-      // normalized tables after this tab loaded. Never let an old in-memory
-      // tournament replace a newer database state.
-      await assertRemoteStateIsCurrent(baseState,patch,eventType);
-      const {error}=await client.rpc("apply_direct_patch",{p_documents:patch.documents,p_delete_keys:patch.deleteKeys,p_actor_profile_id:actorProfileId(),p_event_type:eventType||"state_change"});
-      if(error) throw error;
-      state=nextState; invalidateCache(); emitAll();
+      invalidateCache("boot:");
+      let remoteState=await loadNormalizedState();
+      remoteState=hydrateRemoteDeferredCollections(remoteState,baseState);
+      const mergedState=applySafeDiff(remoteState,baseState,nextState);
+      const patch=buildPatch(remoteState,mergedState);
+      const intent=buildMutationIntent(baseState,nextState);
+      validateTournamentPatch(remoteState,mergedState,patch,eventType);
+      console.info("[Tournament Sync] guarded merge",{eventType,documents:Object.keys(patch.documents),deleteKeys:patch.deleteKeys,intent});
+      const {error}=await client.rpc("apply_guarded_direct_patch",{
+        p_documents:patch.documents,
+        p_delete_keys:patch.deleteKeys,
+        p_intent:intent,
+        p_actor_profile_id:actorProfileId(),
+        p_event_type:eventType||"state_change"
+      });
+      if(error)throw error;
+      state=mergedState; invalidateCache(); loaded=true; emitAll();
     };
     writeQueue=writeQueue.then(operation,operation);
     return writeQueue;
