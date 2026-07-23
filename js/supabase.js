@@ -102,20 +102,6 @@
     for (const key of queryCache.keys()) if (!prefix || key.startsWith(prefix)) queryCache.delete(key);
   }
 
-  async function selectPaged(table, columns, configure, pageSize = 100) {
-    const rows = [];
-    for (let from = 0; ; from += pageSize) {
-      let query = client.from(table).select(columns).range(from, from + pageSize - 1);
-      if (configure) query = configure(query);
-      const { data, error } = await query;
-      if (error) throw error;
-      const page = data || [];
-      rows.push(...page);
-      if (page.length < pageSize) break;
-    }
-    return rows;
-  }
-
   async function loadNormalizedState() {
     const started = performance.now();
     const [profiles, tournaments, meta, security, participants, teams, matches, ownership, stats, offers, histories, transfers, favorites, presence, globalOwnership, overrides] = await Promise.all([
@@ -125,8 +111,8 @@
       (async () => { const {data,error}=await client.rpc("get_app_security"); if(error) throw error; return data || {}; })(),
       select("tournament_participants", "tournament_id,profile_id,position", q => q.order("position"), "boot:participants"),
       select("teams", "id,tournament_id,profile_id,name,color,budget,active,historical,lineup,source_order", q => q.order("source_order"), "boot:teams"),
-      selectPaged("matches", "id,tournament_id,home_team_id,away_team_id,home_profile_id,away_profile_id,stage,round,leg,status,played,home_score,away_score,played_at,created_at,source_order,raw_data", q => q.order("tournament_id").order("source_order").order("id")),
-      selectPaged("player_ownership", "tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale", q => q.order("tournament_id").order("player_id")),
+      select("matches", "id,tournament_id,home_team_id,away_team_id,home_profile_id,away_profile_id,stage,round,leg,status,played,home_score,away_score,played_at,created_at,source_order,raw_data", q => q.order("source_order"), "boot:matches"),
+      select("player_ownership", "tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale", null, "boot:ownership"),
       select("player_stats", "tournament_id,player_id,team_id,player_name_snapshot,goals,red_cards,updated_at", null, "boot:stats"),
       select("trade_offers", "id,tournament_id,player_id,player_name,buyer_team_id,seller_team_id,buyer_profile_id,seller_profile_id,current_amount,market_value_at_creation,last_actor_team_id,status,expires_at,created_at,updated_at", null, "boot:offers"),
       select("trade_offer_history", "id,offer_id,actor_team_id,action_type,amount,created_at", q => q.order("created_at"), "boot:offer-history"),
@@ -149,13 +135,7 @@
     const tournamentList = tournaments.map(row => {
       const id = row.id;
       const tournamentTeams = (teamsByTournament.get(id)||[]).map(x => ({ id:x.id, profileId:x.profile_id, name:x.name, color:x.color, budget:Number(x.budget||0), active:x.active, historical:x.historical, lineup:x.lineup }));
-      const teamIdByProfileId = new Map(tournamentTeams.filter(team => team.profileId != null).map(team => [String(team.profileId), team.id]));
-      const tournamentMatches = (matchesByTournament.get(id)||[]).map(x => {
-        const raw = asObject(x.raw_data);
-        const homeTeamId = x.home_team_id || teamIdByProfileId.get(String(x.home_profile_id || "")) || raw.homeTeamId || raw.homeId || null;
-        const awayTeamId = x.away_team_id || teamIdByProfileId.get(String(x.away_profile_id || "")) || raw.awayTeamId || raw.awayId || null;
-        return { ...raw, id:x.id, homeId:homeTeamId, awayId:awayTeamId, homeTeamId, awayTeamId, homeProfileId:x.home_profile_id, awayProfileId:x.away_profile_id, stage:x.stage, round:x.round, leg:x.leg, status:x.status, played:x.played, homeScore:x.home_score, awayScore:x.away_score, playedAt:ms(x.played_at), createdAt:ms(x.created_at) };
-      });
+      const tournamentMatches = (matchesByTournament.get(id)||[]).map(x => { const raw=asObject(x.raw_data); return { ...raw, id:x.id, homeId:x.home_team_id, awayId:x.away_team_id, homeTeamId:x.home_team_id, awayTeamId:x.away_team_id, homeProfileId:x.home_profile_id, awayProfileId:x.away_profile_id, stage:x.stage, round:x.round, leg:x.leg, status:x.status, played:x.played, homeScore:x.home_score, awayScore:x.away_score, playedAt:ms(x.played_at), createdAt:ms(x.created_at) }; });
       const tournamentOwnership = {}; (ownershipByTournament.get(id)||[]).forEach(x => { tournamentOwnership[x.player_id] = { teamId:x.team_id, initialTeamId:x.initial_team_id, squadRole:x.squad_role, acquisitionSource:x.acquisition_source, acquiredAt:ms(x.acquired_at), forSale:x.for_sale }; });
       const tournamentStats = {}; (statsByTournament.get(id)||[]).forEach(x => { tournamentStats[x.player_id] = { teamId:x.team_id, playerNameSnapshot:x.player_name_snapshot, goals:x.goals, redCards:x.red_cards, updatedAt:ms(x.updated_at) }; });
       const tournamentOffers = {}; (offersByTournament.get(id)||[]).forEach(x => { tournamentOffers[x.id] = { id:x.id, playerId:x.player_id, playerName:x.player_name, buyerTeamId:x.buyer_team_id, sellerTeamId:x.seller_team_id, buyerProfileId:x.buyer_profile_id, sellerProfileId:x.seller_profile_id, currentAmount:Number(x.current_amount||0), marketValueAtCreation:x.market_value_at_creation==null?null:Number(x.market_value_at_creation), lastActorTeamId:x.last_actor_team_id, status:x.status, expiresAt:ms(x.expires_at), createdAt:ms(x.created_at), updatedAt:ms(x.updated_at), history:historyByOffer.get(x.id)||[] }; });
