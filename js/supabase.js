@@ -78,39 +78,29 @@
     });
   }
 
-  async function select(table, columns, configure, cacheKey = null, ttl = CACHE_TTL_MS) {
+  async function select(table, columns, configure, cacheKey = null, ttl = CACHE_TTL_MS, paginate = false) {
     const key = cacheKey || null;
     const now = Date.now();
     const cached = key ? queryCache.get(key) : null;
     if (cached && now - cached.at < ttl) return clone(cached.data);
     if (key && pendingQueries.has(key)) return clone(await pendingQueries.get(key));
     const request = (async () => {
-      let query = client.from(table).select(columns);
-      if (configure) query = configure(query);
-      const { data, error } = await query;
-      if (error) throw error;
-      const rows = data || [];
-      if (key) queryCache.set(key, { at: Date.now(), data: rows });
-      return rows;
-    })();
-    if (key) pendingQueries.set(key, request);
-    try { return clone(await request); }
-    finally { if (key) pendingQueries.delete(key); }
-  }
+      if (!paginate) {
+        let query = client.from(table).select(columns);
+        if (configure) query = configure(query);
+        const { data, error } = await query;
+        if (error) throw error;
+        const rows = data || [];
+        if (key) queryCache.set(key, { at: Date.now(), data: rows });
+        return rows;
+      }
 
-  // PostgREST can cap each response (this project was effectively capped at 100 rows).
-  // Boot collections are authoritative and later written back as complete snapshots, so
-  // silently loading only the first page can delete every row that was not returned.
-  async function selectAll(table, columns, configure, cacheKey = null, ttl = CACHE_TTL_MS, pageSize = 100) {
-    const key = cacheKey || null;
-    const now = Date.now();
-    const cached = key ? queryCache.get(key) : null;
-    if (cached && now - cached.at < ttl) return clone(cached.data);
-    if (key && pendingQueries.has(key)) return clone(await pendingQueries.get(key));
-    const request = (async () => {
+      // The Supabase project currently caps each response at 100 rows. Boot
+      // collections must therefore be fetched page by page. Keeping the same
+      // mapper/state shape avoids the rendering regression from the prior patch.
+      const pageSize = 100;
       const rows = [];
-      let from = 0;
-      while (true) {
+      for (let from = 0; ; from += pageSize) {
         let query = client.from(table).select(columns);
         if (configure) query = configure(query);
         query = query.range(from, from + pageSize - 1);
@@ -119,7 +109,6 @@
         const page = data || [];
         rows.push(...page);
         if (page.length < pageSize) break;
-        from += pageSize;
       }
       if (key) queryCache.set(key, { at: Date.now(), data: rows });
       return rows;
@@ -136,22 +125,22 @@
   async function loadNormalizedState() {
     const started = performance.now();
     const [profiles, tournaments, meta, security, participants, teams, matches, ownership, stats, offers, histories, transfers, favorites, presence, globalOwnership, overrides] = await Promise.all([
-      selectAll("profiles", "id,name,color,avatar,role,active,pin_hash,pin_updated_at,recovered_from_tournament,recovered_at,created_at,source_order", q => q.order("source_order").order("id"), "boot:profiles"),
-      selectAll("tournaments", "id,name,format,type,status,champion,cup_stage,groups_data,cup_snapshot,final_standings,economy_settings,final_prize_settings,market_balance_settings,market_settings,created_at,finished_at,reset_at,reset_by_profile_id,source_order", q => q.order("source_order").order("id"), "boot:tournaments"),
+      select("profiles", "id,name,color,avatar,role,active,pin_hash,pin_updated_at,recovered_from_tournament,recovered_at,created_at,source_order", q => q.order("source_order").order("id"), "boot:profiles", CACHE_TTL_MS, true),
+      select("tournaments", "id,name,format,type,status,champion,cup_stage,groups_data,cup_snapshot,final_standings,economy_settings,final_prize_settings,market_balance_settings,market_settings,created_at,finished_at,reset_at,reset_by_profile_id,source_order", q => q.order("source_order").order("id"), "boot:tournaments", CACHE_TTL_MS, true),
       select("app_meta", "current_tournament_id,identity_schema_version,identity_migrated_at,season_counter", q => q.limit(1), "boot:meta"),
       (async () => { const {data,error}=await client.rpc("get_app_security"); if(error) throw error; return data || {}; })(),
-      selectAll("tournament_participants", "tournament_id,profile_id,position", q => q.order("tournament_id").order("position").order("profile_id"), "boot:participants"),
-      selectAll("teams", "id,tournament_id,profile_id,name,color,budget,active,historical,lineup,source_order", q => q.order("tournament_id").order("source_order").order("id"), "boot:teams"),
-      selectAll("matches", "id,tournament_id,home_team_id,away_team_id,home_profile_id,away_profile_id,stage,round,leg,status,played,home_score,away_score,played_at,created_at,source_order,raw_data", q => q.order("tournament_id").order("source_order").order("id"), "boot:matches"),
-      selectAll("player_ownership", "tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale", q => q.order("tournament_id").order("player_id"), "boot:ownership"),
-      selectAll("player_stats", "tournament_id,player_id,team_id,player_name_snapshot,goals,red_cards,updated_at", q => q.order("tournament_id").order("player_id"), "boot:stats"),
-      selectAll("trade_offers", "id,tournament_id,player_id,player_name,buyer_team_id,seller_team_id,buyer_profile_id,seller_profile_id,current_amount,market_value_at_creation,last_actor_team_id,status,expires_at,created_at,updated_at", q => q.order("tournament_id").order("id"), "boot:offers"),
-      selectAll("trade_offer_history", "id,offer_id,actor_team_id,action_type,amount,created_at", q => q.order("offer_id").order("created_at").order("id"), "boot:offer-history"),
-      selectAll("transfers", "id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at", q => q.order("tournament_id").order("created_at").order("id"), "boot:transfers"),
-      selectAll("profile_favorites", "tournament_id,profile_id,player_id,created_at", q => q.order("tournament_id").order("profile_id").order("player_id"), "boot:favorites"),
-      selectAll("presence", "profile_id,online,updated_at", q => q.order("profile_id"), "boot:presence", 15000),
-      selectAll("global_player_ownership", "player_id,team_id,for_sale", q => q.order("player_id"), "boot:global-ownership"),
-      selectAll("player_catalog_overrides", "player_id,overall,market_value,updated_by_profile_id,updated_at", q => q.order("player_id"), "boot:overrides")
+      select("tournament_participants", "tournament_id,profile_id,position", q => q.order("tournament_id").order("position").order("profile_id"), "boot:participants", CACHE_TTL_MS, true),
+      select("teams", "id,tournament_id,profile_id,name,color,budget,active,historical,lineup,source_order", q => q.order("tournament_id").order("source_order").order("id"), "boot:teams", CACHE_TTL_MS, true),
+      select("matches", "id,tournament_id,home_team_id,away_team_id,home_profile_id,away_profile_id,stage,round,leg,status,played,home_score,away_score,played_at,created_at,source_order,raw_data", q => q.order("tournament_id").order("source_order").order("id"), "boot:matches", CACHE_TTL_MS, true),
+      select("player_ownership", "tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale", q => q.order("tournament_id").order("player_id"), "boot:ownership", CACHE_TTL_MS, true),
+      select("player_stats", "tournament_id,player_id,team_id,player_name_snapshot,goals,red_cards,updated_at", q => q.order("tournament_id").order("player_id"), "boot:stats", CACHE_TTL_MS, true),
+      select("trade_offers", "id,tournament_id,player_id,player_name,buyer_team_id,seller_team_id,buyer_profile_id,seller_profile_id,current_amount,market_value_at_creation,last_actor_team_id,status,expires_at,created_at,updated_at", q => q.order("tournament_id").order("id"), "boot:offers", CACHE_TTL_MS, true),
+      select("trade_offer_history", "id,offer_id,actor_team_id,action_type,amount,created_at", q => q.order("created_at").order("id"), "boot:offer-history", CACHE_TTL_MS, true),
+      select("transfers", "id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at", q => q.order("created_at").order("id"), "boot:transfers", CACHE_TTL_MS, true),
+      select("profile_favorites", "tournament_id,profile_id,player_id,created_at", q => q.order("tournament_id").order("profile_id").order("player_id"), "boot:favorites", CACHE_TTL_MS, true),
+      select("presence", "profile_id,online,updated_at", null, "boot:presence", 15000),
+      select("global_player_ownership", "player_id,team_id,for_sale", q => q.order("player_id"), "boot:global-ownership", CACHE_TTL_MS, true),
+      select("player_catalog_overrides", "player_id,overall,market_value,updated_by_profile_id,updated_at", q => q.order("player_id"), "boot:overrides", CACHE_TTL_MS, true)
     ]);
 
     const historyByOffer = new Map();
