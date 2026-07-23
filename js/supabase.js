@@ -113,17 +113,17 @@
     const started = performance.now();
     const [profiles, tournaments, meta, security, participants, teams, matches, ownership, stats, offers, histories, transfers, favorites, presence, globalOwnership, overrides] = await Promise.all([
       select("profiles", "id,name,color,avatar,role,active,pin_hash,pin_updated_at,recovered_from_tournament,recovered_at,created_at,source_order", q => q.order("source_order"), "boot:profiles"),
-      select("tournaments", "id,name,format,type,status,champion,cup_stage,groups_data,cup_snapshot,final_standings,economy_settings,final_prize_settings,market_balance_settings,market_settings,created_at,finished_at,reset_at,reset_by_profile_id,source_order", q => q.order("source_order"), "boot:tournaments"),
+      select("tournaments", "id,name,format,type,status,champion,cup_stage,groups_data,cup_snapshot,final_standings,economy_settings,final_prize_settings,market_balance_settings,market_settings,created_at,finished_at,reset_at,reset_by_profile_id,source_order,raw_data", q => q.order("source_order"), "boot:tournaments"),
       select("app_meta", "current_tournament_id,identity_schema_version,identity_migrated_at,season_counter", q => q.limit(1), "boot:meta"),
       (async () => { const {data,error}=await client.rpc("get_app_security"); if(error) throw error; return data || {}; })(),
       select("tournament_participants", "tournament_id,profile_id,position", q => q.order("position"), "boot:participants"),
-      select("teams", "id,tournament_id,profile_id,name,color,budget,active,historical,lineup,source_order", q => q.order("source_order"), "boot:teams"),
+      select("teams", "id,tournament_id,profile_id,name,color,budget,active,historical,lineup,source_order,raw_data", q => q.order("source_order"), "boot:teams"),
       select("matches", "id,tournament_id,home_team_id,away_team_id,home_profile_id,away_profile_id,stage,round,leg,status,played,home_score,away_score,played_at,created_at,source_order,raw_data", q => q.order("source_order"), "boot:matches"),
-      select("player_ownership", "tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale", null, "boot:ownership"),
-      select("player_stats", "tournament_id,player_id,team_id,player_name_snapshot,goals,red_cards,updated_at", null, "boot:stats"),
-      select("trade_offers", "id,tournament_id,player_id,player_name,buyer_team_id,seller_team_id,buyer_profile_id,seller_profile_id,current_amount,market_value_at_creation,last_actor_team_id,status,expires_at,created_at,updated_at", null, "boot:offers"),
+      select("player_ownership", "tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale,raw_data", null, "boot:ownership"),
+      select("player_stats", "tournament_id,player_id,team_id,player_name_snapshot,goals,red_cards,updated_at,raw_data", null, "boot:stats"),
+      select("trade_offers", "id,tournament_id,player_id,player_name,buyer_team_id,seller_team_id,buyer_profile_id,seller_profile_id,current_amount,market_value_at_creation,last_actor_team_id,status,expires_at,created_at,updated_at,raw_data", null, "boot:offers"),
       select("trade_offer_history", "id,offer_id,actor_team_id,action_type,amount,created_at", q => q.order("created_at"), "boot:offer-history"),
-      select("transfers", "id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at", q => q.order("created_at"), "boot:transfers"),
+      select("transfers", "id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at,raw_data", q => q.order("created_at"), "boot:transfers"),
       select("profile_favorites", "tournament_id,profile_id,player_id,created_at", null, "boot:favorites"),
       select("presence", "profile_id,online,updated_at", null, "boot:presence", 15000),
       select("global_player_ownership", "player_id,team_id,for_sale", null, "boot:global-ownership"),
@@ -141,12 +141,14 @@
 
     const tournamentList = tournaments.map(row => {
       const id = row.id;
-      const tournamentTeams = (teamsByTournament.get(id)||[]).map(x => ({ id:x.id, profileId:x.profile_id, name:x.name, color:x.color, budget:Number(x.budget||0), active:x.active, historical:x.historical, lineup:x.lineup }));
-      const tournamentMatches = (matchesByTournament.get(id)||[]).map(x => { const raw=asObject(x.raw_data); return { ...raw, id:x.id, homeId:x.home_team_id, awayId:x.away_team_id, homeTeamId:x.home_team_id, awayTeamId:x.away_team_id, homeProfileId:x.home_profile_id, awayProfileId:x.away_profile_id, stage:x.stage, round:x.round, leg:x.leg, status:x.status, played:x.played, homeScore:x.home_score, awayScore:x.away_score, playedAt:ms(x.played_at), createdAt:ms(x.created_at) }; });
-      const tournamentOwnership = {}; (ownershipByTournament.get(id)||[]).forEach(x => { tournamentOwnership[x.player_id] = { teamId:x.team_id, initialTeamId:x.initial_team_id, squadRole:x.squad_role, acquisitionSource:x.acquisition_source, acquiredAt:ms(x.acquired_at), forSale:x.for_sale }; });
-      const tournamentStats = {}; (statsByTournament.get(id)||[]).forEach(x => { tournamentStats[x.player_id] = { teamId:x.team_id, playerNameSnapshot:x.player_name_snapshot, goals:x.goals, redCards:x.red_cards, updatedAt:ms(x.updated_at) }; });
-      const tournamentOffers = {}; (offersByTournament.get(id)||[]).forEach(x => { tournamentOffers[x.id] = { id:x.id, playerId:x.player_id, playerName:x.player_name, buyerTeamId:x.buyer_team_id, sellerTeamId:x.seller_team_id, buyerProfileId:x.buyer_profile_id, sellerProfileId:x.seller_profile_id, currentAmount:Number(x.current_amount||0), marketValueAtCreation:x.market_value_at_creation==null?null:Number(x.market_value_at_creation), lastActorTeamId:x.last_actor_team_id, status:x.status, expiresAt:ms(x.expires_at), createdAt:ms(x.created_at), updatedAt:ms(x.updated_at), history:historyByOffer.get(x.id)||[] }; });
-      return { id:row.id, name:row.name, format:row.format, type:row.type, status:row.status, champion:row.champion, cupStage:row.cup_stage, groups:row.groups_data, cupSnapshot:row.cup_snapshot, finalStandings:row.final_standings, economySettings:row.economy_settings, finalPrizeSettings:row.final_prize_settings, marketBalanceSettings:row.market_balance_settings, marketSettings:row.market_settings, createdAt:ms(row.created_at), finishedAt:ms(row.finished_at), resetAt:ms(row.reset_at), resetByProfileId:row.reset_by_profile_id, participants:(participantsByTournament.get(id)||[]).sort((a,b)=>(a.position||0)-(b.position||0)).map(x=>x.profile_id), teamIds:tournamentTeams.map(x=>x.id), matches:tournamentMatches, context:{ teams:tournamentTeams, matches:tournamentMatches, ownership:tournamentOwnership, playerStats:tournamentStats, tradeOffers:tournamentOffers, transfers:(transfersByTournament.get(id)||[]).map(x=>({ id:x.id, playerId:x.player_id, playerName:x.player_name, type:x.transfer_type, fromTeamId:x.from_team_id, toTeamId:x.to_team_id, offerId:x.offer_id, price:Number(x.price||0), marketValue:x.market_value==null?null:Number(x.market_value), depreciationPct:x.depreciation_pct==null?null:Number(x.depreciation_pct), date:x.transfer_date, createdAt:ms(x.created_at) })), financialTransactions:[], adminImports:[], __financialLoaded:false, __importsLoaded:false } };
+      const tournamentRaw=asObject(row.raw_data), tournamentRawContext=asObject(tournamentRaw.context);
+      const tournamentTeams = (teamsByTournament.get(id)||[]).map(x => ({ ...asObject(x.raw_data), id:x.id, profileId:x.profile_id, name:x.name, color:x.color, budget:Number(x.budget||0), active:x.active, historical:x.historical, lineup:x.lineup, sourceOrder:x.source_order }));
+      const tournamentMatches = (matchesByTournament.get(id)||[]).map(x => { const raw=asObject(x.raw_data); return { ...raw, id:x.id, homeId:x.home_team_id, awayId:x.away_team_id, homeTeamId:x.home_team_id, awayTeamId:x.away_team_id, homeProfileId:x.home_profile_id, awayProfileId:x.away_profile_id, stage:x.stage, round:x.round, leg:x.leg, status:x.status, played:x.played, homeScore:x.home_score, awayScore:x.away_score, playedAt:ms(x.played_at), createdAt:ms(x.created_at), sourceOrder:x.source_order }; });
+      const tournamentOwnership = {}; (ownershipByTournament.get(id)||[]).forEach(x => { tournamentOwnership[x.player_id] = { ...asObject(x.raw_data), playerId:x.player_id, teamId:x.team_id, initialTeamId:x.initial_team_id, squadRole:x.squad_role, acquisitionSource:x.acquisition_source, acquiredAt:ms(x.acquired_at), forSale:x.for_sale }; });
+      const tournamentStats = {}; (statsByTournament.get(id)||[]).forEach(x => { tournamentStats[x.player_id] = { ...asObject(x.raw_data), playerId:x.player_id, teamId:x.team_id, playerNameSnapshot:x.player_name_snapshot, goals:x.goals, redCards:x.red_cards, updatedAt:ms(x.updated_at) }; });
+      const tournamentOffers = {}; (offersByTournament.get(id)||[]).forEach(x => { tournamentOffers[x.id] = { ...asObject(x.raw_data), id:x.id, playerId:x.player_id, playerName:x.player_name, buyerTeamId:x.buyer_team_id, sellerTeamId:x.seller_team_id, buyerProfileId:x.buyer_profile_id, sellerProfileId:x.seller_profile_id, currentAmount:Number(x.current_amount||0), marketValueAtCreation:x.market_value_at_creation==null?null:Number(x.market_value_at_creation), lastActorTeamId:x.last_actor_team_id, status:x.status, expiresAt:ms(x.expires_at), createdAt:ms(x.created_at), updatedAt:ms(x.updated_at), history:historyByOffer.get(x.id)||[] }; });
+      const tournamentTransfers=(transfersByTournament.get(id)||[]).map(x=>({ ...asObject(x.raw_data), id:x.id, playerId:x.player_id, playerName:x.player_name, type:x.transfer_type, fromTeamId:x.from_team_id, toTeamId:x.to_team_id, offerId:x.offer_id, price:Number(x.price||0), marketValue:x.market_value==null?null:Number(x.market_value), depreciationPct:x.depreciation_pct==null?null:Number(x.depreciation_pct), date:x.transfer_date, createdAt:ms(x.created_at) }));
+      return { ...tournamentRaw, id:row.id, name:row.name, format:row.format, type:row.type, status:row.status, champion:row.champion, cupStage:row.cup_stage, groups:row.groups_data, cupSnapshot:row.cup_snapshot, finalStandings:row.final_standings, economySettings:row.economy_settings, finalPrizeSettings:row.final_prize_settings, marketBalanceSettings:row.market_balance_settings, marketSettings:row.market_settings, createdAt:ms(row.created_at), finishedAt:ms(row.finished_at), resetAt:ms(row.reset_at), resetByProfileId:row.reset_by_profile_id, sourceOrder:row.source_order, participants:(participantsByTournament.get(id)||[]).sort((a,b)=>(a.position||0)-(b.position||0)).map(x=>x.profile_id), teamIds:tournamentTeams.map(x=>x.id), matches:tournamentMatches, context:{ ...tournamentRawContext, teams:tournamentTeams, matches:tournamentMatches, ownership:tournamentOwnership, playerStats:tournamentStats, tradeOffers:tournamentOffers, transfers:tournamentTransfers, financialTransactions:[], adminImports:asArray(tournamentRawContext.adminImports), __financialLoaded:false, __importsLoaded:Array.isArray(tournamentRawContext.adminImports) } };
     });
     const preferenceMap = {}; favorites.forEach(row=>{ preferenceMap[row.tournament_id] ||= {}; preferenceMap[row.tournament_id][row.profile_id] ||= {favorites:{}}; preferenceMap[row.tournament_id][row.profile_id].favorites[row.player_id]=true; });
     const overrideMap = {}; overrides.forEach(row=>{ overrideMap[row.player_id]={ overall:row.overall, value:row.market_value==null?null:Number(row.market_value), updatedByProfileId:row.updated_by_profile_id, updatedAt:ms(row.updated_at) }; });
@@ -174,19 +176,19 @@
     return { pes:{ profiles:profiles.map(row=>({ id:row.id,name:row.name,color:row.color,avatar:row.avatar,role:row.role,active:row.active,pinHash:row.pin_hash,pinUpdatedAt:ms(row.pin_updated_at),recoveredFromTournament:row.recovered_from_tournament,recoveredAt:ms(row.recovered_at),createdAt:ms(row.created_at) })), tournaments:tournamentList, teams:legacyTeams, ownership:legacyOwnership, playerStats:legacyStats, transfers:legacyTransfers, meta:{ currentTournamentId, identitySchemaVersion:Number(metaRow.identity_schema_version||0), identityMigratedAt:ms(metaRow.identity_migrated_at), seasonCounter:Number(metaRow.season_counter||0) }, adminSecurity:security || {}, globalOwnership:globalMap, playerReviews:{}, presence:presenceMap, profileChampionshipPreferences:preferenceMap, playerCatalogOverrides:overrideMap } };
   }
 
-  const mapFinancialRow = x => ({ id:x.id, teamId:x.team_id, type:x.transaction_type, amount:Number(x.amount||0), balanceBefore:Number(x.balance_before||0), balanceAfter:Number(x.balance_after||0), label:x.label, referenceId:x.reference_id, createdAt:ms(x.created_at) });
+  const mapFinancialRow = x => ({ ...asObject(x.raw_data), id:x.id, teamId:x.team_id, type:x.transaction_type, amount:Number(x.amount||0), balanceBefore:Number(x.balance_before||0), balanceAfter:Number(x.balance_after||0), label:x.label, referenceId:x.reference_id, operationId:x.operation_id, createdAt:ms(x.created_at) });
   async function loadFinancialTransactions({ tournamentId, teamId = null, limit = 50, before = null, force = false } = {}) {
     await load();
     if (!tournamentId) return { items:[], hasMore:false, nextCursor:null };
     const key=`financial:${tournamentId}:${teamId||'*'}:${before||'first'}:${limit}`;
-    let rows = await select("financial_transactions", "id,tournament_id,team_id,transaction_type,amount,balance_before,balance_after,label,reference_id,created_at", q => { q=q.eq("tournament_id",String(tournamentId)); if(teamId) q=q.eq("team_id",String(teamId)); if(before) q=q.lt("created_at",new Date(before).toISOString()); return q.order("created_at",{ascending:false}).limit(Math.min(100,Math.max(1,Number(limit)||50))+1); }, force?null:key, force?0:CACHE_TTL_MS);
+    let rows = await select("financial_transactions", "id,tournament_id,team_id,transaction_type,amount,balance_before,balance_after,label,reference_id,operation_id,created_at,raw_data", q => { q=q.eq("tournament_id",String(tournamentId)); if(teamId) q=q.eq("team_id",String(teamId)); if(before) q=q.lt("created_at",new Date(before).toISOString()); return q.order("created_at",{ascending:false}).limit(Math.min(100,Math.max(1,Number(limit)||50))+1); }, force?null:key, force?0:CACHE_TTL_MS);
     const pageSize=Math.min(100,Math.max(1,Number(limit)||50)), hasMore=rows.length>pageSize, items=rows.slice(0,pageSize).map(mapFinancialRow);
     return { items, hasMore, nextCursor:hasMore&&items.length?items[items.length-1].createdAt:null };
   }
   async function hydrateTournamentFinancial(tournamentId) {
     await load();
     const id=String(tournamentId||""); if(!id||deferredLoaded.financial.has(id)) return;
-    const rows=await select("financial_transactions", "id,tournament_id,team_id,transaction_type,amount,balance_before,balance_after,label,reference_id,created_at", q=>q.eq("tournament_id",id).order("created_at",{ascending:false}), `financial:all:${id}`);
+    const rows=await select("financial_transactions", "id,tournament_id,team_id,transaction_type,amount,balance_before,balance_after,label,reference_id,operation_id,created_at,raw_data", q=>q.eq("tournament_id",id).order("created_at",{ascending:false}), `financial:all:${id}`);
     const tournaments=asArray(getAt(state,"pes/tournaments")).map(t=>String(t&&t.id)===id?{...t,context:{...asObject(t.context),financialTransactions:rows.map(mapFinancialRow),__financialLoaded:true}}:t);
     setAt(state,"pes/tournaments",tournaments); deferredLoaded.financial.add(id); emitAll();
   }
@@ -215,163 +217,29 @@
 
   function indexById(list) { const map=new Map(); asArray(list).forEach(item=>{ if(item&&item.id!=null) map.set(String(item.id),item); }); return map; }
 
-  const TOURNAMENT_SYNC_SAFE_MODE = true;
-  const criticalTournamentCollections = [
-    ["teams", tournament => asArray(tournament && tournament.context && tournament.context.teams)],
-    ["matches", tournament => asArray(tournament && tournament.matches)],
-    ["ownership", tournament => Object.keys(asObject(tournament && tournament.context && tournament.context.ownership))],
-    ["stats", tournament => Object.keys(asObject(tournament && tournament.context && tournament.context.playerStats))],
-    ["offers", tournament => Object.keys(asObject(tournament && tournament.context && tournament.context.tradeOffers))],
-    ["transfers", tournament => asArray(tournament && tournament.context && tournament.context.transfers)]
-  ];
-
-  function tournamentSyncSnapshot(tournament) {
-    const snapshot = { id: tournament && tournament.id || null };
-    criticalTournamentCollections.forEach(([name, read]) => { snapshot[name] = read(tournament).length; });
-    return snapshot;
+  function syncLegacyMirrors(rootState) {
+    const pes=asObject(rootState&&rootState.pes);
+    const tournaments=asArray(pes.tournaments);
+    const currentId=pes.meta&&pes.meta.currentTournamentId;
+    const current=tournaments.find(item=>item&&String(item.id)===String(currentId))||tournaments[0]||null;
+    const context=asObject(current&&current.context);
+    pes.teams=clone(asArray(context.teams));
+    pes.ownership=clone(asObject(context.ownership));
+    pes.playerStats=clone(asObject(context.playerStats));
+    pes.transfers=clone(asArray(context.transfers));
+    rootState.pes=pes;
+    return rootState;
   }
 
-  function tournamentPatchDocument(value) {
-    const tournament=clone(value);
-    const context=asObject(tournament&&tournament.context);
-    // `matches` is edited by the UI at tournament root, while the database RPC
-    // persists normalized rows from `context.matches`. Keep one canonical list
-    // in both locations before comparing or sending the document.
-    const canonicalMatches=Array.isArray(tournament&&tournament.matches)
-      ? clone(tournament.matches)
-      : clone(asArray(context.matches));
-    tournament.matches=canonicalMatches;
-    context.matches=clone(canonicalMatches);
-    // Lazy-loaded financial data is not an empty collection. Omitting it from
-    // ordinary tournament updates prevents apply_direct_patch from treating
-    // "not loaded" as "delete every financial transaction".
-    if(context.__financialLoaded!==true){
-      delete context.financialTransactions;
-    }
-    delete context.__financialLoaded;
-    delete context.__importsLoaded;
-    tournament.context=context;
-    return tournament;
-  }
-
-  function validateTournamentPatch(beforeState, nextState, patch, eventType) {
-    const before=indexById(asObject(beforeState&&beforeState.pes).tournaments);
-    const after=indexById(asObject(nextState&&nextState.pes).tournaments);
-    const failures=[];
-    const diagnostics=[];
-    Object.keys(patch.documents).filter(key=>key.startsWith("tournament:")).forEach((key)=>{
-      const id=key.slice("tournament:".length);
-      const previous=before.get(id);
-      const next=after.get(id);
-      if(!next)return;
-      const previousSnapshot=tournamentSyncSnapshot(previous);
-      const nextSnapshot=tournamentSyncSnapshot(next);
-      diagnostics.push({ tournamentId:id, before:previousSnapshot, after:nextSnapshot });
-      if(!previous)return;
-      criticalTournamentCollections.forEach(([name, read])=>{
-        const previousCount=read(previous).length;
-        const nextCount=read(next).length;
-        if(previousCount>0 && nextCount===0){
-          failures.push(`${id}.${name}: ${previousCount} -> 0`);
-          return;
-        }
-        if(previousCount>=6 && nextCount<=Math.floor(previousCount*0.5) && previousCount-nextCount>=3){
-          failures.push(`${id}.${name}: ${previousCount} -> ${nextCount}`);
-        }
-      });
-      const teamIds=new Set(asArray(next&&next.context&&next.context.teams).map(team=>String(team&&team.id)).filter(Boolean));
-      asArray(next.matches).forEach((match,index)=>{
-        if(!match || match.bye || match.status==="voided")return;
-        const home=match.homeTeamId||match.homeId;
-        const away=match.awayTeamId||match.awayId;
-        if(!home || !away) failures.push(`${id}.matches[${index}]: partida sem home/away team id`);
-        else if(teamIds.size && (!teamIds.has(String(home)) || !teamIds.has(String(away)))) failures.push(`${id}.matches[${index}]: time da partida não existe em context.teams`);
-      });
-    });
-    console.groupCollapsed(`[Tournament Sync] ${eventType||"state_change"}`);
-    console.table(diagnostics.map(item=>({ tournamentId:item.tournamentId, ...Object.fromEntries(Object.keys(item.after).filter(k=>k!=="id").map(k=>[k,`${item.before[k]||0} -> ${item.after[k]||0}`])) })));
-    console.info("documents", Object.keys(patch.documents));
-    console.info("deleteKeys", patch.deleteKeys);
-    console.info("details", diagnostics);
-    if(failures.length) console.error("blocked", failures);
-    console.groupEnd();
-    if(TOURNAMENT_SYNC_SAFE_MODE && failures.length){
-      throw new Error(`Sincronização destrutiva bloqueada pelo Safe Mode: ${failures.join("; ")}`);
-    }
-  }
-  function stableCriticalTournamentState(tournament) {
-    const context=asObject(tournament&&tournament.context);
-    const teams=asArray(context.teams).map(team=>({
-      id:String(team&&team.id||""),
-      profileId:String(team&&(team.profileId||team.profile_id)||"")
-    })).sort((a,b)=>a.id.localeCompare(b.id));
-    const matches=asArray(tournament&&tournament.matches).map(match=>({
-      id:String(match&&match.id||""),
-      home:String(match&&(match.homeTeamId||match.homeId||match.home_team_id)||""),
-      away:String(match&&(match.awayTeamId||match.awayId||match.away_team_id)||""),
-      homeScore:Number(match&&match.homeScore||0),
-      awayScore:Number(match&&match.awayScore||0),
-      played:!!(match&&match.played),
-      status:String(match&&match.status||"")
-    })).sort((a,b)=>a.id.localeCompare(b.id));
-    const ownership=Object.entries(asObject(context.ownership)).map(([playerId,row])=>({
-      playerId:String(playerId),
-      teamId:String(row&&(row.teamId||row.team_id)||""),
-      initialTeamId:String(row&&(row.initialTeamId||row.initial_team_id)||"")
-    })).sort((a,b)=>a.playerId.localeCompare(b.playerId));
-    const stats=Object.entries(asObject(context.playerStats)).map(([playerId,row])=>({
-      playerId:String(playerId),
-      teamId:String(row&&(row.teamId||row.team_id)||""),
-      goals:Number(row&&row.goals||0),
-      redCards:Number(row&&(row.redCards||row.red_cards)||0),
-      yellowCards:Number(row&&(row.yellowCards||row.yellow_cards)||0)
-    })).sort((a,b)=>a.playerId.localeCompare(b.playerId));
-    return JSON.stringify({teams,matches,ownership,stats});
-  }
-
-  async function assertRemoteStateIsCurrent(baseState, patch, eventType) {
-    const tournamentIds=Object.keys(patch.documents)
-      .filter(key=>key.startsWith("tournament:"))
-      .map(key=>key.slice("tournament:".length));
-    if(!tournamentIds.length)return;
-
-    // Do not reuse the 60-second boot cache for concurrency validation.
-    // This must compare against the database as it exists immediately before RPC.
-    invalidateCache("boot:");
-    const remoteState=await loadNormalizedState();
-    const localById=indexById(asObject(baseState&&baseState.pes).tournaments);
-    const remoteById=indexById(asObject(remoteState&&remoteState.pes).tournaments);
-    const stale=[];
-
-    tournamentIds.forEach(id=>{
-      const localTournament=localById.get(String(id));
-      const remoteTournament=remoteById.get(String(id));
-      if(!localTournament||!remoteTournament)return;
-      if(stableCriticalTournamentState(localTournament)!==stableCriticalTournamentState(remoteTournament)){
-        stale.push({
-          tournamentId:id,
-          local:tournamentSyncSnapshot(localTournament),
-          remote:tournamentSyncSnapshot(remoteTournament)
-        });
-      }
-    });
-
-    if(stale.length){
-      console.error("[Tournament Sync] Estado local desatualizado; RPC bloqueada", {eventType,stale});
-      state=remoteState;
-      loaded=true;
-      emitAll();
-      throw new Error("Sincronização bloqueada: esta aba estava com dados antigos. O estado mais recente do banco foi recarregado; repita a ação.");
-    }
-  }
-
-  function buildPatch(beforeState,nextState) {
+  function buildNonTournamentPatch(beforeState,nextState) {
     const before=asObject(beforeState&&beforeState.pes), after=asObject(nextState&&nextState.pes), documents={}, deleteKeys=[];
-    const collect=(prefix,b,a,serialize=(value)=>value)=>{ const bm=indexById(b), am=indexById(a); am.forEach((v,id)=>{const beforeValue=bm.get(id), serializedBefore=beforeValue==null?beforeValue:serialize(beforeValue), serializedNext=serialize(v);if(JSON.stringify(serializedBefore)!==JSON.stringify(serializedNext))documents[`${prefix}:${id}`]=serializedNext;}); bm.forEach((_,id)=>{if(!am.has(id))deleteKeys.push(`${prefix}:${id}`);}); };
-    collect("profile",before.profiles,after.profiles); collect("tournament",before.tournaments,after.tournaments,tournamentPatchDocument);
+    const collect=(prefix,b,a)=>{const bm=indexById(b),am=indexById(a);am.forEach((value,id)=>{if(JSON.stringify(bm.get(id))!==JSON.stringify(value))documents[`${prefix}:${id}`]=clone(value);});bm.forEach((_,id)=>{if(!am.has(id))deleteKeys.push(`${prefix}:${id}`);});};
+    collect("profile",before.profiles,after.profiles);
     const br=asObject(before.playerReviews), ar=asObject(after.playerReviews);
-    Object.entries(ar).forEach(([id,v])=>{if(JSON.stringify(br[id])!==JSON.stringify(v))documents[`review:${id}`]=v;}); Object.keys(br).forEach(id=>{if(!(id in ar))deleteKeys.push(`review:${id}`);});
-    ["meta","adminSecurity","ownership","presence","playerCatalogOverrides"].forEach(key=>{if(JSON.stringify(before[key])!==JSON.stringify(after[key]))documents[key]=after[key]??null;});
+    Object.entries(ar).forEach(([id,value])=>{if(JSON.stringify(br[id])!==JSON.stringify(value))documents[`review:${id}`]=clone(value);});
+    Object.keys(br).forEach(id=>{if(!(id in ar))deleteKeys.push(`review:${id}`);});
+    ["meta","adminSecurity","playerCatalogOverrides"].forEach(key=>{if(JSON.stringify(before[key])!==JSON.stringify(after[key]))documents[key]=clone(after[key]??null);});
+    if(JSON.stringify(before.globalOwnership)!==JSON.stringify(after.globalOwnership))documents.ownership=clone(after.globalOwnership??{});
     return {documents,deleteKeys};
   }
 
@@ -405,29 +273,66 @@
     return clone(nextValue);
   }
 
-  function buildMutationIntent(beforeState,nextState){
+  const newTournamentDelta=()=>({
+    version:1,
+    tournaments:{upsert:[],delete:[]},
+    participants:{replace:[]},
+    teams:{upsert:[],delete:[]},
+    matches:{upsert:[],delete:[]},
+    ownership:{upsert:[],delete:[]},
+    stats:{upsert:[],delete:[]},
+    offers:{upsert:[],delete:[]},
+    transfers:{upsert:[],delete:[]},
+    financialTransactions:{upsert:[],delete:[]}
+  });
+
+  function tournamentMatches(tournament){
+    if(Array.isArray(tournament&&tournament.matches))return tournament.matches;
+    return asArray(tournament&&tournament.context&&tournament.context.matches);
+  }
+  function tournamentMetadata(tournament){
+    const value=clone(tournament)||{};
+    delete value.participants;
+    delete value.teamIds;
+    delete value.matches;
+    const context=asObject(value.context);
+    ["teams","matches","ownership","playerStats","tradeOffers","transfers","financialTransactions","__financialLoaded","__importsLoaded"].forEach(key=>delete context[key]);
+    value.context=context;
+    return value;
+  }
+  function addListDelta(target,beforeList,afterList,tournamentId){
+    const before=indexById(beforeList), after=indexById(afterList);
+    after.forEach((value,id)=>{if(JSON.stringify(before.get(id))!==JSON.stringify(value))target.upsert.push({tournamentId:String(tournamentId),value:clone(value)});});
+    before.forEach((_,id)=>{if(!after.has(id))target.delete.push({tournamentId:String(tournamentId),id:String(id)});});
+  }
+  function addMapDelta(target,beforeMap,afterMap,tournamentId,idField){
+    const before=asObject(beforeMap), after=asObject(afterMap);
+    Object.entries(after).forEach(([id,value])=>{if(JSON.stringify(before[id])!==JSON.stringify(value))target.upsert.push({tournamentId:String(tournamentId),[idField]:String(id),value:clone(value)});});
+    Object.keys(before).forEach(id=>{if(!(id in after))target.delete.push({tournamentId:String(tournamentId),[idField]:String(id)});});
+  }
+  function tournamentDeltaHasChanges(delta){
+    return Object.values(delta).some(section=>section&&typeof section==="object"&&Object.values(section).some(value=>Array.isArray(value)&&value.length));
+  }
+  function buildTournamentDelta(beforeState,nextState){
+    const delta=newTournamentDelta();
     const before=indexById(asObject(beforeState&&beforeState.pes).tournaments);
     const after=indexById(asObject(nextState&&nextState.pes).tournaments);
-    const intent={tournaments:{}};
-    const removedIds=(beforeValue,afterValue,isMap=false)=>{
-      const beforeIds=isMap?new Set(Object.keys(asObject(beforeValue))):new Set(asArray(beforeValue).map(x=>String(x&&x.id)).filter(Boolean));
-      const afterIds=isMap?new Set(Object.keys(asObject(afterValue))):new Set(asArray(afterValue).map(x=>String(x&&x.id)).filter(Boolean));
-      return [...beforeIds].filter(id=>!afterIds.has(id));
-    };
     after.forEach((nextTournament,id)=>{
-      const previous=before.get(id); if(!previous)return;
-      const pc=asObject(previous.context), nc=asObject(nextTournament.context);
-      intent.tournaments[id]={delete:{
-        teams:removedIds(pc.teams,nc.teams),
-        matches:removedIds(previous.matches,nextTournament.matches),
-        ownership:removedIds(pc.ownership,nc.ownership,true),
-        playerStats:removedIds(pc.playerStats,nc.playerStats,true),
-        tradeOffers:removedIds(pc.tradeOffers,nc.tradeOffers,true),
-        transfers:removedIds(pc.transfers,nc.transfers),
-        financialTransactions:(pc.__financialLoaded===true&&nc.__financialLoaded===true)?removedIds(pc.financialTransactions,nc.financialTransactions):[]
-      }};
+      const previous=before.get(id)||null;
+      const previousContext=asObject(previous&&previous.context), nextContext=asObject(nextTournament&&nextTournament.context);
+      if(!previous||JSON.stringify(tournamentMetadata(previous))!==JSON.stringify(tournamentMetadata(nextTournament)))delta.tournaments.upsert.push(clone(nextTournament));
+      if(!previous||JSON.stringify(asArray(previous.participants))!==JSON.stringify(asArray(nextTournament.participants)))delta.participants.replace.push({tournamentId:String(id),profileIds:clone(asArray(nextTournament.participants))});
+      addListDelta(delta.teams,previousContext.teams,nextContext.teams,id);
+      addListDelta(delta.matches,tournamentMatches(previous),tournamentMatches(nextTournament),id);
+      addMapDelta(delta.ownership,previousContext.ownership,nextContext.ownership,id,"playerId");
+      addMapDelta(delta.stats,previousContext.playerStats,nextContext.playerStats,id,"playerId");
+      addMapDelta(delta.offers,previousContext.tradeOffers,nextContext.tradeOffers,id,"id");
+      addListDelta(delta.transfers,previousContext.transfers,nextContext.transfers,id);
+      const financialVisible=!previous||previousContext.__financialLoaded===true||nextContext.__financialLoaded===true||asArray(previousContext.financialTransactions).length>0||asArray(nextContext.financialTransactions).length>0;
+      if(financialVisible)addListDelta(delta.financialTransactions,previousContext.financialTransactions,nextContext.financialTransactions,id);
     });
-    return intent;
+    before.forEach((_,id)=>{if(!after.has(id))delta.tournaments.delete.push(String(id));});
+    return delta;
   }
 
   function hydrateRemoteDeferredCollections(remoteState,baseState){
@@ -435,14 +340,8 @@
     indexById(asObject(baseState&&baseState.pes).tournaments).forEach((baseTournament,id)=>{
       const remote=remoteById.get(id); if(!remote)return;
       const baseContext=asObject(baseTournament.context), remoteContext=asObject(remote.context);
-      if(baseContext.__financialLoaded===true){
-        remoteContext.financialTransactions=clone(asArray(baseContext.financialTransactions));
-        remoteContext.__financialLoaded=true;
-      }
-      if(baseContext.__importsLoaded===true){
-        remoteContext.adminImports=clone(asArray(baseContext.adminImports));
-        remoteContext.__importsLoaded=true;
-      }
+      if(baseContext.__financialLoaded===true){remoteContext.financialTransactions=clone(asArray(baseContext.financialTransactions));remoteContext.__financialLoaded=true;}
+      if(baseContext.__importsLoaded===true){remoteContext.adminImports=clone(asArray(baseContext.adminImports));remoteContext.__importsLoaded=true;}
       remote.context=remoteContext;
     });
     return remoteState;
@@ -450,31 +349,35 @@
 
   async function commit(nextState,eventType) {
     const baseState=clone(state);
-    const localPatch=buildPatch(baseState,nextState);
-    if(!Object.keys(localPatch.documents).length&&!localPatch.deleteKeys.length){state=nextState;emitAll();return;}
-    const hasTournamentWrite=Object.keys(localPatch.documents).some(key=>key.startsWith("tournament:"))||localPatch.deleteKeys.some(key=>key.startsWith("tournament:"));
+    const localTournamentDelta=buildTournamentDelta(baseState,nextState);
+    const localNonTournamentPatch=buildNonTournamentPatch(baseState,nextState);
+    const hasTournamentWrite=tournamentDeltaHasChanges(localTournamentDelta);
+    const hasNonTournamentWrite=Object.keys(localNonTournamentPatch.documents).length>0||localNonTournamentPatch.deleteKeys.length>0;
+    if(!hasTournamentWrite&&!hasNonTournamentWrite){state=syncLegacyMirrors(nextState);emitAll();return;}
     if(hasTournamentWrite&&!explicitUserInteraction){
-      console.error("[Tournament Sync] Escrita automática durante carregamento bloqueada",{eventType,localPatch});
+      console.error("[Tournament Delta] Escrita automática durante carregamento bloqueada",{eventType,localTournamentDelta});
       throw new Error("Sincronização bloqueada: abrir ou atualizar a página não pode alterar o campeonato.");
     }
     const operation=async()=>{
       invalidateCache("boot:");
       let remoteState=await loadNormalizedState();
       remoteState=hydrateRemoteDeferredCollections(remoteState,baseState);
-      const mergedState=applySafeDiff(remoteState,baseState,nextState);
-      const patch=buildPatch(remoteState,mergedState);
-      const intent=buildMutationIntent(baseState,nextState);
-      validateTournamentPatch(remoteState,mergedState,patch,eventType);
-      console.info("[Tournament Sync] guarded merge",{eventType,documents:Object.keys(patch.documents),deleteKeys:patch.deleteKeys,intent});
-      const {error}=await client.rpc("apply_guarded_direct_patch",{
-        p_documents:patch.documents,
-        p_delete_keys:patch.deleteKeys,
-        p_intent:intent,
-        p_actor_profile_id:actorProfileId(),
-        p_event_type:eventType||"state_change"
-      });
-      if(error)throw error;
-      state=mergedState; invalidateCache(); loaded=true; emitAll();
+      const mergedState=syncLegacyMirrors(applySafeDiff(remoteState,baseState,nextState));
+      const tournamentDelta=buildTournamentDelta(remoteState,mergedState);
+      const nonTournamentPatch=buildNonTournamentPatch(remoteState,mergedState);
+      if(tournamentDeltaHasChanges(tournamentDelta)){
+        console.info("[Tournament Delta] apply",{eventType,tournamentDelta});
+        const {error}=await client.rpc("apply_tournament_delta",{p_delta:tournamentDelta,p_actor_profile_id:actorProfileId(),p_event_type:eventType||"state_change"});
+        if(error)throw error;
+      }
+      if(Object.keys(nonTournamentPatch.documents).length||nonTournamentPatch.deleteKeys.length){
+        const {error}=await client.rpc("apply_non_tournament_patch",{p_documents:nonTournamentPatch.documents,p_delete_keys:nonTournamentPatch.deleteKeys,p_actor_profile_id:actorProfileId(),p_event_type:eventType||"state_change"});
+        if(error)throw error;
+      }
+      state=mergedState;
+      invalidateCache();
+      loaded=true;
+      emitAll();
     };
     writeQueue=writeQueue.then(operation,operation);
     return writeQueue;
