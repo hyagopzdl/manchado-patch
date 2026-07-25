@@ -9,6 +9,8 @@
         } = window.ManchaApp;
         const MagicWandIcon = SvgIcon(["M15 4l5 5", "M13.5 5.5 18.5 10.5", "M4 20l11-11", "M5 4v3", "M3.5 5.5h3", "M18 16v4", "M16 18h4"]);
         const EraserIcon = SvgIcon(["m4 15 8-8a2.5 2.5 0 0 1 3.5 0l2.5 2.5a2.5 2.5 0 0 1 0 3.5L11 20H7l-3-3a1.4 1.4 0 0 1 0-2Z", "m9 10 6 6", "M11 20h9"]);
+        const ComparePlayersIcon = SvgIcon(["M8.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M3.5 19a5 5 0 0 1 10 0", "M17 10a2.5 2.5 0 1 0 0-5", "M15 14.5a4.5 4.5 0 0 1 5.5 4.4"]);
+        const HigherValueIcon = SvgIcon(["m8.5 13.5 3.5-3.5 3.5 3.5"]);
         async function hashProfilePin(value) {
           if (!window.crypto || !window.crypto.subtle) throw new Error("Criptografia indisponível neste navegador.");
           let bytes = new TextEncoder().encode(`profile-pin:${String(value || "")}`);
@@ -2750,6 +2752,9 @@
                     Me &&
                       React.createElement(ro, {
                         player: Me,
+                        catalog: n,
+                        statusOf: Pe,
+                        teamById: $,
                         onClose: () => be(null),
                         onOffer: (player) => { be(null); kt(player); },
                         onBuy: (player) => { be(null); kt(player); },
@@ -4534,33 +4539,105 @@
             React.createElement("main",{style:{width:"min(100%,900px)",margin:"0 auto",padding:"22px 16px calc(40px + env(safe-area-inset-bottom))"}},ordered.length?React.createElement("div",{style:{display:"grid",gap:16}},ordered.map(reviewCard)):React.createElement("div",{className:"family-card",style:{padding:28,textAlign:"center",color:"var(--muted)"}},"Nenhuma revisão pendente."))
           );
         }
-        function ro({ player: e, onClose: t, onOffer, onBuy, activeTeam, onReport }) {
+        function playerDetailAttributes(player) {
+          let attrs = player && player.attrs || {};
+          return [
+            ["Ataque", player && player.attack], ["Defesa", player && player.defense], ["Equilíbrio", attrs.balance], ["Fôlego", attrs.stamina],
+            ["Velocidade máxima", attrs.topSpeed], ["Aceleração", attrs.acceleration], ["Resposta", attrs.response], ["Agilidade", attrs.agility],
+            ["Precisão no drible", attrs.dribbleAccuracy], ["Velocidade no drible", attrs.dribbleSpeed],
+            ["Precisão no passe curto", attrs.shortPassAccuracy], ["Velocidade do passe curto", attrs.shortPassSpeed],
+            ["Precisão no passe longo", attrs.longPassAccuracy], ["Velocidade do passe longo", attrs.longPassSpeed],
+            ["Precisão do chute", attrs.shotAccuracy], ["Força do chute", attrs.shotPower], ["Técnica de chute", attrs.shotTechnique],
+            ["Precisão em cobranças de falta", attrs.freeKickAccuracy], ["Curva", attrs.curve], ["Cabeceio", attrs.heading], ["Impulsão", attrs.jump],
+            ["Técnica", attrs.technique], ["Agressividade", attrs.aggression], ["Mentalidade", attrs.mentality],
+            ["Habilidade de goleiro", attrs.goalKeepingSkills], ["Trabalho em equipe", attrs.teamwork],
+            ["Consistência", attrs.consistency, 8], ["Condição física", attrs.conditionFitness, 8],
+            ["Precisão com o pé ruim", attrs.weakFootAccuracy, 8], ["Frequência de uso do pé ruim", attrs.weakFootFrequency, 8],
+          ];
+        }
+        function ComparisonAttributeRow({ label, leftValue, rightValue, max = 99 }) {
+          let leftNumber = Number(leftValue), rightNumber = Number(rightValue);
+          let hasLeft = Number.isFinite(leftNumber), hasRight = Number.isFinite(rightNumber);
+          let leftHigher = hasLeft && hasRight && leftNumber > rightNumber;
+          let rightHigher = hasLeft && hasRight && rightNumber > leftNumber;
+          let value = (number, valid, higher, align) => React.createElement("strong", {
+            style:{ minWidth:44, display:"inline-flex", alignItems:"center", justifyContent:align === "left" ? "flex-start" : "flex-end", gap:2, color:attributeValueColor(number,max), fontSize:17, lineHeight:1, fontVariantNumeric:"tabular-nums" }
+          }, align === "left" && higher && React.createElement(HigherValueIcon,{size:12,color:attributeValueColor(number,max),style:{opacity:.82}}), valid ? number : "—", align !== "left" && higher && React.createElement(HigherValueIcon,{size:12,color:attributeValueColor(number,max),style:{opacity:.82}}));
+          return React.createElement("div", { style:{ minHeight:44, display:"grid", gridTemplateColumns:"minmax(48px,.75fr) minmax(128px,1.8fr) minmax(48px,.75fr)", alignItems:"center", gap:8, padding:"9px 2px", borderBottom:"1px solid var(--border)" } },
+            value(leftNumber,hasLeft,leftHigher,"right"),
+            React.createElement("span", { style:{ color:"var(--heading)", fontSize:13, lineHeight:1.25, textAlign:"center" } }, label),
+            value(rightNumber,hasRight,rightHigher,"left")
+          );
+        }
+        function ro({ player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport }) {
           let detailContext = e && e.player ? e : { player:e, fromOtherTeam:false };
           e = detailContext.player;
-          let l = e.attrs || {},
-            attributes = [
-              ["Ataque", e.attack], ["Defesa", e.defense], ["Equilíbrio", l.balance], ["Fôlego", l.stamina],
-              ["Velocidade máxima", l.topSpeed], ["Aceleração", l.acceleration], ["Resposta", l.response], ["Agilidade", l.agility],
-              ["Precisão no drible", l.dribbleAccuracy], ["Velocidade no drible", l.dribbleSpeed],
-              ["Precisão no passe curto", l.shortPassAccuracy], ["Velocidade do passe curto", l.shortPassSpeed],
-              ["Precisão no passe longo", l.longPassAccuracy], ["Velocidade do passe longo", l.longPassSpeed],
-              ["Precisão do chute", l.shotAccuracy], ["Força do chute", l.shotPower], ["Técnica de chute", l.shotTechnique],
-              ["Precisão em cobranças de falta", l.freeKickAccuracy], ["Curva", l.curve], ["Cabeceio", l.heading], ["Impulsão", l.jump],
-              ["Técnica", l.technique], ["Agressividade", l.aggression], ["Mentalidade", l.mentality],
-              ["Habilidade de goleiro", l.goalKeepingSkills], ["Trabalho em equipe", l.teamwork],
-              ["Consistência", l.consistency, 8], ["Condição física", l.conditionFitness, 8],
-              ["Precisão com o pé ruim", l.weakFootAccuracy, 8], ["Frequência de uso do pé ruim", l.weakFootFrequency, 8],
-            ];
+          let [comparePlayer,setComparePlayer] = b(null), [pickerOpen,setPickerOpen] = b(false), [compareQuery,setCompareQuery] = b("");
+          let attributes = playerDetailAttributes(e);
+          let compareAttributes = comparePlayer ? playerDetailAttributes(comparePlayer) : [];
+          let normalizeSearch = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
+          let normalizedQuery = normalizeSearch(compareQuery);
+          let compareCandidates = X(() => {
+            let source = (Array.isArray(catalog) ? catalog : []).filter((player) => player && String(player.id) !== String(e && e.id));
+            if (normalizedQuery) {
+              source = source.filter((player) => normalizeSearch(`${player.name || ""} ${player.club || ""} ${player.position || ""}`).includes(normalizedQuery));
+              source.sort((left,right) => {
+                let leftName=normalizeSearch(left.name), rightName=normalizeSearch(right.name);
+                let leftStarts=leftName.startsWith(normalizedQuery)?0:1, rightStarts=rightName.startsWith(normalizedQuery)?0:1;
+                return leftStarts-rightStarts || Number(right.overall||0)-Number(left.overall||0) || leftName.localeCompare(rightName,"pt-BR");
+              });
+            } else source.sort((left,right)=>Number(right.overall||0)-Number(left.overall||0) || String(left.name||"").localeCompare(String(right.name||""),"pt-BR"));
+            return source.slice(0,normalizedQuery?30:16);
+          },[catalog,e&&e.id,normalizedQuery]);
+          let sourceLabel = (player) => {
+            let status = statusOf && player ? statusOf(player) : null;
+            if (!status || status.kind === "free") return "Mercado";
+            let team = teamById && status.teamId ? teamById(status.teamId) : null;
+            return team && team.name ? team.name : "Elenco";
+          };
           let flag = nationalityFlag(e.nationality);
           let footLabel = e.foot === "Right" ? "Direito" : e.foot === "Left" ? "Esquerdo" : "Ambos";
           let sideValue = String(e.favouredSide || "").trim().toLowerCase();
           let sideLabel = sideValue === "right" ? "Direito" : sideValue === "left" ? "Esquerdo" : sideValue === "both" ? "Ambos" : (e.favouredSide || "—");
           let detailBalanceBlocked = detailContext.balanceCheck && detailContext.balanceCheck.allowed === false;
-          let footerAction = detailContext.canBuy
+          let footerAction = !comparePlayer && (detailContext.canBuy
             ? React.createElement("button", { className:"tapbtn", disabled: !activeTeam || Number(activeTeam.budget || 0) < Number(e.value || 0) || detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>onBuy&&onBuy(e), style:{ ...M, ...W, width:"100%", margin:0, opacity: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) && !detailBalanceBlocked ? 1 : .45, cursor: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) && !detailBalanceBlocked ? "pointer" : "not-allowed" } }, detailBalanceBlocked ? "Bloqueado pelo equilíbrio" : activeTeam && Number(activeTeam.budget || 0) < Number(e.value || 0) ? "Saldo insuficiente" : `Comprar · ${L(e.value)}`)
             : detailContext.fromOtherTeam && onOffer
               ? React.createElement("button", { className:"tapbtn", disabled:detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>!detailBalanceBlocked&&onOffer(e), style:{ ...M, ...W, width:"100%", margin:0, opacity:detailBalanceBlocked?.45:1, cursor:detailBalanceBlocked?"not-allowed":"pointer" } }, detailBalanceBlocked?"Bloqueado pelo equilíbrio":"Fazer proposta")
-              : null;
+              : null);
+          let compactPlayerHeader = (player, isRight) => React.createElement("div", { style:{ minWidth:0, textAlign:isRight?"right":"left", padding:"12px 10px", borderRadius:16, border:"1px solid var(--border)", background:"var(--surface-soft)" } },
+            React.createElement("div", { style:{ display:"flex", flexDirection:isRight?"row-reverse":"row", alignItems:"center", gap:7, marginBottom:7 } },
+              React.createElement("span", { style:{ display:"inline-flex", padding:"4px 7px", borderRadius:7, background:positionColor(player.position), color:"#fff", fontSize:10, fontWeight:850 } }, player.position || "—"),
+              React.createElement("span", { title:player.nationality||"Nacionalidade não informada", style:{fontSize:17,lineHeight:1} }, nationalityFlag(player.nationality))
+            ),
+            React.createElement("strong", { style:{ display:"block", minHeight:38, fontSize:"clamp(15px,4vw,20px)", lineHeight:1.15, color:"var(--heading)", overflowWrap:"anywhere" } }, player.name || "Jogador"),
+            React.createElement("div", { style:{ display:"flex", flexDirection:isRight?"row-reverse":"row", alignItems:"baseline", gap:8, marginTop:8 } },
+              React.createElement("strong", { style:{ fontSize:22, color:overallColor(player.overall), fontVariantNumeric:"tabular-nums" } }, player.overall || "—"),
+              React.createElement("span", { style:{ fontSize:11, color:"var(--muted)", fontWeight:750 } }, L(player.value || 0))
+            ),
+            React.createElement("div", { style:{ marginTop:5, fontSize:10.5, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, sourceLabel(player))
+          );
+          let picker = pickerOpen ? ReactDOM.createPortal(React.createElement("div", { className:"sports-modal-overlay", onClick:()=>setPickerOpen(false), style:{ position:"fixed", inset:0, zIndex:1600, display:"flex", alignItems:"flex-end", justifyContent:"center", background:"rgba(0,0,0,.72)", backdropFilter:"blur(12px)" } },
+            React.createElement("div", { onClick:(event)=>event.stopPropagation(), style:{ width:"min(620px,100%)", maxHeight:"82vh", display:"flex", flexDirection:"column", padding:"14px 16px calc(18px + env(safe-area-inset-bottom))", borderRadius:"26px 26px 0 0", border:"1px solid var(--border)", borderBottom:0, background:"var(--surface)", boxShadow:"0 -24px 70px rgba(0,0,0,.35)" } },
+              React.createElement("div", { style:{ width:42, height:4, borderRadius:999, background:"var(--border)", margin:"0 auto 16px" } }),
+              React.createElement("div", { style:{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:14 } },
+                React.createElement("div", null, React.createElement("h3", { style:{margin:0,fontSize:20} }, "Comparar com"), React.createElement("div", { style:{fontSize:11.5,color:"var(--muted)",marginTop:3} }, "Busque no mercado e nos elencos")),
+                React.createElement("button", { onClick:()=>setPickerOpen(false), "aria-label":"Fechar busca", style:{ width:40,height:40,borderRadius:999,border:"1px solid var(--border)",background:"var(--surface-soft)",color:"var(--heading)",display:"grid",placeItems:"center",cursor:"pointer" } }, React.createElement(Ye,{size:17}))
+              ),
+              React.createElement("div", { style:{ position:"relative", marginBottom:12 } },
+                React.createElement(Xt,{size:17,style:{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:"var(--muted)"}}),
+                React.createElement("input", { autoFocus:true, value:compareQuery, onChange:(event)=>setCompareQuery(event.target.value), placeholder:"Buscar jogador pelo nome", style:{ ...q, width:"100%", minHeight:48, paddingLeft:42, borderRadius:15 } })
+              ),
+              React.createElement("div", { style:{ overflowY:"auto", display:"grid", gap:8, paddingBottom:4 } },
+                compareCandidates.map((player)=>React.createElement("button", { key:player.id, onClick:()=>{setComparePlayer(player);setPickerOpen(false);setCompareQuery("");}, style:{ width:"100%", display:"grid", gridTemplateColumns:"48px minmax(0,1fr) auto", alignItems:"center", gap:12, padding:"10px 12px", borderRadius:15, border:"1px solid var(--border)", background:"var(--surface-soft)", color:"var(--heading)", textAlign:"left", cursor:"pointer" } },
+                  React.createElement("div", { style:{ width:48,height:48,borderRadius:13,display:"grid",placeItems:"center",border:`1px solid color-mix(in srgb,${overallColor(player.overall)} 48%,var(--border))`,background:`color-mix(in srgb,${overallColor(player.overall)} 10%,var(--surface))` } }, React.createElement("strong", { style:{fontSize:20,color:overallColor(player.overall)} }, player.overall || "—")),
+                  React.createElement("div", { style:{minWidth:0} }, React.createElement("strong", { style:{display:"block",fontSize:14.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"} }, player.name), React.createElement("span", { style:{display:"block",fontSize:11,color:"var(--muted)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"} }, `${player.position || "—"} · ${sourceLabel(player)}`)),
+                  React.createElement(ue,{size:22,color:"var(--muted)"})
+                )),
+                compareCandidates.length === 0 && React.createElement("div", { style:{padding:"28px 16px",textAlign:"center",color:"var(--muted)",fontSize:13} }, "Nenhum jogador encontrado.")
+              )
+            )
+          ),document.body) : null;
           return React.createElement(
             ee,
             { onClose:t, hideHeader:true, closeOutside:true, modalClassName:"player-detail-modal" },
@@ -4570,51 +4647,69 @@
               React.createElement(
                 "div",
                 { className:"player-detail-scroll" },
-                React.createElement("button", { className:"tapbtn", onClick:()=>onReport&&onReport(e), title:"Reportar problema", "aria-label":"Reportar problema no jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--yellow)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(FlagIcon,{size:20})),
-                React.createElement(
-                  "header",
-                  { style:{ textAlign:"center", padding:"4px 8px 20px" } },
-                  React.createElement("div", { style:{ display:"flex", alignItems:"center", justifyContent:"center", gap:9, minWidth:0 } },
-                    React.createElement("h2", { style:{ margin:0, fontSize:"clamp(26px,5vw,36px)", lineHeight:1.08, letterSpacing:"-.045em", color:"var(--heading)", overflowWrap:"anywhere" } }, e.name),
-                    React.createElement("span", { title:e.nationality||"Nacionalidade não informada", style:{ fontSize:24, lineHeight:1, flex:"0 0 auto" } }, flag)
+                React.createElement("button", { className:"tapbtn", onClick:()=>setPickerOpen(true), title:"Comparar jogadores", "aria-label":"Comparar com outro jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", left:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--heading)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(ComparePlayersIcon,{size:21})),
+                comparePlayer
+                  ? React.createElement("button", { className:"tapbtn", onClick:()=>setComparePlayer(null), title:"Encerrar comparação", "aria-label":"Encerrar comparação", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--heading)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(Ye,{size:18}))
+                  : React.createElement("button", { className:"tapbtn", onClick:()=>onReport&&onReport(e), title:"Reportar problema", "aria-label":"Reportar problema no jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--yellow)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(FlagIcon,{size:20})),
+                comparePlayer ? React.createElement(React.Fragment,null,
+                  React.createElement("header", { style:{ padding:"4px 0 16px" } },
+                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 28px minmax(0,1fr)", gap:8, alignItems:"center" } }, compactPlayerHeader(e,false), React.createElement("span", { style:{textAlign:"center",fontSize:10,color:"var(--muted)",fontWeight:900,letterSpacing:".08em"} }, "VS"), compactPlayerHeader(comparePlayer,true))
                   ),
-                  React.createElement("span", { style:{ display:"inline-flex", marginTop:12, alignItems:"center", justifyContent:"center", minHeight:27, padding:"5px 11px", borderRadius:9, background:positionColor(e.position), color:"#fff", fontSize:12, fontWeight:850, letterSpacing:".04em" } }, e.position || "—")
-                ),
-                React.createElement("section", { style:{ ...E, padding:16, marginBottom:12 } },
-                  React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:8, alignItems:"stretch" } },
-                    React.createElement("div", { style:{ display:"grid", placeItems:"center", textAlign:"center", border:`1.5px solid ${overallColor(e.overall)}`, borderRadius:14, minHeight:78, background:`color-mix(in srgb, ${overallColor(e.overall)} 10%, var(--surface-soft))`, padding:8 } },
-                      React.createElement("div", null,
-                        React.createElement("strong", { style:{ display:"block", fontSize:30, lineHeight:1, color:overallColor(e.overall), fontVariantNumeric:"tabular-nums" } }, e.overall),
-                        React.createElement("span", { style:{ display:"block", marginTop:5, fontSize:9, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em" } }, "Overall")
+                  React.createElement("section", { style:{ ...E, padding:"8px 12px 10px" } },
+                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"minmax(48px,.75fr) minmax(128px,1.8fr) minmax(48px,.75fr)", alignItems:"center", gap:8, padding:"8px 2px 10px", borderBottom:"1px solid var(--border)" } },
+                      React.createElement("span", { style:{ fontSize:10.5,color:"var(--muted)",fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right" } }, e.name),
+                      React.createElement("strong", { style:{ fontSize:14,color:"var(--heading)",textAlign:"center" } }, "Atributos"),
+                      React.createElement("span", { style:{ fontSize:10.5,color:"var(--muted)",fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" } }, comparePlayer.name)
+                    ),
+                    attributes.map((attribute,index)=>React.createElement(ComparisonAttributeRow,{ key:attribute[0], label:attribute[0], leftValue:attribute[1], rightValue:compareAttributes[index]&&compareAttributes[index][1], max:attribute[2]||99 }))
+                  )
+                ) : React.createElement(React.Fragment,null,
+                  React.createElement(
+                    "header",
+                    { style:{ textAlign:"center", padding:"4px 8px 20px" } },
+                    React.createElement("div", { style:{ display:"flex", alignItems:"center", justifyContent:"center", gap:9, minWidth:0 } },
+                      React.createElement("h2", { style:{ margin:0, fontSize:"clamp(26px,5vw,36px)", lineHeight:1.08, letterSpacing:"-.045em", color:"var(--heading)", overflowWrap:"anywhere" } }, e.name),
+                      React.createElement("span", { title:e.nationality||"Nacionalidade não informada", style:{ fontSize:24, lineHeight:1, flex:"0 0 auto" } }, flag)
+                    ),
+                    React.createElement("span", { style:{ display:"inline-flex", marginTop:12, alignItems:"center", justifyContent:"center", minHeight:27, padding:"5px 11px", borderRadius:9, background:positionColor(e.position), color:"#fff", fontSize:12, fontWeight:850, letterSpacing:".04em" } }, e.position || "—")
+                  ),
+                  React.createElement("section", { style:{ ...E, padding:16, marginBottom:12 } },
+                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:8, alignItems:"stretch" } },
+                      React.createElement("div", { style:{ display:"grid", placeItems:"center", textAlign:"center", border:`1.5px solid ${overallColor(e.overall)}`, borderRadius:14, minHeight:78, background:`color-mix(in srgb, ${overallColor(e.overall)} 10%, var(--surface-soft))`, padding:8 } },
+                        React.createElement("div", null,
+                          React.createElement("strong", { style:{ display:"block", fontSize:30, lineHeight:1, color:overallColor(e.overall), fontVariantNumeric:"tabular-nums" } }, e.overall),
+                          React.createElement("span", { style:{ display:"block", marginTop:5, fontSize:9, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em" } }, "Overall")
+                        )
+                      ),
+                      React.createElement("div", { style:{ display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", textAlign:"center", minWidth:0, border:"1px solid var(--border)", borderRadius:14, padding:8, background:"var(--surface-soft)" } },
+                        React.createElement("span", { style:{ fontSize:9, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 } }, "Valor"),
+                        React.createElement("strong", { style:{ display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, fontSize:18, color:"var(--heading)" } }, React.createElement(BankIcon,{ size:16,color:"var(--green)" }), L(e.value))
+                      ),
+                      React.createElement("div", { style:{ display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", textAlign:"center", minWidth:0, border:"1px solid var(--border)", borderRadius:14, padding:8, background:"var(--surface-soft)" } },
+                        React.createElement("span", { style:{ fontSize:9, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 } }, "Clube"),
+                        React.createElement("strong", { style:{ fontSize:12.5, lineHeight:1.25, color:"var(--heading)", overflowWrap:"anywhere" } }, e.club || "—")
                       )
-                    ),
-                    React.createElement("div", { style:{ display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", textAlign:"center", minWidth:0, border:"1px solid var(--border)", borderRadius:14, padding:8, background:"var(--surface-soft)" } },
-                      React.createElement("span", { style:{ fontSize:9, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 } }, "Valor"),
-                      React.createElement("strong", { style:{ display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, fontSize:18, color:"var(--heading)" } }, React.createElement(BankIcon,{ size:16,color:"var(--green)" }), L(e.value))
-                    ),
-                    React.createElement("div", { style:{ display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center", textAlign:"center", minWidth:0, border:"1px solid var(--border)", borderRadius:14, padding:8, background:"var(--surface-soft)" } },
-                      React.createElement("span", { style:{ fontSize:9, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".06em", marginBottom:6 } }, "Clube"),
-                      React.createElement("strong", { style:{ fontSize:12.5, lineHeight:1.25, color:"var(--heading)", overflowWrap:"anywhere" } }, e.club || "—")
                     )
-                  )
-                ),
-                React.createElement("section", { style:{ ...E, padding:14, marginBottom:12 } },
-                  React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:6 } },
-                    [["Idade", e.age ? `${e.age}` : "—"], ["Altura", e.height ? `${e.height} cm` : "—"], ["Peso", e.weight ? `${e.weight} kg` : "—"], ["Pé bom", footLabel === "Direito" ? "D" : footLabel === "Esquerdo" ? "E" : "Ambos"], ["Lado bom", sideLabel]].map(item => React.createElement("div", { key:item[0], style:{ minWidth:0, textAlign:"center", padding:"7px 3px", borderRadius:10, background:"var(--surface-soft)" } },
-                      React.createElement("div", { style:{ fontSize:8.5, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".045em", marginBottom:5, whiteSpace:"nowrap" } }, item[0]),
-                      React.createElement("strong", { style:{ display:"block", fontSize:11.5, lineHeight:1.2, color:"var(--heading)", overflowWrap:"anywhere" } }, item[1])
-                    ))
-                  )
-                ),
-                React.createElement("section", { style:{ ...E, padding:"8px 16px 10px" } },
-                  React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, padding:"8px 2px 10px", borderBottom:"1px solid var(--border)" } },
-                    React.createElement("strong", { style:{ fontSize:14, color:"var(--heading)" } }, "Atributos"),
-                    React.createElement("span", { style:{ fontSize:13, color:"var(--muted)", fontWeight:800 } }, "#")
                   ),
-                  attributes.map(attribute => React.createElement(N, { key:attribute[0], label:attribute[0], value:attribute[1], max:attribute[2] || 99 }))
+                  React.createElement("section", { style:{ ...E, padding:14, marginBottom:12 } },
+                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:6 } },
+                      [["Idade", e.age ? `${e.age}` : "—"], ["Altura", e.height ? `${e.height} cm` : "—"], ["Peso", e.weight ? `${e.weight} kg` : "—"], ["Pé bom", footLabel === "Direito" ? "D" : footLabel === "Esquerdo" ? "E" : "Ambos"], ["Lado bom", sideLabel]].map(item => React.createElement("div", { key:item[0], style:{ minWidth:0, textAlign:"center", padding:"7px 3px", borderRadius:10, background:"var(--surface-soft)" } },
+                        React.createElement("div", { style:{ fontSize:8.5, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".045em", marginBottom:5, whiteSpace:"nowrap" } }, item[0]),
+                        React.createElement("strong", { style:{ display:"block", fontSize:11.5, lineHeight:1.2, color:"var(--heading)", overflowWrap:"anywhere" } }, item[1])
+                      ))
+                    )
+                  ),
+                  React.createElement("section", { style:{ ...E, padding:"8px 16px 10px" } },
+                    React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, padding:"8px 2px 10px", borderBottom:"1px solid var(--border)" } },
+                      React.createElement("strong", { style:{ fontSize:14, color:"var(--heading)" } }, "Atributos"),
+                      React.createElement("span", { style:{ fontSize:13, color:"var(--muted)", fontWeight:800 } }, "#")
+                    ),
+                    attributes.map(attribute => React.createElement(N, { key:attribute[0], label:attribute[0], value:attribute[1], max:attribute[2] || 99 }))
+                  )
                 )
               ),
-              footerAction && React.createElement("footer", { className:"player-detail-footer" }, detailBalanceBlocked && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.4,marginBottom:9,textAlign:"center" } }, `Esta contratação deixaria a diferença entre os times em ${detailContext.balanceCheck.futureGap.toFixed(1)} OVR. Limite atual: ${(detailContext.balanceCheck.currentGap > detailContext.balanceCheck.maxDifference ? detailContext.balanceCheck.currentGap : detailContext.balanceCheck.maxDifference).toFixed(1)} OVR.`), footerAction)
+              footerAction && React.createElement("footer", { className:"player-detail-footer" }, detailBalanceBlocked && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.4,marginBottom:9,textAlign:"center" } }, `Esta contratação deixaria a diferença entre os times em ${detailContext.balanceCheck.futureGap.toFixed(1)} OVR. Limite atual: ${(detailContext.balanceCheck.currentGap > detailContext.balanceCheck.maxDifference ? detailContext.balanceCheck.currentGap : detailContext.balanceCheck.maxDifference).toFixed(1)} OVR.`), footerAction),
+              picker
             )
           );
         }
