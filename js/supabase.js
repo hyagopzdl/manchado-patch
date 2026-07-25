@@ -146,7 +146,7 @@
 
   async function loadNormalizedState() {
     const started = performance.now();
-    const [profiles, tournaments, meta, security, participants, teams, matches, ownership, stats, offers, histories, transfers, favorites, presence, globalOwnership, overrides] = await Promise.all([
+    const [profiles, tournaments, meta, security, participants, teams, matches, ownership, stats, offers, histories, transfers, favorites, globalOwnership, overrides] = await Promise.all([
       selectAll("profiles", "id,name,color,avatar,role,active,pin_hash,pin_updated_at,recovered_from_tournament,recovered_at,created_at,source_order", q => q.order("source_order").order("id"), "boot:profiles"),
       selectAll("tournaments", "id,name,format,type,status,champion,cup_stage,groups_data,cup_snapshot,final_standings,economy_settings,final_prize_settings,market_balance_settings,market_settings,created_at,finished_at,reset_at,reset_by_profile_id,source_order,raw_data", q => q.order("source_order").order("id"), "boot:tournaments"),
       select("app_meta", "current_tournament_id,identity_schema_version,identity_migrated_at,season_counter", q => q.limit(1), "boot:meta"),
@@ -160,7 +160,6 @@
       selectAll("trade_offer_history", "id,offer_id,actor_team_id,action_type,amount,created_at", q => q.order("offer_id").order("created_at").order("id"), "boot:offer-history"),
       selectAll("transfers", "id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at,raw_data", q => q.order("tournament_id").order("created_at").order("id"), "boot:transfers"),
       selectAll("profile_favorites", "tournament_id,profile_id,player_id,created_at", q => q.order("tournament_id").order("profile_id").order("player_id"), "boot:favorites"),
-      selectAll("presence", "profile_id,online,updated_at", q => q.order("profile_id"), "boot:presence", 15000),
       selectAll("global_player_ownership", "player_id,team_id,for_sale", q => q.order("player_id"), "boot:global-ownership"),
       selectAll("player_catalog_overrides", "player_id,overall,market_value,updated_by_profile_id,updated_at", q => q.order("player_id"), "boot:overrides")
     ]);
@@ -187,7 +186,7 @@
     });
     const preferenceMap = {}; favorites.forEach(row=>{ preferenceMap[row.tournament_id] ||= {}; preferenceMap[row.tournament_id][row.profile_id] ||= {favorites:{}}; preferenceMap[row.tournament_id][row.profile_id].favorites[row.player_id]=true; });
     const overrideMap = {}; overrides.forEach(row=>{ overrideMap[row.player_id]={ overall:row.overall, value:row.market_value==null?null:Number(row.market_value), updatedByProfileId:row.updated_by_profile_id, updatedAt:ms(row.updated_at) }; });
-    const presenceMap = {}; presence.forEach(row=>{ presenceMap[row.profile_id]={ online:row.online, updatedAt:ms(row.updated_at) }; });
+    const presenceMap = {};
     const globalMap = {}; globalOwnership.forEach(row=>{ globalMap[row.player_id]={ teamId:row.team_id, forSale:row.for_sale }; });
     const metaRow = meta[0] || {};
     const currentTournamentId = metaRow.current_tournament_id || null;
@@ -485,6 +484,67 @@
   };}
 
 
+
+  const PRESENCE_HEARTBEAT_MS = 45 * 1000;
+  const PRESENCE_TTL_SECONDS = 100;
+
+  function applyPresenceRows(rows) {
+    const map = {};
+    asArray(rows).forEach((row) => {
+      if (!row || !row.profile_id) return;
+      const seenAt = ms(row.updated_at) || Date.now();
+      map[String(row.profile_id)] = { online: true, updatedAt: seenAt, lastSeen: seenAt };
+    });
+    setAt(state, "pes/presence", map);
+    emitAll();
+    return map;
+  }
+
+  function startPresenceHeartbeat(profileId) {
+    const normalizedProfileId = String(profileId || "").trim();
+    if (!client || !normalizedProfileId) return () => {};
+    let stopped = false;
+    let timer = null;
+    let inFlight = false;
+
+    const schedule = () => {
+      if (stopped) return;
+      clearTimeout(timer);
+      timer = setTimeout(tick, PRESENCE_HEARTBEAT_MS);
+    };
+
+    const tick = async () => {
+      if (stopped || inFlight) return schedule();
+      if (document.visibilityState === "hidden") return schedule();
+      inFlight = true;
+      try {
+        const { data, error } = await client.rpc("presence_heartbeat", {
+          p_profile_id: normalizedProfileId,
+          p_ttl_seconds: PRESENCE_TTL_SECONDS
+        });
+        if (error) throw error;
+        applyPresenceRows(data);
+      } catch (error) {
+        console.warn("Falha ao atualizar presença", error);
+      } finally {
+        inFlight = false;
+        schedule();
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    tick();
+
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }
+
   async function setTeamBudget(tournamentId, teamId, amount) {
     await load();
     if (!client) throw new Error("Supabase não configurado");
@@ -534,5 +594,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,hydrateTournamentFinancial,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,hydrateTournamentFinancial,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();

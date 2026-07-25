@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, loadFinancialTransactions, loadPlayerReviews, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -185,20 +185,8 @@
             return () => { active = false; };
           }, [playerReviewsOpen]);
           He(() => {
-            let db = Ee();
-            if (!db || !te || !te.id) return;
-            let connectedRef = db.ref(".info/connected");
-            let presenceRef = db.ref("pes/presence/" + te.id);
-            let handler = (snapshot) => {
-              if (snapshot.val() !== true) return;
-              presenceRef.onDisconnect().remove();
-              presenceRef.set({ online: true, updatedAt: Date.now() });
-            };
-            connectedRef.on("value", handler);
-            return () => {
-              connectedRef.off("value", handler);
-              presenceRef.remove().catch(() => {});
-            };
+            if (!te || !te.id || typeof startPresenceHeartbeat !== "function") return;
+            return startPresenceHeartbeat(te.id);
           }, [te && te.id]);
           let R = X(
               () => m.find((o) => o.id === selectedTournamentId) || null,
@@ -6481,7 +6469,7 @@ Hyago 0 x 0 Lucas`;
           function avatarForTeam(team, size) {
             let profile = team && (profiles || []).find((item) => item && typeof item === "object" && item.id === team.profileId);
             let name = profile && profile.name ? profile.name : team && team.name ? team.name : "?";
-            let online = !!(profile && presence && presence[profile.id] && presence[profile.id].online);
+            let presenceEntry = profile && presence && presence[profile.id]; let online = !!(presenceEntry && presenceEntry.online && Date.now() - Number(presenceEntry.lastSeen || presenceEntry.updatedAt || 0) < 120000);
             return React.createElement("span", { style:{ width:size, height:size, borderRadius:999, flexShrink:0, display:"inline-grid", placeItems:"center", background:(profile&&profile.color)||(team&&team.color)||"var(--surface-soft)", color:"white", fontSize:Math.max(10,size*.38), fontWeight:800, border:profile&&profile.avatar?"0":"1px solid var(--border)", position:"relative" } },
               React.createElement("span", { style:{ width:"100%", height:"100%", borderRadius:999, overflow:"hidden", display:"grid", placeItems:"center" } }, profile&&profile.avatar ? React.createElement("img", { src:profile.avatar, alt:"", style:{ width:"100%", height:"100%", objectFit:"cover" } }) : String(name).charAt(0).toUpperCase()),
               online && React.createElement("span", { title:"Online", style:{ position:"absolute", right:-1, bottom:-1, width:Math.max(9,size*.28), height:Math.max(9,size*.28), borderRadius:999, background:"#21e493", boxShadow:"0 0 0 2px var(--surface), 0 0 10px rgba(33,228,147,.65)" } })
