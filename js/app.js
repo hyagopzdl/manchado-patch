@@ -5159,8 +5159,11 @@
             let selectedTeam = teamFilter !== "all" ? teamFilter : (activeTeam && String(activeTeam.id));
             let isIncoming = selectedTeam && String(transfer.toTeamId || "") === String(selectedTeam);
             let isOutgoing = selectedTeam && String(transfer.fromTeamId || "") === String(selectedTeam);
-            let priceColor = isIncoming && !isOutgoing ? "var(--danger)" : isOutgoing && !isIncoming ? "var(--green)" : "var(--heading)";
-            let priceSign = isIncoming && !isOutgoing ? "− " : isOutgoing && !isIncoming ? "+ " : "";
+            let kind = typeOf(transfer);
+            let isDebit = kind === "from_market" || (kind === "between" && isIncoming && !isOutgoing);
+            let isCredit = kind === "to_market" || (kind === "between" && isOutgoing && !isIncoming);
+            let priceColor = isDebit ? "var(--danger)" : isCredit ? "var(--green)" : "var(--heading)";
+            let priceSign = isDebit ? "− " : isCredit ? "+ " : "";
             return React.createElement("article", { key:transfer.id, className:`transfer-market-card${transfer.rolledBackAt ? " is-rolled-back" : ""}` },
               React.createElement("div", { className:"transfer-overall", style:{ color:overall ? overallColor(overall) : "var(--muted)", borderColor:overall ? overallColor(overall) : "var(--border)" } }, overall || "—"),
               React.createElement("div", { className:"transfer-player-info" }, React.createElement("span", { style:{ background:positionColor(position) } }, position), React.createElement("strong", null, transfer.playerName || (player && player.name) || "Jogador"), React.createElement("small", null, club)),
