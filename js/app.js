@@ -4555,18 +4555,19 @@
             ["Precisão com o pé ruim", attrs.weakFootAccuracy, 8], ["Frequência de uso do pé ruim", attrs.weakFootFrequency, 8],
           ];
         }
-        function comparisonIndicatorColor(leftValue, rightValue, side) {
+        function comparisonIndicator(leftValue, rightValue, side) {
           let leftNumber=Number(leftValue), rightNumber=Number(rightValue);
-          if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber)) return "var(--muted)";
-          if (leftNumber === rightNumber) return "#fff";
+          if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber) || leftNumber === rightNumber) return null;
           let sideIsHigher = side === "left" ? leftNumber > rightNumber : rightNumber > leftNumber;
-          return sideIsHigher ? "var(--green)" : "var(--danger)";
+          return { symbol:sideIsHigher ? "▲" : "▼", color:sideIsHigher ? "var(--green)" : "var(--danger)" };
         }
-        function ComparisonTriangle({ leftValue, rightValue, side, size = 9 }) {
+        function ComparisonTriangle({ leftValue, rightValue, side, size = 13 }) {
+          let indicator=comparisonIndicator(leftValue,rightValue,side);
+          if (!indicator) return null;
           return React.createElement("span", {
             "aria-hidden":"true",
-            style:{ display:"inline-flex", alignItems:"center", justifyContent:"center", flex:"0 0 auto", color:comparisonIndicatorColor(leftValue,rightValue,side), fontSize:size, lineHeight:1, transform:"translateY(-.5px)" }
-          }, "▲");
+            style:{ display:"inline-flex", alignItems:"center", justifyContent:"center", flex:"0 0 auto", color:indicator.color, fontSize:size, fontWeight:900, lineHeight:1, transform:"translateY(-.5px)" }
+          }, indicator.symbol);
         }
         function ComparisonAttributeRow({ label, leftValue, rightValue, max = 99 }) {
           let leftNumber = Number(leftValue), rightNumber = Number(rightValue);
@@ -4576,10 +4577,10 @@
           }, valid ? number : "—");
           return React.createElement("div", { style:{ minHeight:44, display:"grid", gridTemplateColumns:"minmax(54px,.78fr) minmax(148px,1.8fr) minmax(54px,.78fr)", alignItems:"center", gap:8, padding:"9px 2px", borderBottom:"1px solid var(--border)" } },
             value(leftNumber,hasLeft,"left"),
-            React.createElement("span", { style:{ minWidth:0, display:"grid", gridTemplateColumns:"14px minmax(0,auto) 14px", alignItems:"center", justifyContent:"center", columnGap:5, color:"var(--heading)", fontSize:13, lineHeight:1.25, textAlign:"center" } },
-              React.createElement(ComparisonTriangle,{leftValue:leftNumber,rightValue:rightNumber,side:"left"}),
+            React.createElement("span", { style:{ minWidth:0, display:"grid", gridTemplateColumns:"18px minmax(0,auto) 18px", alignItems:"center", justifyContent:"center", columnGap:5, color:"var(--heading)", fontSize:13, lineHeight:1.25, textAlign:"center" } },
+              React.createElement(ComparisonTriangle,{leftValue:leftNumber,rightValue:rightNumber,side:"left",size:13}),
               React.createElement("span",{style:{minWidth:0}},label),
-              React.createElement(ComparisonTriangle,{leftValue:leftNumber,rightValue:rightNumber,side:"right"})
+              React.createElement(ComparisonTriangle,{leftValue:leftNumber,rightValue:rightNumber,side:"right",size:13})
             ),
             value(rightNumber,hasRight,"right")
           );
@@ -4624,30 +4625,30 @@
             let playerOverall=Number(player&&player.overall), opponentOverall=Number(opponent&&opponent.overall);
             let playerValue=Number(player&&player.value), opponentValue=Number(opponent&&opponent.value);
             let side=isRight?"right":"left";
-            return React.createElement("article", { style:{ position:"relative", minWidth:0, overflow:"hidden", padding:"12px 10px", borderRadius:17, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 45%, var(--border))`, background:`linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 19%, var(--surface)) 0%, var(--surface-soft) 56%, var(--surface) 100%)`, boxShadow:`0 16px 34px color-mix(in srgb, ${overallColor(player.overall)} 9%, transparent)`, textAlign:isRight?"right":"left" } },
-              React.createElement("div", { style:{ position:"absolute", width:92, height:92, right:isRight?"auto":-36, left:isRight?-36:"auto", top:-38, borderRadius:999, background:overallColor(player.overall), opacity:.11, filter:"blur(16px)" } }),
-              React.createElement("div", { style:{ position:"relative", display:"grid", gridTemplateColumns:isRight?"minmax(0,1fr) 44px":"44px minmax(0,1fr)", alignItems:"start", gap:8 } },
-                !isRight && React.createElement("div", { style:{ display:"flex", alignItems:"flex-start", gap:4 } },
-                  React.createElement("strong", { style:{ fontSize:32, lineHeight:.95, letterSpacing:"-1.4px", color:overallColor(player.overall), fontVariantNumeric:"tabular-nums" } }, player.overall || "—"),
-                  React.createElement(ComparisonTriangle,{leftValue:playerOverall,rightValue:opponentOverall,side,size:9})
-                ),
-                React.createElement("div", { style:{ minWidth:0, display:"flex", flexDirection:"column", alignItems:isRight?"flex-end":"flex-start", rowGap:4 } },
-                  React.createElement("div", { style:{ display:"flex", flexDirection:isRight?"row-reverse":"row", alignItems:"center", gap:5, minWidth:0, maxWidth:"100%" } },
-                    React.createElement("span", { style:{ display:"inline-flex", alignItems:"center", minHeight:19, padding:"3px 6px", borderRadius:7, background:positionColor(player.position), color:"#fff", fontSize:9.5, fontWeight:850 } }, player.position || "—"),
-                    React.createElement("span", { title:player.nationality||"Nacionalidade não informada", style:{fontSize:14,lineHeight:1} }, nationalityFlag(player.nationality))
+            let source=sourceLabel(player);
+            let teamLine=source && source !== "Mercado" ? `Time atual · ${source}` : null;
+            let overallBlock = React.createElement("div", { style:{ display:"flex", flexDirection:isRight?"row-reverse":"row", alignItems:"flex-start", justifyContent:isRight?"flex-start":"flex-start", gap:7, width:"100%" } },
+              React.createElement("strong", { style:{ fontSize:"clamp(38px,10vw,54px)", lineHeight:.92, letterSpacing:"-2.4px", color:overallColor(player.overall), fontVariantNumeric:"tabular-nums", fontWeight:900 } }, player.overall || "—"),
+              React.createElement(ComparisonTriangle,{leftValue:isRight?opponentOverall:playerOverall,rightValue:isRight?playerOverall:opponentOverall,side,size:14})
+            );
+            let valueBlock = React.createElement("div", { style:{ display:"inline-flex", flexDirection:isRight?"row-reverse":"row", alignItems:"center", gap:6, marginTop:6, color:"var(--heading)", fontSize:"clamp(12px,3.2vw,15px)", fontWeight:850, fontVariantNumeric:"tabular-nums" } },
+              React.createElement(BankIcon,{size:15,color:"currentColor"}),
+              React.createElement("span",null,L(player.value||0)),
+              React.createElement(ComparisonTriangle,{leftValue:isRight?opponentValue:playerValue,rightValue:isRight?playerValue:opponentValue,side,size:12})
+            );
+            return React.createElement("article", { style:{ position:"relative", minWidth:0, minHeight:205, overflow:"hidden", padding:"17px 13px 15px", borderRadius:22, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 48%, var(--border))`, background:`linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 19%, var(--surface)) 0%, var(--surface-soft) 52%, var(--surface) 100%)`, boxShadow:`0 18px 42px color-mix(in srgb, ${overallColor(player.overall)} 10%, transparent)`, textAlign:isRight?"right":"left", color:"var(--heading)" } },
+              React.createElement("div", { style:{ position:"absolute", width:118, height:118, right:isRight?"auto":-46, left:isRight?-46:"auto", top:-44, borderRadius:999, background:overallColor(player.overall), opacity:.12, filter:"blur(18px)" } }),
+              React.createElement("div", { style:{ position:"relative", height:"100%", display:"flex", flexDirection:"column", alignItems:isRight?"flex-end":"flex-start" } },
+                overallBlock,
+                React.createElement("div", { style:{ width:"100%", display:"flex", flexDirection:"column", alignItems:isRight?"flex-end":"flex-start", marginTop:34, rowGap:4 } },
+                  React.createElement("span", { style:{ display:"inline-flex", alignItems:"center", minHeight:23, padding:"4px 8px", borderRadius:8, background:positionColor(player.position), color:"#fff", fontSize:10.5, fontWeight:850 } }, player.position || "—"),
+                  React.createElement("div", { style:{ width:"100%", display:"flex", flexDirection:isRight?"row-reverse":"row", alignItems:"flex-start", justifyContent:isRight?"flex-start":"flex-start", gap:5, marginTop:4, minWidth:0 } },
+                    React.createElement("strong", { style:{ minWidth:0, fontSize:"clamp(15px,4vw,20px)", lineHeight:1.06, letterSpacing:"-.45px", color:"var(--heading)", overflowWrap:"anywhere", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" } }, player.name || "Jogador"),
+                    React.createElement("span", { title:player.nationality||"Nacionalidade não informada", style:{ flex:"0 0 auto", fontSize:15, lineHeight:1.05 } }, nationalityFlag(player.nationality))
                   ),
-                  React.createElement("strong", { style:{ width:"100%", minHeight:34, fontSize:"clamp(14px,3.7vw,18px)", lineHeight:1.08, letterSpacing:"-.35px", color:"var(--heading)", overflowWrap:"anywhere", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" } }, player.name || "Jogador"),
-                  React.createElement("div", { style:{ width:"100%", fontSize:9.5, color:"var(--muted)", lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.club || "Clube não informado"),
-                  React.createElement("div", { style:{ width:"100%", fontSize:9.5, color:"var(--green)", fontWeight:800, lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, sourceLabel(player)),
-                  React.createElement("div", { style:{ display:"inline-flex", flexDirection:isRight?"row-reverse":"row", alignItems:"center", gap:4, marginTop:1, color:"var(--heading)", fontSize:10.5, fontWeight:800, fontVariantNumeric:"tabular-nums" } },
-                    React.createElement(BankIcon,{size:12,color:"currentColor"}),
-                    React.createElement("span",null,L(player.value||0)),
-                    React.createElement(ComparisonTriangle,{leftValue:isRight?opponentValue:playerValue,rightValue:isRight?playerValue:opponentValue,side,size:8})
-                  )
-                ),
-                isRight && React.createElement("div", { style:{ display:"flex", flexDirection:"row-reverse", alignItems:"flex-start", gap:4 } },
-                  React.createElement("strong", { style:{ fontSize:32, lineHeight:.95, letterSpacing:"-1.4px", color:overallColor(player.overall), fontVariantNumeric:"tabular-nums" } }, player.overall || "—"),
-                  React.createElement(ComparisonTriangle,{leftValue:opponentOverall,rightValue:playerOverall,side:"right",size:9})
+                  React.createElement("div", { style:{ width:"100%", fontSize:10.5, color:"var(--muted)", lineHeight:1.25, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.club || "Clube não informado"),
+                  teamLine && React.createElement("div", { style:{ width:"100%", fontSize:10, color:"var(--green)", fontWeight:800, lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, teamLine),
+                  valueBlock
                 )
               )
             );
