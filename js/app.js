@@ -3374,7 +3374,7 @@
           let code = codes[normalized];
           return code ? code.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt())) : "🌐";
         }
-        function UnifiedPlayerCard({ player, actionLabel, actionDisabled=false, onAction=null, onOpen=null, className="", isFavorite=false, onToggleFavorite=null, dimmed=false, isInitialRoster=false, currentTeamName=null }) {
+        function UnifiedPlayerCard({ player, actionLabel, actionDisabled=false, onAction=null, onOpen=null, className="", isFavorite=false, onToggleFavorite=null, dimmed=false, isInitialRoster=false, currentTeamName=null, characteristicScores=[] }) {
           let flag = nationalityFlag(player.nationality);
           return React.createElement("article", {
             className:`tapbtn unified-player-card ${className}`.trim(),
@@ -3397,6 +3397,10 @@
               ),
               React.createElement("div", { style:{ fontSize:10.5, color:"var(--muted)", lineHeight:1.25, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.club || "Clube não informado"),
               currentTeamName && React.createElement("div", { title:currentTeamName, style:{ fontSize:10.5, color:"var(--green)", fontWeight:800, lineHeight:1.25, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, `Time atual · ${currentTeamName}`),
+              characteristicScores.length > 0 && React.createElement("div", { style:{ display:"flex", alignItems:"center", gap:4, minWidth:0, overflow:"hidden", marginTop:2 } },
+                characteristicScores.slice(0,2).map((item)=>React.createElement("span", { key:item.key, title:`${item.label}: ${Math.round(item.score)}`, style:{ display:"inline-flex", alignItems:"center", gap:4, minWidth:0, padding:"3px 6px", borderRadius:999, background:"color-mix(in srgb, var(--green) 10%, var(--surface-soft))", border:"1px solid color-mix(in srgb, var(--green) 25%, var(--border))", color:"var(--heading)", fontSize:9.5, fontWeight:800, whiteSpace:"nowrap" } }, React.createElement("span", { style:{ overflow:"hidden", textOverflow:"ellipsis" } }, item.label), React.createElement("strong", { style:{ color:"var(--green)", fontVariantNumeric:"tabular-nums" } }, Math.round(item.score)))),
+                characteristicScores.length > 2 && React.createElement("span", { title:characteristicScores.slice(2).map((item)=>`${item.label}: ${Math.round(item.score)}`).join(" · "), style:{ flex:"0 0 auto", fontSize:9.5, color:"var(--muted)", fontWeight:800 } }, `+${characteristicScores.length-2}`)
+              ),
               React.createElement("div", { style:{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--heading)", fontWeight:750 } }, React.createElement(BankIcon,{ size:13,color:"currentColor" }), L(player.value))
             ),
             actionLabel ? React.createElement("button", {
@@ -3937,6 +3941,7 @@
           let [marketSection, setMarketSection] = b("all"),
             [clubQuery, setClubQuery] = b(""),
             [positionFilter, setPositionFilter] = b("all"),
+            [characteristicFilters, setCharacteristicFilters] = b([]),
             [sortBy, setSortBy] = b("overall"),
             [visibleCount, setVisibleCount] = b(24),
             [filtersOpen, setFiltersOpen] = b(false),
@@ -3995,6 +4000,67 @@
             { key: "ATK", positions: ["WF", "SS", "CF"] },
           ];
           const marketPositionMap = Object.fromEntries(MARKET_POSITION_FILTERS.map((filter) => [filter.key, new Set(filter.positions)]));
+          const MARKET_CHARACTERISTICS = [
+            { key:"finisher", label:"Finalizador", description:"Precisão, técnica e força do chute", metrics:[["shotAccuracy",.35],["shotTechnique",.25],["shotPower",.20],["attack",.10],["response",.10]] },
+            { key:"header", label:"Cabeceador", description:"Cabeceio, impulsão e presença física", metrics:[["heading",.35],["jump",.25],["attack",.15],["balance",.10],["height",.15]] },
+            { key:"pace", label:"Veloz", description:"Velocidade máxima e aceleração", metrics:[["topSpeed",.55],["acceleration",.45]] },
+            { key:"strong", label:"Forte", description:"Equilíbrio, massa e resistência", metrics:[["balance",.45],["weight",.20],["height",.15],["stamina",.20]] },
+            { key:"dribbler", label:"Driblador", description:"Precisão, velocidade de drible e agilidade", metrics:[["dribbleAccuracy",.40],["dribbleSpeed",.25],["agility",.20],["technique",.15]] },
+            { key:"playmaker", label:"Armador", description:"Passe, técnica e trabalho em equipe", metrics:[["shortPassAccuracy",.25],["longPassAccuracy",.25],["technique",.20],["teamwork",.15],["attack",.15]] },
+            { key:"marker", label:"Marcador", description:"Defesa, resposta, agressividade e físico", metrics:[["defense",.35],["response",.25],["aggression",.15],["balance",.15],["stamina",.10]] },
+          ];
+          const marketCharacteristicByKey = Object.fromEntries(MARKET_CHARACTERISTICS.map((item)=>[item.key,item]));
+          let characteristicScoreMap = X(() => {
+            let players = Array.isArray(e) ? e : [];
+            let heights = players.map((player)=>Number(player&&player.height)).filter(Number.isFinite);
+            let weights = players.map((player)=>Number(player&&player.weight)).filter(Number.isFinite);
+            let heightMin = heights.length ? Math.min(...heights) : 160, heightMax = heights.length ? Math.max(...heights) : 202;
+            let weightMin = weights.length ? Math.min(...weights) : 56, weightMax = weights.length ? Math.max(...weights) : 105;
+            let normalizePhysical = (value,min,max) => {
+              let number=Number(value);
+              if (!Number.isFinite(number) || max<=min) return null;
+              return Math.max(0,Math.min(99,((number-min)/(max-min))*99));
+            };
+            let metricValue = (player,key) => {
+              if (key === "attack" || key === "defense") return Number(player&&player[key]);
+              if (key === "height") return normalizePhysical(player&&player.height,heightMin,heightMax);
+              if (key === "weight") return normalizePhysical(player&&player.weight,weightMin,weightMax);
+              return Number(player&&player.attrs&&player.attrs[key]);
+            };
+            let scoreMap = new Map();
+            players.forEach((player) => {
+              let scores = {};
+              MARKET_CHARACTERISTICS.forEach((definition) => {
+                let total=0, totalWeight=0;
+                definition.metrics.forEach(([metric,weight]) => {
+                  let value=metricValue(player,metric);
+                  if (!Number.isFinite(value)) return;
+                  total += value*weight;
+                  totalWeight += weight;
+                });
+                scores[definition.key] = totalWeight ? Math.round((total/totalWeight)*10)/10 : 0;
+              });
+              scoreMap.set(String(player.id),scores);
+            });
+            return scoreMap;
+          }, [e]);
+          function characteristicScoresFor(player) {
+            let scores=characteristicScoreMap.get(String(player&&player.id))||{};
+            return characteristicFilters.map((key)=>({ key, label:marketCharacteristicByKey[key]&&marketCharacteristicByKey[key].label||key, score:Number(scores[key])||0 }));
+          }
+          function combinedCharacteristicScore(player) {
+            let selected=characteristicScoresFor(player);
+            if (!selected.length) return { average:0, weakest:0 };
+            let values=selected.map((item)=>Number(item.score)||0);
+            return { average:values.reduce((sum,value)=>sum+value,0)/values.length, weakest:Math.min(...values) };
+          }
+          function toggleCharacteristicFilter(key) {
+            let next=characteristicFilters.includes(key) ? characteristicFilters.filter((item)=>item!==key) : [...characteristicFilters,key];
+            setCharacteristicFilters(next);
+            if (next.length) setSortBy("characteristics");
+            else if (sortBy === "characteristics") setSortBy("overall");
+            setVisibleCount(24);
+          }
           let activeSquad = X(
             () => activeTeam ? e.filter((player) => t[player.id] && t[player.id].teamId === activeTeam.id) : [],
             [e, t, activeTeam],
@@ -4069,14 +4135,16 @@
               return true;
             });
             result = result.slice();
+            if (sortBy === "characteristics" && characteristicFilters.length) result.sort((left,right)=>{let rightScore=combinedCharacteristicScore(right),leftScore=combinedCharacteristicScore(left);return rightScore.average-leftScore.average||rightScore.weakest-leftScore.weakest||(Number(right.overall)||0)-(Number(left.overall)||0)||String(left.name||"").localeCompare(String(right.name||""),"pt-BR");});
             if (sortBy === "overall") result.sort((left, right) => right.overall - left.overall);
             if (sortBy === "value") result.sort((left, right) => right.value - left.value);
             if (sortBy === "club") result.sort((left, right) => String(left.club || "").localeCompare(String(right.club || "")));
             return result;
-          }, [e, positionFilter, overallMin, overallMax, valueMin, valueMax, deferredClubQuery, sortBy, marketSearchIndex, activeTeam, t]);
+          }, [e, positionFilter, characteristicFilters, overallMin, overallMax, valueMin, valueMax, deferredClubQuery, sortBy, marketSearchIndex, activeTeam, t, characteristicScoreMap]);
 
           let activeFilterCount =
             (positionFilter !== "all" ? 1 : 0) +
+            (characteristicFilters.length ? 1 : 0) +
             (Number(overallMin) > 70 || Number(overallMax) < 99 ? 1 : 0) +
             (Number(valueMin) > 3 || Number(valueMax) < maxCatalogValue ? 1 : 0) +
             (clubQuery.trim() ? 1 : 0);
@@ -4097,11 +4165,13 @@
             }, { rootMargin:"500px 0px" });
             observer.observe(node);
             return () => observer.disconnect();
-          }, [visibleCount, filteredPlayers.length, marketSection, clubQuery, positionFilter, overallMin, overallMax, valueMin, valueMax]);
+          }, [visibleCount, filteredPlayers.length, marketSection, clubQuery, positionFilter, characteristicFilters, overallMin, overallMax, valueMin, valueMax]);
 
           function resetFilters() {
             setClubQuery("");
             setPositionFilter("all");
+            setCharacteristicFilters([]);
+            setSortBy("overall");
             setOverallMin(70);
             setOverallMax(99);
             setValueMin(3);
@@ -4320,7 +4390,10 @@
                       { style: { ...E, padding: 16, marginBottom: 14 } },
                       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 13 } }, React.createElement("div", { style: { fontSize: 14, fontWeight: 800 } }, "Refinar mercado"), React.createElement("button", { className: "tapbtn", onClick: resetFilters, style: { border: 0, background: "none", color: "var(--green)", fontSize: 11.5, fontWeight: 750, cursor: "pointer" } }, "Limpar")),
                       React.createElement("div", { style: { fontSize: 10.5, color: "var(--muted)", marginBottom: 7 } }, "Posição"),
-                      React.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 10 } }, React.createElement("span", { onClick: () => { setPositionFilter("all"); setVisibleCount(24); }, style: V(positionFilter === "all") }, "Todas"), MARKET_POSITION_FILTERS.map((filter) => React.createElement("span", { key: filter.key, title: filter.positions.join(", "), onClick: () => { setPositionFilter(filter.key); setVisibleCount(24); }, style: V(positionFilter === filter.key) }, filter.key))),
+                      React.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 12 } }, React.createElement("span", { onClick: () => { setPositionFilter("all"); setVisibleCount(24); }, style: V(positionFilter === "all") }, "Todas"), MARKET_POSITION_FILTERS.map((filter) => React.createElement("span", { key: filter.key, title: filter.positions.join(", "), onClick: () => { setPositionFilter(filter.key); setVisibleCount(24); }, style: V(positionFilter === filter.key) }, filter.key))),
+                      React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginBottom:7 } }, "Características"),
+                      React.createElement("div", { style:{ display:"flex",gap:6,overflowX:"auto",paddingBottom:8 } }, MARKET_CHARACTERISTICS.map((filter)=>React.createElement("span", { key:filter.key,title:filter.description,onClick:()=>toggleCharacteristicFilter(filter.key),style:V(characteristicFilters.includes(filter.key)) }, filter.label))),
+                      React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",lineHeight:1.4,margin:"1px 0 13px" } }, "Combine características com posição, overall e valor. Os jogadores com melhor encaixe aparecem primeiro."),
                       React.createElement(
                         "div",
                         { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 } },
@@ -4338,7 +4411,7 @@
                       "div",
                       { style: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 } },
                       React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)" } }, `${filteredPlayers.length} jogadores encontrados`),
-                      React.createElement("select", { value: sortBy, onChange: (event) => setSortBy(event.target.value), style: { ...q, width: "auto", minWidth: 130, padding: "8px 30px 8px 10px", fontSize: 11.5 } }, React.createElement("option", { value: "overall" }, "Maior overall"), React.createElement("option", { value: "value" }, "Maior valor"), React.createElement("option", { value: "club" }, "Clube A–Z")),
+                      React.createElement("select", { value: sortBy, onChange: (event) => setSortBy(event.target.value), style: { ...q, width: "auto", minWidth: 150, padding: "8px 30px 8px 10px", fontSize: 11.5 } }, characteristicFilters.length > 0 && React.createElement("option", { value: "characteristics" }, "Melhor combinação"), React.createElement("option", { value: "overall" }, "Maior overall"), React.createElement("option", { value: "value" }, "Maior valor"), React.createElement("option", { value: "club" }, "Clube A–Z")),
                     ),
                     React.createElement("div", { className:"unified-player-grid" }, filteredPlayers.slice(0, visibleCount).map((player) => {
                       let status = n(player);
@@ -4354,6 +4427,7 @@
                         key:player.id, player, onOpen:f, actionLabel:label,
                         currentTeamName:status.teamId && l(status.teamId) ? l(status.teamId).name : null, actionDisabled:closed || insufficient || balanceBlocked || overallBlocked, dimmed:overallBlocked,
                         isFavorite:favoriteSet.has(String(player.id)), onToggleFavorite,
+                        characteristicScores:characteristicScoresFor(player),
                         onAction:()=>{ activeOffer ? setMarketSection("negotiations") : r(player); }
                       });
                     })),
