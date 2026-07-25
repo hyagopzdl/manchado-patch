@@ -3999,7 +3999,14 @@
             return sections.filter((section) => section.players.length);
           }, [favoritePlayers]);
 
-          let positions = X(() => [...new Set(e.map((u) => u.position).filter(Boolean))].sort(), [e]);
+          const MARKET_POSITION_FILTERS = [
+            { key: "GOL", positions: ["GK"] },
+            { key: "ZAG", positions: ["CB", "CWB"] },
+            { key: "LAT", positions: ["SB", "WB"] },
+            { key: "MEI", positions: ["DMF", "CMF", "AMF", "SMF"] },
+            { key: "ATK", positions: ["WF", "SS", "CF"] },
+          ];
+          const marketPositionMap = Object.fromEntries(MARKET_POSITION_FILTERS.map((filter) => [filter.key, new Set(filter.positions)]));
           let activeSquad = X(
             () => activeTeam ? e.filter((player) => t[player.id] && t[player.id].teamId === activeTeam.id) : [],
             [e, t, activeTeam],
@@ -4060,7 +4067,11 @@
           let filteredPlayers = X(() => {
             let result = e.filter((player) => {
               if (activeTeam && t[player.id] && String(t[player.id].teamId) === String(activeTeam.id)) return false;
-              if (positionFilter !== "all" && player.position !== positionFilter) return false;
+              if (positionFilter !== "all") {
+                let allowedPositions = marketPositionMap[positionFilter];
+                let playerPosition = String(player.position || "").toUpperCase();
+                if (!allowedPositions || !allowedPositions.has(playerPosition)) return false;
+              }
               if (Number(player.overall || 0) < Number(overallMin || 0) || Number(player.overall || 0) > Number(overallMax || 99)) return false;
               if (Number(player.value || 0) < Number(valueMin || 0) || Number(player.value || 0) > Number(valueMax || 999)) return false;
               if (deferredClubQuery.trim()) {
@@ -4321,7 +4332,7 @@
                       { style: { ...E, padding: 16, marginBottom: 14 } },
                       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 13 } }, React.createElement("div", { style: { fontSize: 14, fontWeight: 800 } }, "Refinar mercado"), React.createElement("button", { className: "tapbtn", onClick: resetFilters, style: { border: 0, background: "none", color: "var(--green)", fontSize: 11.5, fontWeight: 750, cursor: "pointer" } }, "Limpar")),
                       React.createElement("div", { style: { fontSize: 10.5, color: "var(--muted)", marginBottom: 7 } }, "Posição"),
-                      React.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 10 } }, React.createElement("span", { onClick: () => { setPositionFilter("all"); setVisibleCount(24); }, style: V(positionFilter === "all") }, "Todas"), positions.map((position) => React.createElement("span", { key: position, onClick: () => { setPositionFilter(position); setVisibleCount(24); }, style: V(positionFilter === position) }, position))),
+                      React.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 10 } }, React.createElement("span", { onClick: () => { setPositionFilter("all"); setVisibleCount(24); }, style: V(positionFilter === "all") }, "Todas"), MARKET_POSITION_FILTERS.map((filter) => React.createElement("span", { key: filter.key, title: filter.positions.join(", "), onClick: () => { setPositionFilter(filter.key); setVisibleCount(24); }, style: V(positionFilter === filter.key) }, filter.key))),
                       React.createElement(
                         "div",
                         { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 } },
