@@ -518,13 +518,28 @@
       if (document.visibilityState === "hidden") return schedule();
       inFlight = true;
       try {
+        // Avoid a boot race where loadNormalizedState() finishes after the
+        // heartbeat and replaces the freshly received presence map.
+        await load();
         const { data, error } = await client.rpc("presence_heartbeat", {
           p_profile_id: normalizedProfileId,
           p_ttl_seconds: PRESENCE_TTL_SECONDS
         });
         if (error) throw error;
-        applyPresenceRows(data);
+        const presenceMap = applyPresenceRows(data);
+        window.__MANCHA_PRESENCE_STATUS__ = {
+          ok: true,
+          profileId: normalizedProfileId,
+          onlineCount: Object.keys(presenceMap).length,
+          updatedAt: Date.now()
+        };
       } catch (error) {
+        window.__MANCHA_PRESENCE_STATUS__ = {
+          ok: false,
+          profileId: normalizedProfileId,
+          message: error && error.message ? error.message : String(error),
+          updatedAt: Date.now()
+        };
         console.warn("Falha ao atualizar presença", error);
       } finally {
         inFlight = false;
