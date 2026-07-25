@@ -3374,7 +3374,7 @@
           let code = codes[normalized];
           return code ? code.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt())) : "🌐";
         }
-        function UnifiedPlayerCard({ player, actionLabel, actionDisabled=false, onAction=null, onOpen=null, className="", isFavorite=false, onToggleFavorite=null, dimmed=false, isInitialRoster=false, currentTeamName=null, characteristicScores=[] }) {
+        function UnifiedPlayerCard({ player, actionLabel, actionDisabled=false, onAction=null, onOpen=null, className="", isFavorite=false, onToggleFavorite=null, dimmed=false, isInitialRoster=false, currentTeamName=null }) {
           let flag = nationalityFlag(player.nationality);
           return React.createElement("article", {
             className:`tapbtn unified-player-card ${className}`.trim(),
@@ -3397,10 +3397,6 @@
               ),
               React.createElement("div", { style:{ fontSize:10.5, color:"var(--muted)", lineHeight:1.25, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.club || "Clube não informado"),
               currentTeamName && React.createElement("div", { title:currentTeamName, style:{ fontSize:10.5, color:"var(--green)", fontWeight:800, lineHeight:1.25, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, `Time atual · ${currentTeamName}`),
-              characteristicScores.length > 0 && React.createElement("div", { style:{ display:"flex", alignItems:"center", gap:4, minWidth:0, overflow:"hidden", marginTop:2 } },
-                characteristicScores.slice(0,2).map((item)=>React.createElement("span", { key:item.key, title:`${item.label}: ${Math.round(item.score)}`, style:{ display:"inline-flex", alignItems:"center", gap:4, minWidth:0, padding:"3px 6px", borderRadius:999, background:"color-mix(in srgb, var(--green) 10%, var(--surface-soft))", border:"1px solid color-mix(in srgb, var(--green) 25%, var(--border))", color:"var(--heading)", fontSize:9.5, fontWeight:800, whiteSpace:"nowrap" } }, React.createElement("span", { style:{ overflow:"hidden", textOverflow:"ellipsis" } }, item.label), React.createElement("strong", { style:{ color:"var(--green)", fontVariantNumeric:"tabular-nums" } }, Math.round(item.score)))),
-                characteristicScores.length > 2 && React.createElement("span", { title:characteristicScores.slice(2).map((item)=>`${item.label}: ${Math.round(item.score)}`).join(" · "), style:{ flex:"0 0 auto", fontSize:9.5, color:"var(--muted)", fontWeight:800 } }, `+${characteristicScores.length-2}`)
-              ),
               React.createElement("div", { style:{ display:"inline-flex", alignItems:"center", gap:5, fontSize:11, color:"var(--heading)", fontWeight:750 } }, React.createElement(BankIcon,{ size:13,color:"currentColor" }), L(player.value))
             ),
             actionLabel ? React.createElement("button", {
@@ -4393,7 +4389,6 @@
                       React.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 12 } }, React.createElement("span", { onClick: () => { setPositionFilter("all"); setVisibleCount(24); }, style: V(positionFilter === "all") }, "Todas"), MARKET_POSITION_FILTERS.map((filter) => React.createElement("span", { key: filter.key, title: filter.positions.join(", "), onClick: () => { setPositionFilter(filter.key); setVisibleCount(24); }, style: V(positionFilter === filter.key) }, filter.key))),
                       React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginBottom:7 } }, "Características"),
                       React.createElement("div", { style:{ display:"flex",gap:6,overflowX:"auto",paddingBottom:8 } }, MARKET_CHARACTERISTICS.map((filter)=>React.createElement("span", { key:filter.key,title:filter.description,onClick:()=>toggleCharacteristicFilter(filter.key),style:V(characteristicFilters.includes(filter.key)) }, filter.label))),
-                      React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",lineHeight:1.4,margin:"1px 0 13px" } }, "Combine características com posição, overall e valor. Os jogadores com melhor encaixe aparecem primeiro."),
                       React.createElement(
                         "div",
                         { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 } },
@@ -4427,7 +4422,6 @@
                         key:player.id, player, onOpen:f, actionLabel:label,
                         currentTeamName:status.teamId && l(status.teamId) ? l(status.teamId).name : null, actionDisabled:closed || insufficient || balanceBlocked || overallBlocked, dimmed:overallBlocked,
                         isFavorite:favoriteSet.has(String(player.id)), onToggleFavorite,
-                        characteristicScores:characteristicScoresFor(player),
                         onAction:()=>{ activeOffer ? setMarketSection("negotiations") : r(player); }
                       });
                     })),
