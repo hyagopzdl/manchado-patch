@@ -4555,18 +4555,33 @@
             ["Precisão com o pé ruim", attrs.weakFootAccuracy, 8], ["Frequência de uso do pé ruim", attrs.weakFootFrequency, 8],
           ];
         }
+        function comparisonIndicatorColor(leftValue, rightValue, side) {
+          let leftNumber=Number(leftValue), rightNumber=Number(rightValue);
+          if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber)) return "var(--muted)";
+          if (leftNumber === rightNumber) return "#fff";
+          let sideIsHigher = side === "left" ? leftNumber > rightNumber : rightNumber > leftNumber;
+          return sideIsHigher ? "var(--green)" : "var(--danger)";
+        }
+        function ComparisonTriangle({ leftValue, rightValue, side, size = 9 }) {
+          return React.createElement("span", {
+            "aria-hidden":"true",
+            style:{ display:"inline-flex", alignItems:"center", justifyContent:"center", flex:"0 0 auto", color:comparisonIndicatorColor(leftValue,rightValue,side), fontSize:size, lineHeight:1, transform:"translateY(-.5px)" }
+          }, "▲");
+        }
         function ComparisonAttributeRow({ label, leftValue, rightValue, max = 99 }) {
           let leftNumber = Number(leftValue), rightNumber = Number(rightValue);
           let hasLeft = Number.isFinite(leftNumber), hasRight = Number.isFinite(rightNumber);
-          let leftHigher = hasLeft && hasRight && leftNumber > rightNumber;
-          let rightHigher = hasLeft && hasRight && rightNumber > leftNumber;
-          let value = (number, valid, higher, align) => React.createElement("strong", {
-            style:{ minWidth:44, display:"inline-flex", alignItems:"center", justifyContent:align === "left" ? "flex-start" : "flex-end", gap:2, color:attributeValueColor(number,max), fontSize:17, lineHeight:1, fontVariantNumeric:"tabular-nums" }
-          }, align === "left" && higher && React.createElement(HigherValueIcon,{size:12,color:attributeValueColor(number,max),style:{opacity:.82}}), valid ? number : "—", align !== "left" && higher && React.createElement(HigherValueIcon,{size:12,color:attributeValueColor(number,max),style:{opacity:.82}}));
-          return React.createElement("div", { style:{ minHeight:44, display:"grid", gridTemplateColumns:"minmax(48px,.75fr) minmax(128px,1.8fr) minmax(48px,.75fr)", alignItems:"center", gap:8, padding:"9px 2px", borderBottom:"1px solid var(--border)" } },
-            value(leftNumber,hasLeft,leftHigher,"right"),
-            React.createElement("span", { style:{ color:"var(--heading)", fontSize:13, lineHeight:1.25, textAlign:"center" } }, label),
-            value(rightNumber,hasRight,rightHigher,"left")
+          let value = (number, valid, align) => React.createElement("strong", {
+            style:{ minWidth:48, display:"block", color:attributeValueColor(number,max), fontSize:17, lineHeight:1, fontVariantNumeric:"tabular-nums", textAlign:align }
+          }, valid ? number : "—");
+          return React.createElement("div", { style:{ minHeight:44, display:"grid", gridTemplateColumns:"minmax(54px,.78fr) minmax(148px,1.8fr) minmax(54px,.78fr)", alignItems:"center", gap:8, padding:"9px 2px", borderBottom:"1px solid var(--border)" } },
+            value(leftNumber,hasLeft,"left"),
+            React.createElement("span", { style:{ minWidth:0, display:"grid", gridTemplateColumns:"14px minmax(0,auto) 14px", alignItems:"center", justifyContent:"center", columnGap:5, color:"var(--heading)", fontSize:13, lineHeight:1.25, textAlign:"center" } },
+              React.createElement(ComparisonTriangle,{leftValue:leftNumber,rightValue:rightNumber,side:"left"}),
+              React.createElement("span",{style:{minWidth:0}},label),
+              React.createElement(ComparisonTriangle,{leftValue:leftNumber,rightValue:rightNumber,side:"right"})
+            ),
+            value(rightNumber,hasRight,"right")
           );
         }
         function ro({ player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport }) {
@@ -4605,18 +4620,38 @@
             : detailContext.fromOtherTeam && onOffer
               ? React.createElement("button", { className:"tapbtn", disabled:detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>!detailBalanceBlocked&&onOffer(e), style:{ ...M, ...W, width:"100%", margin:0, opacity:detailBalanceBlocked?.45:1, cursor:detailBalanceBlocked?"not-allowed":"pointer" } }, detailBalanceBlocked?"Bloqueado pelo equilíbrio":"Fazer proposta")
               : null);
-          let compactPlayerHeader = (player, isRight) => React.createElement("div", { style:{ minWidth:0, textAlign:isRight?"right":"left", padding:"12px 10px", borderRadius:16, border:"1px solid var(--border)", background:"var(--surface-soft)" } },
-            React.createElement("div", { style:{ display:"flex", flexDirection:isRight?"row-reverse":"row", alignItems:"center", gap:7, marginBottom:7 } },
-              React.createElement("span", { style:{ display:"inline-flex", padding:"4px 7px", borderRadius:7, background:positionColor(player.position), color:"#fff", fontSize:10, fontWeight:850 } }, player.position || "—"),
-              React.createElement("span", { title:player.nationality||"Nacionalidade não informada", style:{fontSize:17,lineHeight:1} }, nationalityFlag(player.nationality))
-            ),
-            React.createElement("strong", { style:{ display:"block", minHeight:38, fontSize:"clamp(15px,4vw,20px)", lineHeight:1.15, color:"var(--heading)", overflowWrap:"anywhere" } }, player.name || "Jogador"),
-            React.createElement("div", { style:{ display:"flex", flexDirection:isRight?"row-reverse":"row", alignItems:"baseline", gap:8, marginTop:8 } },
-              React.createElement("strong", { style:{ fontSize:22, color:overallColor(player.overall), fontVariantNumeric:"tabular-nums" } }, player.overall || "—"),
-              React.createElement("span", { style:{ fontSize:11, color:"var(--muted)", fontWeight:750 } }, L(player.value || 0))
-            ),
-            React.createElement("div", { style:{ marginTop:5, fontSize:10.5, color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, sourceLabel(player))
-          );
+          let compactPlayerHeader = (player, isRight, opponent) => {
+            let playerOverall=Number(player&&player.overall), opponentOverall=Number(opponent&&opponent.overall);
+            let playerValue=Number(player&&player.value), opponentValue=Number(opponent&&opponent.value);
+            let side=isRight?"right":"left";
+            return React.createElement("article", { style:{ position:"relative", minWidth:0, overflow:"hidden", padding:"12px 10px", borderRadius:17, border:`1px solid color-mix(in srgb, ${overallColor(player.overall)} 45%, var(--border))`, background:`linear-gradient(155deg, color-mix(in srgb, ${overallColor(player.overall)} 19%, var(--surface)) 0%, var(--surface-soft) 56%, var(--surface) 100%)`, boxShadow:`0 16px 34px color-mix(in srgb, ${overallColor(player.overall)} 9%, transparent)`, textAlign:isRight?"right":"left" } },
+              React.createElement("div", { style:{ position:"absolute", width:92, height:92, right:isRight?"auto":-36, left:isRight?-36:"auto", top:-38, borderRadius:999, background:overallColor(player.overall), opacity:.11, filter:"blur(16px)" } }),
+              React.createElement("div", { style:{ position:"relative", display:"grid", gridTemplateColumns:isRight?"minmax(0,1fr) 44px":"44px minmax(0,1fr)", alignItems:"start", gap:8 } },
+                !isRight && React.createElement("div", { style:{ display:"flex", alignItems:"flex-start", gap:4 } },
+                  React.createElement("strong", { style:{ fontSize:32, lineHeight:.95, letterSpacing:"-1.4px", color:overallColor(player.overall), fontVariantNumeric:"tabular-nums" } }, player.overall || "—"),
+                  React.createElement(ComparisonTriangle,{leftValue:playerOverall,rightValue:opponentOverall,side,size:9})
+                ),
+                React.createElement("div", { style:{ minWidth:0, display:"flex", flexDirection:"column", alignItems:isRight?"flex-end":"flex-start", rowGap:4 } },
+                  React.createElement("div", { style:{ display:"flex", flexDirection:isRight?"row-reverse":"row", alignItems:"center", gap:5, minWidth:0, maxWidth:"100%" } },
+                    React.createElement("span", { style:{ display:"inline-flex", alignItems:"center", minHeight:19, padding:"3px 6px", borderRadius:7, background:positionColor(player.position), color:"#fff", fontSize:9.5, fontWeight:850 } }, player.position || "—"),
+                    React.createElement("span", { title:player.nationality||"Nacionalidade não informada", style:{fontSize:14,lineHeight:1} }, nationalityFlag(player.nationality))
+                  ),
+                  React.createElement("strong", { style:{ width:"100%", minHeight:34, fontSize:"clamp(14px,3.7vw,18px)", lineHeight:1.08, letterSpacing:"-.35px", color:"var(--heading)", overflowWrap:"anywhere", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" } }, player.name || "Jogador"),
+                  React.createElement("div", { style:{ width:"100%", fontSize:9.5, color:"var(--muted)", lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, player.club || "Clube não informado"),
+                  React.createElement("div", { style:{ width:"100%", fontSize:9.5, color:"var(--green)", fontWeight:800, lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, sourceLabel(player)),
+                  React.createElement("div", { style:{ display:"inline-flex", flexDirection:isRight?"row-reverse":"row", alignItems:"center", gap:4, marginTop:1, color:"var(--heading)", fontSize:10.5, fontWeight:800, fontVariantNumeric:"tabular-nums" } },
+                    React.createElement(BankIcon,{size:12,color:"currentColor"}),
+                    React.createElement("span",null,L(player.value||0)),
+                    React.createElement(ComparisonTriangle,{leftValue:isRight?opponentValue:playerValue,rightValue:isRight?playerValue:opponentValue,side,size:8})
+                  )
+                ),
+                isRight && React.createElement("div", { style:{ display:"flex", flexDirection:"row-reverse", alignItems:"flex-start", gap:4 } },
+                  React.createElement("strong", { style:{ fontSize:32, lineHeight:.95, letterSpacing:"-1.4px", color:overallColor(player.overall), fontVariantNumeric:"tabular-nums" } }, player.overall || "—"),
+                  React.createElement(ComparisonTriangle,{leftValue:opponentOverall,rightValue:playerOverall,side:"right",size:9})
+                )
+              )
+            );
+          };
           let picker = pickerOpen ? ReactDOM.createPortal(React.createElement("div", { className:"sports-modal-overlay", onClick:()=>setPickerOpen(false), style:{ position:"fixed", inset:0, zIndex:1600, display:"flex", alignItems:"flex-end", justifyContent:"center", background:"rgba(0,0,0,.72)", backdropFilter:"blur(12px)" } },
             React.createElement("div", { onClick:(event)=>event.stopPropagation(), style:{ width:"min(620px,100%)", maxHeight:"82vh", display:"flex", flexDirection:"column", padding:"14px 16px calc(18px + env(safe-area-inset-bottom))", borderRadius:"26px 26px 0 0", border:"1px solid var(--border)", borderBottom:0, background:"var(--surface)", boxShadow:"0 -24px 70px rgba(0,0,0,.35)" } },
               React.createElement("div", { style:{ width:42, height:4, borderRadius:999, background:"var(--border)", margin:"0 auto 16px" } }),
@@ -4653,13 +4688,13 @@
                   : React.createElement("button", { className:"tapbtn", onClick:()=>onReport&&onReport(e), title:"Reportar problema", "aria-label":"Reportar problema no jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--yellow)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(FlagIcon,{size:20})),
                 comparePlayer ? React.createElement(React.Fragment,null,
                   React.createElement("header", { style:{ padding:"4px 0 16px" } },
-                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 28px minmax(0,1fr)", gap:8, alignItems:"center" } }, compactPlayerHeader(e,false), React.createElement("span", { style:{textAlign:"center",fontSize:10,color:"var(--muted)",fontWeight:900,letterSpacing:".08em"} }, "VS"), compactPlayerHeader(comparePlayer,true))
+                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 28px minmax(0,1fr)", gap:8, alignItems:"center" } }, compactPlayerHeader(e,false,comparePlayer), React.createElement("span", { style:{textAlign:"center",fontSize:10,color:"var(--muted)",fontWeight:900,letterSpacing:".08em"} }, "VS"), compactPlayerHeader(comparePlayer,true,e))
                   ),
                   React.createElement("section", { style:{ ...E, padding:"8px 12px 10px" } },
                     React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"minmax(48px,.75fr) minmax(128px,1.8fr) minmax(48px,.75fr)", alignItems:"center", gap:8, padding:"8px 2px 10px", borderBottom:"1px solid var(--border)" } },
-                      React.createElement("span", { style:{ fontSize:10.5,color:"var(--muted)",fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right" } }, e.name),
+                      React.createElement("span", { style:{ fontSize:10.5,color:"var(--muted)",fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"left" } }, e.name),
                       React.createElement("strong", { style:{ fontSize:14,color:"var(--heading)",textAlign:"center" } }, "Atributos"),
-                      React.createElement("span", { style:{ fontSize:10.5,color:"var(--muted)",fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" } }, comparePlayer.name)
+                      React.createElement("span", { style:{ fontSize:10.5,color:"var(--muted)",fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right" } }, comparePlayer.name)
                     ),
                     attributes.map((attribute,index)=>React.createElement(ComparisonAttributeRow,{ key:attribute[0], label:attribute[0], leftValue:attribute[1], rightValue:compareAttributes[index]&&compareAttributes[index][1], max:attribute[2]||99 }))
                   )
