@@ -1797,6 +1797,38 @@
               window.alert(messages[failureReason] || "A compra não pôde ser revertida.");
             }, false);
           }
+          async function rollbackTransferHistoryItem(transfer) {
+            if (!transfer || !R || !isAdminProfile(te)) return;
+            if (transfer.rolledBackAt) { window.alert("Esta transferência já foi revertida."); return; }
+            if (typeof loadFinancialTransactions !== "function") { window.alert("Não foi possível carregar o histórico financeiro."); return; }
+            let teamId = transfer.type === "market_sale" ? transfer.fromTeamId : transfer.toTeamId;
+            let expectedTypes = transfer.type === "market_sale" ? ["market_sale"] : transfer.type === "user_transfer" ? ["player_purchase"] : ["market_purchase"];
+            let cursor = null, transaction = null, attempts = 0;
+            try {
+              do {
+                let page = await loadFinancialTransactions({ tournamentId:R.id, teamId:teamId || null, limit:100, before:cursor });
+                let items = Array.isArray(page && page.items) ? page.items : [];
+                transaction = items.find((item) => {
+                  if (!item || !expectedTypes.includes(item.type) || item.rolledBackAt) return false;
+                  let reference = item.referenceId != null ? item.referenceId : item.refId;
+                  let referenceMatches = transfer.type === "user_transfer" ? String(reference || "") === String(transfer.offerId || "") : String(reference || "") === String(transfer.playerId || "");
+                  return referenceMatches && Math.abs(Number(item.createdAt || 0) - Number(transfer.createdAt || 0)) < 15000;
+                });
+                cursor = page && page.nextCursor;
+                attempts += 1;
+                if (transaction || !(page && page.hasMore)) break;
+              } while (attempts < 10);
+            } catch (error) {
+              console.error("Falha ao localizar transação da transferência", error);
+            }
+            if (!transaction) { window.alert("Não foi possível localizar a movimentação financeira vinculada a esta transferência."); return; }
+            rollbackMarketPurchase(transaction);
+          }
+          function deleteTransferHistoryItem(transfer) {
+            if (!transfer || !R || !isAdminProfile(te)) return;
+            if (!window.confirm(`Apagar ${transfer.playerName || "esta transferência"} somente do histórico visual? Esta ação não altera saldo nem elenco.`)) return;
+            vt((Array.isArray(k) ? k : []).filter((item) => String(item && item.id) !== String(transfer.id)));
+          }
           function deleteGlobalProfile(profileId) {
             let profile = x.find((item) => item && typeof item === "object" && item.id === profileId);
             if (!profile || isAdminProfile(profile)) {
@@ -2571,6 +2603,8 @@
                           ownership: c,
                           teamById: $,
                           teams: ProfileTeams,
+                          allTeams: p,
+                          profiles: x,
                           statusOf: Pe,
                           onBuy: kt,
                           onOpenDetail: (player) => { let status = Pe(player); let balanceCheck = ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true }; be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free", balanceCheck }); },
@@ -2588,6 +2622,8 @@
                           marketRules: marketAccessSettings(R),
                           onOpenReviews: () => setPlayerReviewsOpen(true),
                           isAdmin: isAdminProfile(te),
+                          onRollbackTransfer: rollbackTransferHistoryItem,
+                          onDeleteTransfer: deleteTransferHistoryItem,
                         }),
                       Y === "admin" && isAdminProfile(te) && adminUnlocked &&
                         React.createElement(AdminArea, {
@@ -3920,6 +3956,8 @@
           ownership: t,
           teamById: l,
           teams: a,
+          allTeams: allTeams = [],
+          profiles: profiles = [],
           statusOf: n,
           onBuy: r,
           onOpenDetail: f,
@@ -3937,6 +3975,8 @@
           marketRules = { isOpen:true, freePlayerOverallLimit:{enabled:false,minOverall:1,maxOverall:99} },
           onOpenReviews: onOpenReviews,
           isAdmin: isAdmin = false,
+          onRollbackTransfer: onRollbackTransfer,
+          onDeleteTransfer: onDeleteTransfer,
         }) {
           let catalogValueCeiling = Math.max(333, ...(Array.isArray(e) ? e : []).map((player) => Number(player && player.value) || 0));
           let [marketSection, setMarketSection] = b("all"),
@@ -4297,7 +4337,7 @@
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("recommended"), style: segmentStyle(marketSection === "recommended") }, React.createElement(Star, { size: 15 }), "Recomendados"),
             ),
             marketSection === "negotiations"
-              ? React.createElement(TradeOffersArea, { offers, catalog: catalogMap, teamById: l, activeTeam, transfers: d, onAccept: onAcceptOffer, onUpdate: onUpdateOffer, onOpenDetail: f, onExplorePlayers: () => setMarketSection("all") })
+              ? React.createElement(TradeOffersArea, { offers, catalog: catalogMap, teamById: l, activeTeam, transfers: d, allTeams, profiles, isAdmin, onRollbackTransfer, onDeleteTransfer, onAccept: onAcceptOffer, onUpdate: onUpdateOffer, onOpenDetail: f, onExplorePlayers: () => setMarketSection("all") })
               : marketSection === "favorites"
                 ? React.createElement(React.Fragment, null,
                     React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",alignItems:"end",gap:12,marginBottom:14 } },
@@ -5072,7 +5112,85 @@
           );
         }
 
-        function TradeOffersArea({ offers, catalog, teamById, activeTeam, transfers, onAccept, onUpdate, onOpenDetail, onExplorePlayers }) {
+        function TransferHistorySection({ transfers, catalog, teamById, allTeams = [], profiles = [], activeTeam, isAdmin, onRollbackTransfer, onDeleteTransfer }) {
+          let [teamFilter, setTeamFilter] = b("all"), [typeFilter, setTypeFilter] = b("all");
+          let teamList = (Array.isArray(allTeams) ? allTeams : []).filter((team) => team && team.active !== false).slice().sort((left, right) => String(left.name || "").localeCompare(String(right.name || ""), "pt-BR"));
+          let profileForTeam = (team) => team && (Array.isArray(profiles) ? profiles : []).find((profile) => profile && String(profile.id) === String(team.profileId));
+          let sideInfo = (teamId) => {
+            let team = teamId ? teamById(teamId) : null;
+            if (!team) return { market:true, name:"Mercado", profileName:"Banco", avatar:null, color:"var(--surface-soft)" };
+            let profile = profileForTeam(team);
+            return { market:false, name:team.name || "Time", profileName:(profile && profile.name) || team.archivedProfileName || "Usuário", avatar:profile && profile.avatar, color:(profile && profile.color) || team.color || "var(--surface-soft)" };
+          };
+          let avatar = (info) => React.createElement("span", { className:"transfer-party-avatar", style:{ background:info.color } },
+            info.market ? React.createElement(BankIcon, { size:17, color:"var(--heading)" }) : info.avatar ? React.createElement("img", { src:info.avatar, alt:"", style:{ width:"100%", height:"100%", objectFit:"cover" } }) : String(info.profileName || info.name || "?").charAt(0).toUpperCase()
+          );
+          let typeOf = (transfer) => transfer.type === "market_sale" ? "to_market" : transfer.fromTeamId && transfer.toTeamId ? "between" : transfer.toTeamId ? "from_market" : "other";
+          let matchesTeam = (transfer) => teamFilter === "all" || String(transfer.fromTeamId || "") === teamFilter || String(transfer.toTeamId || "") === teamFilter;
+          let matchesType = (transfer) => {
+            if (typeFilter === "all") return true;
+            let kind = typeOf(transfer);
+            if (teamFilter !== "all") {
+              if (typeFilter === "buy") return String(transfer.toTeamId || "") === teamFilter;
+              if (typeFilter === "sell") return String(transfer.fromTeamId || "") === teamFilter;
+              if (typeFilter === "trade") return kind === "between";
+            }
+            return kind === typeFilter;
+          };
+          let visible = (Array.isArray(transfers) ? transfers : []).filter((item) => item && !item.hiddenFromHistory && matchesTeam(item) && matchesType(item)).slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          let dateLabel = (value) => {
+            let date = new Date(Number(value) || value || Date.now()), today = new Date(), yesterday = new Date();
+            yesterday.setDate(today.getDate() - 1);
+            let same = (a, b) => a.toDateString() === b.toDateString();
+            if (same(date, today)) return "Hoje";
+            if (same(date, yesterday)) return "Ontem";
+            return date.toLocaleDateString("pt-BR", { day:"2-digit", month:"long", year:date.getFullYear() !== today.getFullYear() ? "numeric" : undefined });
+          };
+          let grouped = visible.reduce((result, item) => { let label = dateLabel(item.createdAt); (result[label] || (result[label] = [])).push(item); return result; }, {});
+          let types = teamFilter === "all" ? [["all","Todas"],["from_market","Do mercado"],["to_market","Para o mercado"],["between","Entre times"]] : [["all","Todas"],["buy","Compras"],["sell","Vendas"],["trade","Entre times"]];
+          let selectorStyle = { border:"1px solid var(--border)", background:"var(--surface-soft)", color:"var(--heading)", borderRadius:12, padding:"10px 12px", fontSize:12, fontWeight:750, minWidth:0 };
+          let renderTransfer = (transfer) => {
+            let player = catalog && catalog.get ? catalog.get(transfer.playerId) : null;
+            let origin = sideInfo(transfer.fromTeamId), destination = sideInfo(transfer.toTeamId);
+            let overall = Number(player && player.overall) || Number(transfer.playerOverall) || 0;
+            let position = (player && player.position) || transfer.playerPosition || "—";
+            let club = (player && player.club) || transfer.playerClub || "Clube não informado";
+            let price = Math.abs(Number(transfer.price) || 0);
+            let selectedTeam = teamFilter !== "all" ? teamFilter : (activeTeam && String(activeTeam.id));
+            let isIncoming = selectedTeam && String(transfer.toTeamId || "") === String(selectedTeam);
+            let isOutgoing = selectedTeam && String(transfer.fromTeamId || "") === String(selectedTeam);
+            let priceColor = isIncoming && !isOutgoing ? "var(--danger)" : isOutgoing && !isIncoming ? "var(--green)" : "var(--heading)";
+            let priceSign = isIncoming && !isOutgoing ? "− " : isOutgoing && !isIncoming ? "+ " : "";
+            return React.createElement("article", { key:transfer.id, className:`transfer-market-card${transfer.rolledBackAt ? " is-rolled-back" : ""}` },
+              React.createElement("div", { className:"transfer-overall", style:{ color:overall ? overallColor(overall) : "var(--muted)", borderColor:overall ? overallColor(overall) : "var(--border)" } }, overall || "—"),
+              React.createElement("div", { className:"transfer-player-info" }, React.createElement("span", { style:{ background:positionColor(position) } }, position), React.createElement("strong", null, transfer.playerName || (player && player.name) || "Jogador"), React.createElement("small", null, club)),
+              React.createElement("div", { className:"transfer-party transfer-origin" }, avatar(origin), React.createElement("div", null, React.createElement("strong", null, origin.name), React.createElement("small", null, origin.profileName))),
+              React.createElement("div", { className:"transfer-arrow", "aria-hidden":"true" }, "→"),
+              React.createElement("div", { className:"transfer-party transfer-destination" }, avatar(destination), React.createElement("div", null, React.createElement("strong", null, destination.name), React.createElement("small", null, destination.profileName))),
+              React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : transfer.type === "market_sale" ? "venda ao mercado" : transfer.fromTeamId ? "transferência" : "compra")),
+              isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:"Reverter movimentação", disabled:!!transfer.rolledBackAt, onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
+            );
+          };
+          let historyContent = Object.keys(grouped).length
+            ? Object.entries(grouped).map(([label, items]) => React.createElement("div", { key:label, className:"transfer-date-group" }, React.createElement("div", { className:"transfer-date-header" }, label, React.createElement("span", null, `${items.length} movimentaç${items.length === 1 ? "ão" : "ões"}`)), items.map(renderTransfer)))
+            : React.createElement("div", { style:{ ...E, color:"var(--muted)", fontSize:12, textAlign:"center", padding:24 } }, "Nenhuma transferência encontrada para estes filtros.");
+          return React.createElement("section", { style:{ marginTop:26 } },
+            React.createElement("div", { className:"transfer-history-toolbar" },
+              React.createElement("div", null, React.createElement("h3", { style:{ margin:0, fontSize:19 } }, "Vai e vem do mercado"), React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:3 } }, `${visible.length} movimentaç${visible.length === 1 ? "ão" : "ões"}`)),
+              React.createElement("div", { className:"transfer-history-filters" },
+                React.createElement("select", { value:teamFilter, onChange:(event) => { setTeamFilter(event.target.value); setTypeFilter("all"); }, style:selectorStyle },
+                  React.createElement("option", { value:"all" }, "Todos os times"),
+                  activeTeam && React.createElement("option", { value:String(activeTeam.id) }, `Meu time · ${activeTeam.name}`),
+                  teamList.filter((team) => !activeTeam || String(team.id) !== String(activeTeam.id)).map((team) => { let profile = profileForTeam(team); return React.createElement("option", { key:team.id, value:String(team.id) }, `${team.name} · ${(profile && profile.name) || "Usuário"}`); })
+                ),
+                React.createElement("select", { value:typeFilter, onChange:(event) => setTypeFilter(event.target.value), style:selectorStyle }, types.map(([value, label]) => React.createElement("option", { key:value, value }, label)))
+              )
+            ),
+            historyContent
+          );
+        }
+
+        function TradeOffersArea({ offers, catalog, teamById, activeTeam, transfers, allTeams = [], profiles = [], isAdmin = false, onRollbackTransfer, onDeleteTransfer, onAccept, onUpdate, onOpenDetail, onExplorePlayers }) {
           let [section, setSection] = b("received"), [counterId, setCounterId] = b(null), [counterValue, setCounterValue] = b(0);
           if (!activeTeam) return React.createElement("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Este perfil não possui um time neste campeonato.");
           let now = Date.now();
@@ -5119,17 +5237,7 @@
                 )
               );
             }),
-            React.createElement("section", { style:{ marginTop:26 } },
-              React.createElement("h3", { style:{ margin:"0 0 12px",fontSize:17 } }, "Histórico de transferências"),
-              (Array.isArray(transfers)?transfers:[]).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,30).map((transfer)=>{
-                let buyer=transfer.toTeamId?teamById(transfer.toTeamId):null, seller=transfer.fromTeamId?teamById(transfer.fromTeamId):null;
-                return React.createElement("div", { key:transfer.id, style:{ ...E,padding:14,display:"grid",gridTemplateColumns:"1fr auto",gap:10,alignItems:"center" } },
-                  React.createElement("div", null, React.createElement("strong", { style:{ display:"block",fontSize:14 } }, transfer.playerName || "Jogador"), React.createElement("span", { style:{ fontSize:11.5,color:"var(--muted)" } }, transfer.type==="market_sale"?`${seller?seller.name:"Um time"} vendeu ao mercado`:seller?`${buyer?buyer.name:"Um time"} comprou de ${seller.name}`:`${buyer?buyer.name:"Um time"} comprou do mercado`)),
-                  React.createElement("strong", { style:{ color:"var(--green)" } }, L(transfer.price||0))
-                );
-              }),
-              !(Array.isArray(transfers)&&transfers.length) && React.createElement("div", { style:{ color:"var(--muted)",fontSize:12 } }, "Nenhuma transferência realizada ainda.")
-            )
+            React.createElement(TransferHistorySection, { transfers, catalog, teamById, allTeams, profiles, activeTeam, isAdmin, onRollbackTransfer, onDeleteTransfer })
           );
         }
 

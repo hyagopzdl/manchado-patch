@@ -17,6 +17,10 @@
     <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+      .transfer-history-toolbar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:16px}.transfer-history-filters{display:flex;gap:8px;flex-wrap:wrap}.transfer-date-group{margin-bottom:22px}.transfer-date-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 2px 9px;color:var(--muted);font-size:12px;font-weight:800;text-transform:capitalize}.transfer-date-header span{font-size:10.5px;font-weight:650}.transfer-market-card{display:grid;grid-template-columns:70px minmax(150px,1.25fr) minmax(130px,1fr) 44px minmax(130px,1fr) minmax(105px,.7fr) auto;align-items:center;gap:14px;padding:14px 16px;margin-bottom:8px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(135deg,color-mix(in srgb,var(--surface-soft) 88%,transparent),var(--surface));box-shadow:0 8px 26px rgba(0,0,0,.08)}.transfer-market-card.is-rolled-back{opacity:.55}.transfer-overall{width:58px;height:64px;display:grid;place-items:center;border:1.5px solid;border-radius:16px;font-size:26px;font-weight:900;background:var(--surface-soft);text-shadow:0 0 18px currentColor}.transfer-player-info{min-width:0;display:grid;justify-items:start;gap:4px}.transfer-player-info>span{display:inline-flex;color:#fff;padding:3px 7px;border-radius:7px;font-size:10px;font-weight:850}.transfer-player-info strong,.transfer-party strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transfer-player-info strong{font-size:15px}.transfer-player-info small,.transfer-party small,.transfer-price small{display:block;color:var(--muted);font-size:10.5px}.transfer-party{min-width:0;display:flex;align-items:center;gap:9px}.transfer-party>div{min-width:0}.transfer-party-avatar{width:36px;height:36px;border-radius:999px;display:grid;place-items:center;overflow:hidden;flex:0 0 auto;border:1px solid var(--border);font-size:12px;font-weight:850}.transfer-arrow{font-size:28px;font-weight:400;color:var(--muted);text-align:center}.transfer-price{text-align:right}.transfer-price strong{display:block;font-size:16px;font-weight:900;white-space:nowrap}.transfer-admin-actions{display:flex;gap:6px}.transfer-admin-actions button{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--surface-soft);color:var(--heading);cursor:pointer;font-size:16px;font-weight:900}.transfer-admin-actions button:disabled{opacity:.35;cursor:not-allowed}@media(max-width:760px){.transfer-history-toolbar{align-items:stretch;flex-direction:column}.transfer-history-filters{display:grid;grid-template-columns:1fr 1fr}.transfer-market-card{grid-template-columns:58px minmax(0,1fr) auto;grid-template-areas:"overall player price" "origin arrow destination" "actions actions actions";gap:12px;padding:14px}.transfer-overall{grid-area:overall;width:52px;height:58px;font-size:23px}.transfer-player-info{grid-area:player}.transfer-price{grid-area:price}.transfer-origin{grid-area:origin}.transfer-arrow{grid-area:arrow}.transfer-destination{grid-area:destination;justify-content:flex-end;text-align:right}.transfer-party{font-size:11px}.transfer-party-avatar{width:32px;height:32px}.transfer-arrow{font-size:24px}.transfer-admin-actions{grid-area:actions;justify-content:flex-end;border-top:1px solid var(--border);padding-top:10px}.transfer-player-info strong{font-size:14px}}
+    </style>
   </head>
   <body>
     <div id="root"></div>
@@ -26,12 +30,12 @@
     <script src="./js/state.js?v=20260721-2"></script>
     <script src="./js/components/icons.js?v=20260721-2"></script>
     <script src="./js/utils.js?v=20260721-2"></script>
-    <script>window.__MANCHA_BUILD__="20260725-player-comparison-v13-2";</script>
-    <script src="./js/supabase.js?v=20260725-player-comparison-v13-2"></script>
+    <script>window.__MANCHA_BUILD__="20260725-transfer-history-v14";</script>
+    <script src="./js/supabase.js?v=20260725-transfer-history-v14"></script>
     <script src="./js/features/economy.js?v=20260722-trade-lock"></script>
     <script src="./js/features/market.js?v=20260721-3"></script>
     <script src="./js/features/registry.js?v=20260721-2"></script>
     <script src="./js/features/lineups.js?v=20260721-2"></script>
-    <script src="./js/app.js?v=20260725-player-comparison-v13-2"></script>
+    <script src="./js/app.js?v=20260725-transfer-history-v14"></script>
   </body>
 </html>
