@@ -50,45 +50,45 @@
 @media(max-width:760px){
 .transfer-history-toolbar{align-items:stretch;flex-direction:column}
 .transfer-history-filters{display:grid;grid-template-columns:1fr 1fr}
-.transfer-market-card{grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr);padding:11px 8px;border-radius:14px}
+.transfer-market-card{grid-template-columns:minmax(0,1fr) 22px minmax(0,1fr);padding:12px 9px 10px;border-radius:14px;row-gap:8px}
 .transfer-card-side{gap:7px}
-.transfer-card-left{grid-template-columns:minmax(80px,1.1fr) minmax(54px,.9fr);padding-right:5px}
-.transfer-card-right{grid-template-columns:minmax(54px,.9fr) minmax(46px,.65fr) auto;padding-left:5px}
-.transfer-player-block{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;text-align:center}
-.transfer-overall{width:32px;height:32px;border-radius:999px;font-size:15px}
+.transfer-card-left{grid-template-columns:minmax(96px,1.55fr) minmax(50px,.72fr);padding-right:3px}
+.transfer-card-right{grid-template-columns:minmax(50px,.72fr) minmax(52px,.66fr);padding-left:3px}
+.transfer-player-block{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-width:0;text-align:center}
+.transfer-overall{width:36px;height:36px;border-radius:10px;font-size:16px}
 .transfer-player-info{gap:3px;min-width:0;justify-items:center;width:100%}
-.transfer-player-main{gap:4px;justify-content:center}
-.transfer-player-main strong{font-size:11.5px;line-height:1.1}
+.transfer-player-main{gap:5px;justify-content:center}
+.transfer-player-main strong{font-size:12px;line-height:1.15}
 .transfer-position-tag{padding:2px 5px;border-radius:5px;font-size:8px}
-.transfer-player-info small{width:100%;font-size:8.5px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.transfer-party{flex-direction:column;justify-content:center;gap:3px;text-align:center;min-width:0}
+.transfer-player-info small{width:100%;font-size:9px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.transfer-party{flex-direction:column;justify-content:center;gap:4px;text-align:center;min-width:0}
 .transfer-party>div{width:100%;min-width:0}
-.transfer-party-avatar{width:32px;height:32px;font-size:9px;margin:0 auto}
-.transfer-party strong{font-size:9.5px;line-height:1.1}
-.transfer-party small{font-size:8px;line-height:1.1}
+.transfer-party-avatar{width:36px;height:36px;font-size:10px;margin:0 auto}
+.transfer-party strong{font-size:10.5px;line-height:1.15}
+.transfer-party small{font-size:8.5px;line-height:1.15}
 .transfer-origin,.transfer-destination{justify-content:center;text-align:center}
-.transfer-arrow{width:34px;font-size:22px;line-height:1}
+.transfer-arrow{width:22px;font-size:21px;line-height:1}
 .transfer-price{text-align:right}
-.transfer-price strong{font-size:11.5px;line-height:1.1}
-.transfer-price small{display:none}
-.transfer-admin-actions{gap:3px;flex-direction:column}
-.transfer-admin-actions button{width:23px;height:23px;border-radius:7px;font-size:11px}
+.transfer-price strong{font-size:12px;line-height:1.15}
+.transfer-price small{display:block;font-size:7.8px;line-height:1.15;margin-top:3px;white-space:nowrap}
+.transfer-admin-actions{grid-column:1/-1;display:flex;gap:6px;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--border)}
+.transfer-admin-actions button{width:30px;height:28px;border-radius:8px;font-size:13px}
 }
 @media(max-width:420px){
-.transfer-market-card{grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);padding:10px 6px}
+.transfer-market-card{grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);padding:11px 7px 9px}
 .transfer-card-side{gap:5px}
-.transfer-card-left{grid-template-columns:minmax(72px,1.08fr) minmax(48px,.86fr);padding-right:3px}
-.transfer-card-right{grid-template-columns:minmax(48px,.86fr) minmax(42px,.62fr) auto;padding-left:3px}
-.transfer-overall,.transfer-party-avatar{width:30px;height:30px}
-.transfer-overall{font-size:14px}
-.transfer-player-main strong{font-size:10.5px}
+.transfer-card-left{grid-template-columns:minmax(88px,1.62fr) minmax(44px,.66fr);padding-right:2px}
+.transfer-card-right{grid-template-columns:minmax(44px,.66fr) minmax(48px,.62fr);padding-left:2px}
+.transfer-overall,.transfer-party-avatar{width:34px;height:34px}
+.transfer-overall{border-radius:9px;font-size:15px}
+.transfer-player-main strong{font-size:11.5px}
 .transfer-position-tag{font-size:7.5px;padding:2px 4px}
-.transfer-player-info small{font-size:8px}
-.transfer-party strong{font-size:8.8px}
-.transfer-party small{font-size:7.3px}
-.transfer-arrow{width:30px;font-size:20px}
-.transfer-price strong{font-size:10.8px}
-.transfer-admin-actions button{width:21px;height:21px;font-size:10px}
+.transfer-player-info small{font-size:8.5px}
+.transfer-party strong{font-size:10px}
+.transfer-party small{font-size:8px}
+.transfer-arrow{width:18px;font-size:19px}
+.transfer-price strong{font-size:11.5px}
+.transfer-price small{font-size:7.2px}
 }
 </style>
   </head>
@@ -100,12 +100,12 @@
     <script src="./js/state.js?v=20260721-2"></script>
     <script src="./js/components/icons.js?v=20260721-2"></script>
     <script src="./js/utils.js?v=20260721-2"></script>
-    <script>window.__MANCHA_BUILD__="20260725-transfer-history-v14-6";</script>
-    <script src="./js/supabase.js?v=20260725-transfer-history-v14-6"></script>
+    <script>window.__MANCHA_BUILD__="20260725-transfer-history-v14-7";</script>
+    <script src="./js/supabase.js?v=20260725-transfer-history-v14-7"></script>
     <script src="./js/features/economy.js?v=20260722-trade-lock"></script>
     <script src="./js/features/market.js?v=20260721-3"></script>
     <script src="./js/features/registry.js?v=20260721-2"></script>
     <script src="./js/features/lineups.js?v=20260721-2"></script>
-    <script src="./js/app.js?v=20260725-transfer-history-v14-6"></script>
+    <script src="./js/app.js?v=20260725-transfer-history-v14-7"></script>
   </body>
 </html>

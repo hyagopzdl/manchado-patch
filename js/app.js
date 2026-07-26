@@ -5181,9 +5181,9 @@
               React.createElement("div", { className:"transfer-arrow", "aria-hidden":"true" }, "→"),
               React.createElement("div", { className:"transfer-card-side transfer-card-right" },
                 React.createElement("div", { className:"transfer-party transfer-destination" }, avatar(destination), React.createElement("div", null, React.createElement("strong", null, destination.name), React.createElement("small", null, destination.profileName))),
-                React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : transfer.type === "market_sale" ? "venda ao mercado" : transfer.fromTeamId ? "transferência" : "compra")),
-                isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:"Reverter movimentação", disabled:!!transfer.rolledBackAt, onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
-              )
+                React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : transfer.type === "market_sale" ? "venda ao mercado" : transfer.fromTeamId ? "transferência" : "compra"))
+              ),
+              isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:"Reverter movimentação", disabled:!!transfer.rolledBackAt, onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
             );
           };
           let historyContent = Object.keys(grouped).length
