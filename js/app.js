@@ -5165,13 +5165,25 @@
             let priceColor = isDebit ? "var(--danger)" : isCredit ? "var(--green)" : "var(--heading)";
             let priceSign = isDebit ? "− " : isCredit ? "+ " : "";
             return React.createElement("article", { key:transfer.id, className:`transfer-market-card${transfer.rolledBackAt ? " is-rolled-back" : ""}` },
-              React.createElement("div", { className:"transfer-overall", style:{ color:overall ? overallColor(overall) : "var(--muted)", borderColor:overall ? overallColor(overall) : "var(--border)" } }, overall || "—"),
-              React.createElement("div", { className:"transfer-player-info" }, React.createElement("span", { style:{ background:positionColor(position) } }, position), React.createElement("strong", null, transfer.playerName || (player && player.name) || "Jogador"), React.createElement("small", null, club)),
-              React.createElement("div", { className:"transfer-party transfer-origin" }, avatar(origin), React.createElement("div", null, React.createElement("strong", null, origin.name), React.createElement("small", null, origin.profileName))),
+              React.createElement("div", { className:"transfer-card-side transfer-card-left" },
+                React.createElement("div", { className:"transfer-player-block" },
+                  React.createElement("div", { className:"transfer-overall", style:{ color:overall ? overallColor(overall) : "var(--muted)", borderColor:overall ? overallColor(overall) : "var(--border)" } }, overall || "—"),
+                  React.createElement("div", { className:"transfer-player-info" },
+                    React.createElement("div", { className:"transfer-player-main" },
+                      React.createElement("strong", null, transfer.playerName || (player && player.name) || "Jogador"),
+                      React.createElement("span", { className:"transfer-position-tag", style:{ background:positionColor(position) } }, position)
+                    ),
+                    React.createElement("small", null, club)
+                  )
+                ),
+                React.createElement("div", { className:"transfer-party transfer-origin" }, avatar(origin), React.createElement("div", null, React.createElement("strong", null, origin.name), React.createElement("small", null, origin.profileName)))
+              ),
               React.createElement("div", { className:"transfer-arrow", "aria-hidden":"true" }, "→"),
-              React.createElement("div", { className:"transfer-party transfer-destination" }, avatar(destination), React.createElement("div", null, React.createElement("strong", null, destination.name), React.createElement("small", null, destination.profileName))),
-              React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : transfer.type === "market_sale" ? "venda ao mercado" : transfer.fromTeamId ? "transferência" : "compra")),
-              isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:"Reverter movimentação", disabled:!!transfer.rolledBackAt, onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
+              React.createElement("div", { className:"transfer-card-side transfer-card-right" },
+                React.createElement("div", { className:"transfer-party transfer-destination" }, avatar(destination), React.createElement("div", null, React.createElement("strong", null, destination.name), React.createElement("small", null, destination.profileName))),
+                React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : transfer.type === "market_sale" ? "venda ao mercado" : transfer.fromTeamId ? "transferência" : "compra")),
+                isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:"Reverter movimentação", disabled:!!transfer.rolledBackAt, onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
+              )
             );
           };
           let historyContent = Object.keys(grouped).length

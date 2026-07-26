@@ -19,7 +19,78 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <style>
-      .transfer-history-toolbar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:16px}.transfer-history-filters{display:flex;gap:8px;flex-wrap:wrap}.transfer-date-group{margin-bottom:22px}.transfer-date-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 2px 9px;color:var(--muted);font-size:12px;font-weight:800;text-transform:capitalize}.transfer-date-header span{font-size:10.5px;font-weight:650}.transfer-market-card{display:grid;grid-template-columns:70px minmax(150px,1.25fr) minmax(130px,1fr) 44px minmax(130px,1fr) minmax(105px,.7fr) auto;align-items:center;gap:14px;padding:14px 16px;margin-bottom:8px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(135deg,color-mix(in srgb,var(--surface-soft) 88%,transparent),var(--surface));box-shadow:0 8px 26px rgba(0,0,0,.08)}.transfer-market-card.is-rolled-back{opacity:.55}.transfer-overall{width:58px;height:64px;display:grid;place-items:center;border:1.5px solid;border-radius:16px;font-size:26px;font-weight:900;background:var(--surface-soft);text-shadow:0 0 18px currentColor}.transfer-player-info{min-width:0;display:grid;justify-items:start;gap:4px}.transfer-player-main{display:flex;align-items:center;gap:7px;min-width:0;width:100%}.transfer-player-info>span{display:inline-flex;flex:0 0 auto;color:#fff;padding:3px 7px;border-radius:7px;font-size:10px;font-weight:850;line-height:1}.transfer-player-info strong,.transfer-party strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transfer-player-info strong{font-size:15px}.transfer-player-info small,.transfer-party small,.transfer-price small{display:block;color:var(--muted);font-size:10.5px}.transfer-party{min-width:0;display:flex;align-items:center;gap:9px}.transfer-party>div{min-width:0}.transfer-party-avatar{width:36px;height:36px;border-radius:999px;display:grid;place-items:center;overflow:hidden;flex:0 0 auto;border:1px solid var(--border);font-size:12px;font-weight:850}.transfer-arrow{font-size:28px;font-weight:400;color:var(--muted);text-align:center}.transfer-price{text-align:right}.transfer-price strong{display:block;font-size:16px;font-weight:900;white-space:nowrap}.transfer-admin-actions{display:flex;gap:6px}.transfer-admin-actions button{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--surface-soft);color:var(--heading);cursor:pointer;font-size:16px;font-weight:900}.transfer-admin-actions button:disabled{opacity:.35;cursor:not-allowed}@media(max-width:760px){.transfer-history-toolbar{align-items:stretch;flex-direction:column}.transfer-history-filters{display:grid;grid-template-columns:1fr 1fr}.transfer-market-card{position:relative;grid-template-columns:42px minmax(82px,1.25fr) minmax(58px,.82fr) 16px minmax(58px,.82fr) minmax(48px,auto);align-items:center;gap:7px;padding:11px 9px;border-radius:14px}.transfer-overall{width:40px;height:46px;border-radius:11px;font-size:19px}.transfer-player-info{gap:3px;min-width:0;align-self:center}.transfer-player-info>span{padding:3px 6px;border-radius:6px;font-size:9px}.transfer-player-info strong{display:block;width:100%;font-size:12px;line-height:1.15;min-width:0}.transfer-player-info small{display:block;width:100%;font-size:9px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transfer-party{flex-direction:column;justify-content:center;gap:3px;text-align:center;min-width:0}.transfer-party>div{width:100%;min-width:0}.transfer-party-avatar{width:28px;height:28px;font-size:9px;margin:0 auto}.transfer-party strong{display:block;font-size:9.5px;line-height:1.1}.transfer-party small{display:block;font-size:8px;line-height:1.1}.transfer-origin,.transfer-destination{justify-content:center;text-align:center}.transfer-arrow{font-size:20px;line-height:1}.transfer-price{text-align:right;min-width:0}.transfer-price strong{font-size:12px;line-height:1.1}.transfer-price small{display:none}.transfer-admin-actions{position:absolute;right:7px;top:7px;gap:3px}.transfer-admin-actions button{width:24px;height:24px;border-radius:7px;font-size:12px}.transfer-market-card:has(.transfer-admin-actions){padding-right:38px}}@media(max-width:420px){.transfer-market-card{grid-template-columns:38px minmax(76px,1.2fr) minmax(52px,.78fr) 13px minmax(52px,.78fr) minmax(44px,auto);gap:5px;padding:10px 7px}.transfer-overall{width:36px;height:42px;font-size:17px}.transfer-player-info>span{font-size:8.5px;padding:2px 5px}.transfer-player-info strong{font-size:11px}.transfer-player-info small{font-size:8.5px}.transfer-party-avatar{width:26px;height:26px}.transfer-party strong{font-size:9px}.transfer-party small{font-size:7.5px}.transfer-price strong{font-size:11.5px}.transfer-market-card:has(.transfer-admin-actions){padding-right:34px}}</style>
+      
+.transfer-history-toolbar{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:16px}
+.transfer-history-filters{display:flex;gap:8px;flex-wrap:wrap}
+.transfer-date-group{margin-bottom:22px}
+.transfer-date-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:0 2px 9px;color:var(--muted);font-size:12px;font-weight:800;text-transform:capitalize}
+.transfer-date-header span{font-size:10.5px;font-weight:650}
+.transfer-market-card{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 52px minmax(0,1fr);align-items:center;gap:0;padding:14px 16px;margin-bottom:8px;border:1px solid var(--border);border-radius:18px;background:linear-gradient(135deg,color-mix(in srgb,var(--surface-soft) 88%,transparent),var(--surface));box-shadow:0 8px 26px rgba(0,0,0,.08)}
+.transfer-market-card.is-rolled-back{opacity:.55}
+.transfer-card-side{min-width:0;display:grid;align-items:center;gap:14px}
+.transfer-card-left{grid-template-columns:minmax(215px,1.6fr) minmax(120px,1fr);padding-right:14px}
+.transfer-card-right{grid-template-columns:minmax(120px,1fr) minmax(100px,.7fr) auto;padding-left:14px}
+.transfer-player-block{min-width:0;display:grid;grid-template-columns:70px minmax(145px,1fr);align-items:center;gap:14px}
+.transfer-overall{width:58px;height:58px;display:grid;place-items:center;border:1.5px solid;border-radius:999px;font-size:24px;font-weight:900;background:var(--surface-soft);text-shadow:0 0 18px currentColor}
+.transfer-player-info{min-width:0;display:grid;justify-items:start;gap:4px}
+.transfer-player-main{display:flex;align-items:center;gap:7px;min-width:0;width:100%}
+.transfer-player-main strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px}
+.transfer-position-tag{display:inline-flex;flex:0 0 auto;color:#fff;padding:3px 7px;border-radius:7px;font-size:10px;font-weight:850;line-height:1}
+.transfer-player-info small,.transfer-party small,.transfer-price small{display:block;color:var(--muted);font-size:10.5px}
+.transfer-party{min-width:0;display:flex;align-items:center;gap:9px}
+.transfer-party>div{min-width:0}
+.transfer-party strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.transfer-party-avatar{width:36px;height:36px;border-radius:999px;display:grid;place-items:center;overflow:hidden;flex:0 0 auto;border:1px solid var(--border);font-size:12px;font-weight:850}
+.transfer-arrow{width:52px;display:grid;place-items:center;font-size:30px;font-weight:400;color:var(--muted);text-align:center;justify-self:center}
+.transfer-price{text-align:right;min-width:0}
+.transfer-price strong{display:block;font-size:16px;font-weight:900;white-space:nowrap}
+.transfer-admin-actions{display:flex;gap:6px;justify-content:flex-end}
+.transfer-admin-actions button{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);background:var(--surface-soft);color:var(--heading);cursor:pointer;font-size:16px;font-weight:900}
+.transfer-admin-actions button:disabled{opacity:.35;cursor:not-allowed}
+@media(max-width:760px){
+.transfer-history-toolbar{align-items:stretch;flex-direction:column}
+.transfer-history-filters{display:grid;grid-template-columns:1fr 1fr}
+.transfer-market-card{grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr);padding:11px 8px;border-radius:14px}
+.transfer-card-side{gap:7px}
+.transfer-card-left{grid-template-columns:minmax(80px,1.1fr) minmax(54px,.9fr);padding-right:5px}
+.transfer-card-right{grid-template-columns:minmax(54px,.9fr) minmax(46px,.65fr) auto;padding-left:5px}
+.transfer-player-block{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;text-align:center}
+.transfer-overall{width:32px;height:32px;border-radius:999px;font-size:15px}
+.transfer-player-info{gap:3px;min-width:0;justify-items:center;width:100%}
+.transfer-player-main{gap:4px;justify-content:center}
+.transfer-player-main strong{font-size:11.5px;line-height:1.1}
+.transfer-position-tag{padding:2px 5px;border-radius:5px;font-size:8px}
+.transfer-player-info small{width:100%;font-size:8.5px;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.transfer-party{flex-direction:column;justify-content:center;gap:3px;text-align:center;min-width:0}
+.transfer-party>div{width:100%;min-width:0}
+.transfer-party-avatar{width:32px;height:32px;font-size:9px;margin:0 auto}
+.transfer-party strong{font-size:9.5px;line-height:1.1}
+.transfer-party small{font-size:8px;line-height:1.1}
+.transfer-origin,.transfer-destination{justify-content:center;text-align:center}
+.transfer-arrow{width:34px;font-size:22px;line-height:1}
+.transfer-price{text-align:right}
+.transfer-price strong{font-size:11.5px;line-height:1.1}
+.transfer-price small{display:none}
+.transfer-admin-actions{gap:3px;flex-direction:column}
+.transfer-admin-actions button{width:23px;height:23px;border-radius:7px;font-size:11px}
+}
+@media(max-width:420px){
+.transfer-market-card{grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);padding:10px 6px}
+.transfer-card-side{gap:5px}
+.transfer-card-left{grid-template-columns:minmax(72px,1.08fr) minmax(48px,.86fr);padding-right:3px}
+.transfer-card-right{grid-template-columns:minmax(48px,.86fr) minmax(42px,.62fr) auto;padding-left:3px}
+.transfer-overall,.transfer-party-avatar{width:30px;height:30px}
+.transfer-overall{font-size:14px}
+.transfer-player-main strong{font-size:10.5px}
+.transfer-position-tag{font-size:7.5px;padding:2px 4px}
+.transfer-player-info small{font-size:8px}
+.transfer-party strong{font-size:8.8px}
+.transfer-party small{font-size:7.3px}
+.transfer-arrow{width:30px;font-size:20px}
+.transfer-price strong{font-size:10.8px}
+.transfer-admin-actions button{width:21px;height:21px;font-size:10px}
+}
+</style>
   </head>
   <body>
     <div id="root"></div>
@@ -29,12 +100,12 @@
     <script src="./js/state.js?v=20260721-2"></script>
     <script src="./js/components/icons.js?v=20260721-2"></script>
     <script src="./js/utils.js?v=20260721-2"></script>
-    <script>window.__MANCHA_BUILD__="20260725-transfer-history-v14-4";</script>
-    <script src="./js/supabase.js?v=20260725-transfer-history-v14-4"></script>
+    <script>window.__MANCHA_BUILD__="20260725-transfer-history-v14-6";</script>
+    <script src="./js/supabase.js?v=20260725-transfer-history-v14-6"></script>
     <script src="./js/features/economy.js?v=20260722-trade-lock"></script>
     <script src="./js/features/market.js?v=20260721-3"></script>
     <script src="./js/features/registry.js?v=20260721-2"></script>
     <script src="./js/features/lineups.js?v=20260721-2"></script>
-    <script src="./js/app.js?v=20260725-transfer-history-v14-4"></script>
+    <script src="./js/app.js?v=20260725-transfer-history-v14-6"></script>
   </body>
 </html>
