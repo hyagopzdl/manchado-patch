@@ -161,7 +161,7 @@
       selectAll("transfers", "id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at,raw_data", q => q.order("tournament_id").order("created_at").order("id"), "boot:transfers"),
       selectAll("profile_favorites", "tournament_id,profile_id,player_id,created_at", q => q.order("tournament_id").order("profile_id").order("player_id"), "boot:favorites"),
       selectAll("global_player_ownership", "player_id,team_id,for_sale", q => q.order("player_id"), "boot:global-ownership"),
-      selectAll("player_catalog_overrides", "player_id,overall,market_value,updated_by_profile_id,updated_at", q => q.order("player_id"), "boot:overrides")
+      selectAll("player_catalog_overrides", "player_id,overall,market_value,attack,defense,attributes,updated_by_profile_id,updated_at", q => q.order("player_id"), "boot:overrides")
     ]);
 
     const historyByOffer = new Map();
@@ -185,7 +185,7 @@
       return { ...tournamentRaw, id:row.id, name:row.name, format:row.format, type:row.type, status:row.status, champion:row.champion, cupStage:row.cup_stage, groups:row.groups_data, cupSnapshot:row.cup_snapshot, finalStandings:row.final_standings, economySettings:row.economy_settings, finalPrizeSettings:row.final_prize_settings, marketBalanceSettings:row.market_balance_settings, marketSettings:row.market_settings, createdAt:ms(row.created_at), finishedAt:ms(row.finished_at), resetAt:ms(row.reset_at), resetByProfileId:row.reset_by_profile_id, sourceOrder:row.source_order, participants:(participantsByTournament.get(id)||[]).sort((a,b)=>(a.position||0)-(b.position||0)).map(x=>x.profile_id), teamIds:tournamentTeams.map(x=>x.id), matches:tournamentMatches, context:{ ...tournamentRawContext, teams:tournamentTeams, matches:tournamentMatches, ownership:tournamentOwnership, playerStats:tournamentStats, tradeOffers:tournamentOffers, transfers:tournamentTransfers, financialTransactions:[], adminImports:asArray(tournamentRawContext.adminImports), __financialLoaded:false, __importsLoaded:Array.isArray(tournamentRawContext.adminImports) } };
     });
     const preferenceMap = {}; favorites.forEach(row=>{ preferenceMap[row.tournament_id] ||= {}; preferenceMap[row.tournament_id][row.profile_id] ||= {favorites:{}}; preferenceMap[row.tournament_id][row.profile_id].favorites[row.player_id]=true; });
-    const overrideMap = {}; overrides.forEach(row=>{ overrideMap[row.player_id]={ overall:row.overall, value:row.market_value==null?null:Number(row.market_value), updatedByProfileId:row.updated_by_profile_id, updatedAt:ms(row.updated_at) }; });
+    const overrideMap = {}; overrides.forEach(row=>{ overrideMap[row.player_id]={ overall:row.overall, value:row.market_value==null?null:Number(row.market_value), attack:row.attack==null?null:Number(row.attack), defense:row.defense==null?null:Number(row.defense), attrs:asObject(row.attributes), updatedByProfileId:row.updated_by_profile_id, updatedAt:ms(row.updated_at) }; });
     const presenceMap = {};
     const globalMap = {}; globalOwnership.forEach(row=>{ globalMap[row.player_id]={ teamId:row.team_id, forSale:row.for_sale }; });
     const metaRow = meta[0] || {};
@@ -601,6 +601,58 @@
     return data||{ok:true,inserted:payload.length,skipped:0};
   }
   async function fetchPage(rpcName,params={}){if(!client)throw new Error("Supabase não configurado");const{data,error}=await client.rpc(rpcName,params);if(error)throw error;return{items:(data||[]).map(row=>row.data),total:Number(data&&data[0]&&data[0].total_count||0)};}
+
+  function effectiveAttribute(player, key) {
+    if (!player || !key) return null;
+    if (key === "attack" || key === "defense") return Number(player[key]);
+    const attrKey=String(key).replace(/^attrs\./,"");
+    return Number(player.attrs && player.attrs[attrKey]);
+  }
+
+  async function applyPlayerReviewOverride(review, basePlayer, actorProfileIdValue) {
+    await load();
+    if (!client) throw new Error("Supabase não configurado");
+    const original=asObject(review&&review.original), proposed=asObject(review&&review.proposed);
+    const originalAttributes=asObject(original.attributes), proposedAttributes=asObject(proposed.attributes);
+    const attrs={};
+    let attack=null, defense=null;
+    Object.entries(proposedAttributes).forEach(([key,value])=>{
+      if(key==="attack") attack=Number(value);
+      else if(key==="defense") defense=Number(value);
+      else attrs[String(key).replace(/^attrs\./,"")]=Number(value);
+    });
+    const expectedAttrs={};
+    Object.entries(originalAttributes).forEach(([key,value])=>{ if(key!=="attack"&&key!=="defense") expectedAttrs[String(key).replace(/^attrs\./,"")]=Number(value); });
+    const {data,error}=await client.rpc("apply_player_review_override",{
+      p_player_id:String(review.playerId),
+      p_expected_overall:Number(original.overall)||0,
+      p_expected_value:Number(original.value)||0,
+      p_expected_attack:originalAttributes.attack==null?null:Number(originalAttributes.attack),
+      p_expected_defense:originalAttributes.defense==null?null:Number(originalAttributes.defense),
+      p_expected_attributes:expectedAttrs,
+      p_overall:proposed.overall==null?null:Number(proposed.overall),
+      p_market_value:proposed.value==null?null:Number(proposed.value),
+      p_attack:attack,
+      p_defense:defense,
+      p_attributes:attrs,
+      p_review_id:String(review.id),
+      p_actor_profile_id:actorProfileIdValue?String(actorProfileIdValue):actorProfileId()
+    });
+    if(error) throw error;
+    if(data&&data.applied===false) throw new Error(data.reason||"player_changed");
+    const currentOverrides=asObject(getAt(state,"pes/playerCatalogOverrides"));
+    const current=asObject(currentOverrides[review.playerId]);
+    const next={...current,updatedAt:Date.now(),updatedByProfileId:actorProfileIdValue||actorProfileId(),approvedReviewId:review.id};
+    if(proposed.overall!=null) next.overall=Number(proposed.overall);
+    if(proposed.value!=null) next.value=Number(proposed.value);
+    if(attack!=null) next.attack=attack;
+    if(defense!=null) next.defense=defense;
+    next.attrs={...asObject(current.attrs),...attrs};
+    setAt(state,`pes/playerCatalogOverrides/${review.playerId}`,next);
+    emitAll();
+    invalidateCache("boot:overrides");
+    return data||{applied:true};
+  }
   function Ee(){return client?{ref,fetchPage,loadFinancialTransactions,loadPlayerReviews,hydrateTournamentFinancial}:null;}
   function U(path,value){const db=Ee();return db?db.ref(`pes/${path}`).set(value===undefined?null:value):Promise.resolve();}
   function Q(path,callback){const db=Ee();if(!db){callback(null);return()=>{};}const reference=db.ref(`pes/${path}`),handler=snapshot=>callback(snapshot.val());reference.on("value",handler);return()=>reference.off("value",handler);}
@@ -609,5 +661,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,hydrateTournamentFinancial,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,hydrateTournamentFinancial,applyPlayerReviewOverride,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();

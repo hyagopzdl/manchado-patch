@@ -133,7 +133,7 @@
             if (!player || typeof player !== "object") return player;
             let override = playerCatalogOverrides && playerCatalogOverrides[player.id];
             if (!override || typeof override !== "object") return player;
-            return { ...player, overall: override.overall != null ? Number(override.overall) : player.overall, value: override.value != null ? Number(override.value) : player.value };
+            return { ...player, overall: override.overall != null ? Number(override.overall) : player.overall, value: override.value != null ? Number(override.value) : player.value, attack: override.attack != null ? Number(override.attack) : player.attack, defense: override.defense != null ? Number(override.defense) : player.defense, attrs: { ...(player.attrs || {}), ...((override.attrs && typeof override.attrs === "object") ? override.attrs : {}) } };
           }), [baseCatalog, playerCatalogOverrides]);
           let xe = X(() => {
             let o = new Map();
@@ -507,23 +507,74 @@
           function pendingPlayerReviews() {
             return Object.values(playerReviews && typeof playerReviews === "object" ? playerReviews : {}).filter((review) => review && review.status === "pending");
           }
+          function playerAttributeDefinitions() {
+            return [
+              { key:"attack", label:"Ataque", max:99 }, { key:"defense", label:"Defesa", max:99 },
+              { key:"attrs.balance", label:"Equilíbrio", max:99 }, { key:"attrs.stamina", label:"Fôlego", max:99 },
+              { key:"attrs.topSpeed", label:"Velocidade máxima", max:99 }, { key:"attrs.acceleration", label:"Aceleração", max:99 },
+              { key:"attrs.response", label:"Resposta", max:99 }, { key:"attrs.agility", label:"Agilidade", max:99 },
+              { key:"attrs.dribbleAccuracy", label:"Precisão no drible", max:99 }, { key:"attrs.dribbleSpeed", label:"Velocidade no drible", max:99 },
+              { key:"attrs.shortPassAccuracy", label:"Precisão no passe curto", max:99 }, { key:"attrs.shortPassSpeed", label:"Velocidade do passe curto", max:99 },
+              { key:"attrs.longPassAccuracy", label:"Precisão no passe longo", max:99 }, { key:"attrs.longPassSpeed", label:"Velocidade no passe longo", max:99 },
+              { key:"attrs.shotAccuracy", label:"Precisão do chute", max:99 }, { key:"attrs.shotPower", label:"Força do chute", max:99 },
+              { key:"attrs.shotTechnique", label:"Técnica de chute", max:99 }, { key:"attrs.freeKickAccuracy", label:"Precisão em cobranças de falta", max:99 },
+              { key:"attrs.curve", label:"Curva", max:99 }, { key:"attrs.heading", label:"Cabeceio", max:99 },
+              { key:"attrs.jump", label:"Impulsão", max:99 }, { key:"attrs.technique", label:"Técnica", max:99 },
+              { key:"attrs.aggression", label:"Agressividade", max:99 }, { key:"attrs.mentality", label:"Mentalidade", max:99 },
+              { key:"attrs.goalKeepingSkills", label:"Habilidade de goleiro", max:99 }, { key:"attrs.teamwork", label:"Trabalho em equipe", max:99 },
+              { key:"attrs.consistency", label:"Consistência", max:8 }, { key:"attrs.conditionFitness", label:"Condição física", max:8 },
+              { key:"attrs.weakFootAccuracy", label:"Precisão com o pé ruim", max:8 }, { key:"attrs.weakFootFrequency", label:"Frequência de uso do pé ruim", max:8 }
+            ];
+          }
+          function readPlayerAttribute(player, key) {
+            if (!player || !key) return null;
+            if (key === "attack" || key === "defense") return Number(player[key]);
+            let attrKey=String(key).replace(/^attrs\./,"");
+            return Number(player.attrs && player.attrs[attrKey]);
+          }
           function submitPlayerReview(player, values) {
             if (!player || !te || !te.id) return;
             let overallText = String(values && values.overall != null ? values.overall : "").trim();
             let valueText = String(values && values.value != null ? values.value : "").trim();
             let proposedOverall = overallText === "" ? null : Number(overallText);
             let proposedValue = valueText === "" ? null : Number(valueText);
-            if (proposedOverall == null && proposedValue == null) { window.alert("Preencha pelo menos um novo valor."); return; }
+            let originalAttributes={}, proposedAttributes={};
+            let rawAttributes=values && values.attributes && typeof values.attributes === "object" ? values.attributes : {};
+            for (let definition of playerAttributeDefinitions()) {
+              if (!(definition.key in rawAttributes)) continue;
+              let text=String(rawAttributes[definition.key] == null ? "" : rawAttributes[definition.key]).trim();
+              if (text === "") continue;
+              let nextValue=Number(text), currentValue=readPlayerAttribute(player,definition.key);
+              if (!Number.isInteger(nextValue) || nextValue < 1 || nextValue > definition.max) { window.alert(`${definition.label} deve ser um número inteiro entre 1 e ${definition.max}.`); return; }
+              if (nextValue !== currentValue) { originalAttributes[definition.key]=currentValue; proposedAttributes[definition.key]=nextValue; }
+            }
+            let hasAttributes=Object.keys(proposedAttributes).length>0;
+            if (proposedOverall == null && proposedValue == null && !hasAttributes) { window.alert("Altere pelo menos um campo antes de enviar."); return; }
             if (proposedOverall != null && (!Number.isInteger(proposedOverall) || proposedOverall < 1 || proposedOverall > 99)) { window.alert("O overall deve ser um número inteiro entre 1 e 99."); return; }
             if (proposedValue != null && (!Number.isFinite(proposedValue) || proposedValue <= 0)) { window.alert("O valor de mercado deve ser maior que zero."); return; }
-            if ((proposedOverall == null || proposedOverall === Number(player.overall)) && (proposedValue == null || proposedValue === Number(player.value))) { window.alert("Informe pelo menos um valor diferente do atual."); return; }
+            if ((proposedOverall == null || proposedOverall === Number(player.overall)) && (proposedValue == null || proposedValue === Number(player.value)) && !hasAttributes) { window.alert("Informe pelo menos um valor diferente do atual."); return; }
             let duplicate = pendingPlayerReviews().find((review) => String(review.playerId) === String(player.id) && String(review.createdByProfileId) === String(te.id));
             if (duplicate) { window.alert("Você já possui uma revisão pendente para este jogador."); return; }
             let id = _(), now = Date.now();
-            let review = { id, playerId:player.id, playerNameSnapshot:player.name, original:{ overall:Number(player.overall)||0, value:Number(player.value)||0 }, proposed:{ overall:proposedOverall, value:proposedValue }, createdByProfileId:te.id, createdByNameSnapshot:te.name||"Perfil", createdAt:now, status:"pending", votes:{} };
+            let review = { id, playerId:player.id, playerNameSnapshot:player.name, original:{ overall:Number(player.overall)||0, value:Number(player.value)||0, attributes:originalAttributes }, proposed:{ overall:proposedOverall, value:proposedValue, attributes:proposedAttributes }, createdByProfileId:te.id, createdByNameSnapshot:te.name||"Perfil", createdAt:now, status:"pending", votes:{} };
             let db = Ee();
             if (!db) { setPlayerReviews({ ...playerReviews, [id]:review }); setPlayerReportModal(null); return; }
             db.ref("pes/playerReviews/" + id).set(review).then(() => setPlayerReportModal(null)).catch((error) => { console.error("player review submit failed", error); window.alert("Não foi possível enviar a revisão. Tente novamente."); });
+          }
+          function updatePlayerReviewAttributes(reviewId, attributes) {
+            if (!isAdminProfile(te) || !reviewId || !attributes || typeof attributes !== "object") return;
+            let review=playerReviews && playerReviews[reviewId];
+            if (!review || review.status !== "pending") return;
+            let proposed={...(review.proposed||{}),attributes:{...((review.proposed&&review.proposed.attributes)||{})}};
+            for (let definition of playerAttributeDefinitions()) {
+              if (!(definition.key in attributes)) continue;
+              let value=Number(attributes[definition.key]);
+              if (!Number.isInteger(value)||value<1||value>definition.max) { window.alert(`${definition.label} deve ser um número inteiro entre 1 e ${definition.max}.`); return; }
+              proposed.attributes[definition.key]=value;
+            }
+            let db=Ee();
+            if (!db) return;
+            db.ref("pes/playerReviews/"+reviewId+"/proposed").set(proposed).catch((error)=>{console.error("review attributes update failed",error);window.alert("Não foi possível salvar os ajustes.");});
           }
           function removePlayerReview(reviewId) {
             if (!reviewId || !te || !te.id) return;
@@ -596,30 +647,22 @@
                 reviewRef.update({ status:"outdated", resolvedAt:Date.now(), resolutionReason:"player_not_found" });
                 return;
               }
-              let overrideRef = db.ref("pes/playerCatalogOverrides/" + savedReview.playerId);
-              let applyFailure = null;
-              overrideRef.transaction((overrideValue) => {
-                let currentOverride = overrideValue && typeof overrideValue === "object" ? { ...overrideValue } : {};
-                let currentOverall = currentOverride.overall != null ? Number(currentOverride.overall) : Number(basePlayer.overall);
-                let currentValue = currentOverride.value != null ? Number(currentOverride.value) : Number(basePlayer.value);
-                if (currentOverall !== Number(savedReview.original && savedReview.original.overall) || currentValue !== Number(savedReview.original && savedReview.original.value)) {
-                  applyFailure="player_changed";
-                  return;
-                }
-                applyFailure=null;
-                return { ...currentOverride, ...(savedReview.proposed && savedReview.proposed.overall != null ? { overall:Number(savedReview.proposed.overall) } : {}), ...(savedReview.proposed && savedReview.proposed.value != null ? { value:Number(savedReview.proposed.value) } : {}), updatedAt:Date.now(), approvedReviewId:savedReview.id };
-              }, (applyError, applied) => {
-                if (applyError) {
-                  console.error("player review apply failed", applyError);
+              let applyReview=window.ManchaApp && window.ManchaApp.applyPlayerReviewOverride;
+              if (typeof applyReview !== "function") {
+                reviewRef.transaction((reviewValue) => reviewValue && reviewValue.status === "applying" ? { ...reviewValue, status:"pending", applyingAt:null, applyingByProfileId:null } : reviewValue);
+                window.alert("Execute a atualização do Supabase incluída neste patch antes de aprovar correções de atributos.");
+                return;
+              }
+              Promise.resolve(applyReview(savedReview,basePlayer,te.id)).then(()=>{
+                reviewRef.update({ status:"approved", resolvedAt:Date.now(), resolvedByProfileId:te.id, applyingAt:null, applyingByProfileId:null });
+              }).catch((error)=>{
+                console.error("player review apply failed",error);
+                let reason=error&&error.message==="player_changed"?"player_changed":null;
+                if (reason) reviewRef.update({ status:"outdated", resolvedAt:Date.now(), resolutionReason:"player_changed", applyingAt:null, applyingByProfileId:null });
+                else {
                   reviewRef.transaction((reviewValue) => reviewValue && reviewValue.status === "applying" ? { ...reviewValue, status:"pending", applyingAt:null, applyingByProfileId:null } : reviewValue);
                   window.alert("O voto foi registrado, mas não foi possível aplicar a correção. Tente novamente.");
-                  return;
                 }
-                if (!applied || applyFailure === "player_changed") {
-                  reviewRef.update({ status:"outdated", resolvedAt:Date.now(), resolutionReason:"player_changed", applyingAt:null, applyingByProfileId:null });
-                  return;
-                }
-                reviewRef.update({ status:"approved", resolvedAt:Date.now(), resolvedByProfileId:te.id, applyingAt:null, applyingByProfileId:null });
               });
             });
           }
@@ -2815,7 +2858,7 @@
                         onReport: (player) => setPlayerReportModal(player),
                       }),
                     playerReportModal && React.createElement(PlayerReportModal, { player:playerReportModal, onClose:()=>setPlayerReportModal(null), onSubmit:submitPlayerReview }),
-                    playerReviewsOpen && React.createElement(PlayerReviewsModal, { reviews:pendingPlayerReviews(), catalogMap:xe, profiles:x, currentProfile:te, isAdmin:isAdminProfile(te), onClose:()=>setPlayerReviewsOpen(false), onVote:votePlayerReview, onRemove:removePlayerReview }),
+                    playerReviewsOpen && React.createElement(PlayerReviewsModal, { reviews:pendingPlayerReviews(), catalogMap:xe, profiles:x, currentProfile:te, isAdmin:isAdminProfile(te), onClose:()=>setPlayerReviewsOpen(false), onVote:votePlayerReview, onRemove:removePlayerReview, onUpdateAttributes:updatePlayerReviewAttributes }),
                     We &&
                       React.createElement(so, {
                         data: We,
@@ -4549,19 +4592,35 @@
           return React.createElement("span", { title:label, style:{ width:30,height:30,borderRadius:"50%",overflow:"hidden",display:"grid",placeItems:"center",background:color,color:"white",fontSize:11,fontWeight:850,border:"2px solid var(--surface)",marginLeft:-6 } }, avatar?React.createElement("img",{src:avatar,alt:"",style:{width:"100%",height:"100%",objectFit:"cover"}}):label.charAt(0).toUpperCase());
         }
         function PlayerReportModal({ player, onClose, onSubmit }) {
-          let [overall,setOverall]=b(""),[value,setValue]=b("");
+          let [overall,setOverall]=b(""),[value,setValue]=b(""),[attributesOpen,setAttributesOpen]=b(false),[attributes,setAttributes]=b({});
+          let definitions=playerAttributeDefinitions();
+          let changedCount=definitions.filter((definition)=>String(attributes[definition.key]??"").trim()!==""&&Number(attributes[definition.key])!==readPlayerAttribute(player,definition.key)).length;
           return React.createElement(ee,{title:"Sugerir correção",onClose},
             React.createElement("div",{style:{...E,padding:16,marginBottom:14}},React.createElement("strong",{style:{fontSize:17}},player.name),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:4}},"A sugestão será analisada por outros usuários.")),
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12}},
               React.createElement("div",null,React.createElement("label",{style:P},"Novo overall"),React.createElement("input",{type:"number",min:1,max:99,step:1,value:overall,placeholder:`Atual: ${player.overall}`,onChange:(ev)=>setOverall(ev.target.value),style:q})),
               React.createElement("div",null,React.createElement("label",{style:P},"Novo valor de mercado"),React.createElement("input",{type:"number",min:1,step:1,value:value,placeholder:`Atual: ${L(player.value)}`,onChange:(ev)=>setValue(ev.target.value),style:q}))
             ),
-            React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",lineHeight:1.5,marginTop:12}},"Você pode preencher apenas um dos campos. O valor de mercado é informado em milhões."),
-            React.createElement("button",{className:"tapbtn",onClick:()=>onSubmit(player,{overall,value}),style:{...M,...W,width:"100%",marginTop:18}},"Enviar para revisão")
+            React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",lineHeight:1.5,marginTop:12}},"Você pode preencher apenas os campos que estiverem incorretos. O valor de mercado é informado em milhões."),
+            React.createElement("section",{style:{...E,marginTop:16,overflow:"hidden"}},
+              React.createElement("button",{type:"button",onClick:()=>setAttributesOpen(!attributesOpen),style:{width:"100%",minHeight:54,padding:"0 15px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,border:0,background:"transparent",color:"var(--heading)",cursor:"pointer",font:"inherit"}},
+                React.createElement("span",{style:{display:"grid",gap:2,textAlign:"left"}},React.createElement("strong",{style:{fontSize:14}},"Atributos do jogador"),changedCount>0&&React.createElement("small",{style:{fontSize:10.5,color:"var(--green)"}},`${changedCount} ${changedCount===1?"alteração":"alterações"}`)),
+                React.createElement("span",{style:{fontSize:18,color:"var(--muted)",transform:attributesOpen?"rotate(180deg)":"none",transition:"transform .18s ease"}},"⌄")
+              ),
+              attributesOpen&&React.createElement("div",{style:{padding:"4px 14px 14px",borderTop:"1px solid var(--border)",display:"grid",gap:2,maxHeight:"min(52vh,520px)",overflowY:"auto"}},definitions.map((definition)=>{
+                let current=readPlayerAttribute(player,definition.key), raw=attributes[definition.key]??"", changed=String(raw).trim()!==""&&Number(raw)!==current;
+                return React.createElement("label",{key:definition.key,style:{minHeight:48,display:"grid",gridTemplateColumns:"minmax(0,1fr) 72px",alignItems:"center",gap:12,borderBottom:"1px solid var(--border)",fontSize:12.5,color:changed?"var(--heading)":"var(--muted)"}},
+                  React.createElement("span",null,definition.label,React.createElement("small",{style:{display:"block",fontSize:10,color:"var(--muted)",marginTop:2}},`Atual: ${Number.isFinite(current)?current:"—"}`)),
+                  React.createElement("input",{type:"number",min:1,max:definition.max,step:1,value:raw,placeholder:String(Number.isFinite(current)?current:""),onChange:(event)=>setAttributes({...attributes,[definition.key]:event.target.value}),style:{...q,height:36,padding:"0 8px",textAlign:"center",fontWeight:800,borderColor:changed?"var(--green)":"var(--border)"}})
+                );
+              }))
+            ),
+            React.createElement("button",{className:"tapbtn",onClick:()=>onSubmit(player,{overall,value,attributes}),style:{...M,...W,width:"100%",marginTop:18}},"Enviar para revisão")
           );
         }
-        function PlayerReviewsModal({ reviews, catalogMap, profiles, currentProfile, isAdmin, onClose, onVote, onRemove }) {
+        function PlayerReviewsModal({ reviews, catalogMap, profiles, currentProfile, isAdmin, onClose, onVote, onRemove, onUpdateAttributes }) {
           let ordered=[...(reviews||[])].sort((a,b)=>Number(a.createdAt||0)-Number(b.createdAt||0));
+          let [attributeDrafts,setAttributeDrafts]=b({});
           let voteAvatars=(items)=>items.length?React.createElement("div",{style:{position:"absolute",top:-16,left:"50%",transform:"translateX(-50%)",display:"flex",justifyContent:"center",paddingLeft:6,zIndex:2}},items.slice(0,5).map((vote,i)=>React.createElement(ProfileVoteAvatar,{key:`${vote.profileId||vote.profileNameSnapshot||i}-${i}`,vote,profiles}))):null;
           let overallBadge=(value,isOld)=>{
             let color=overallColor(value);
@@ -4583,6 +4642,11 @@
               ),
               changedOverall&&React.createElement("div",{style:{padding:"14px 0",borderTop:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}},React.createElement("strong",{style:{fontSize:12.5}},"Overall"),React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginLeft:"auto"}},overallBadge(review.original&&review.original.overall,true),comparisonArrow(),overallBadge(review.proposed.overall,false))),
               changedValue&&React.createElement("div",{style:{padding:"14px 0",borderTop:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}},React.createElement("strong",{style:{fontSize:12.5}},"Valor de mercado"),React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginLeft:"auto"}},valueBadge(review.original&&review.original.value,true,false),comparisonArrow(),valueBadge(review.proposed.value,false,true))),
+              review.proposed&&review.proposed.attributes&&Object.keys(review.proposed.attributes).length>0&&React.createElement("div",{style:{padding:"14px 0",borderTop:"1px solid var(--border)"}},
+                React.createElement("strong",{style:{display:"block",fontSize:12.5,marginBottom:8}},"Atributos do jogador"),
+                React.createElement("div",{style:{display:"grid",gap:7}},Object.keys(review.proposed.attributes).map((key)=>{let definition=playerAttributeDefinitions().find((item)=>item.key===key)||{key,label:key,max:99};let draftKey=`${review.id}:${key}`,draftValue=attributeDrafts[draftKey]??review.proposed.attributes[key];return React.createElement("div",{key,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:"9px 10px",borderRadius:12,background:"var(--surface-soft)"}},React.createElement("div",null,React.createElement("div",{style:{fontSize:12,fontWeight:750}},definition.label),React.createElement("small",{style:{fontSize:10.5,color:"var(--muted)"}},`Atual: ${review.original&&review.original.attributes?review.original.attributes[key]:"—"}`)),isAdmin?React.createElement("input",{type:"number",min:1,max:definition.max,value:draftValue,onChange:(event)=>setAttributeDrafts({...attributeDrafts,[draftKey]:event.target.value}),style:{...q,width:64,height:34,padding:"0 7px",textAlign:"center",fontWeight:850}}):React.createElement("strong",{style:{fontSize:15,color:"var(--green)"}},draftValue));})),
+                isAdmin&&React.createElement("button",{className:"tapbtn",onClick:()=>{let next={};Object.keys(review.proposed.attributes).forEach((key)=>{next[key]=attributeDrafts[`${review.id}:${key}`]??review.proposed.attributes[key];});onUpdateAttributes(review.id,next);},style:{...M,width:"100%",marginTop:10,minHeight:40,fontSize:12}},"Salvar ajustes dos atributos")
+              ),
               own&&React.createElement("div",{style:{fontSize:12,color:"var(--muted)",textAlign:"center",padding:"13px 10px 2px",borderTop:"1px solid var(--border)"}},"Você enviou esta sugestão e não pode votar nela."),
               !own&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:20,paddingTop:8}},
                 React.createElement("div",{style:{position:"relative"}},voteAvatars(rejections),React.createElement("button",{className:"tapbtn",onClick:()=>onVote(review.id,"reject"),style:{...M,width:"100%",margin:0,minHeight:50,background:myVote&&myVote.decision==="reject"?"var(--danger)":"color-mix(in srgb,var(--danger) 10%,var(--surface))",color:myVote&&myVote.decision==="reject"?"white":"var(--danger)",border:"1px solid color-mix(in srgb,var(--danger) 38%,var(--border))"}},"Recusar")),
