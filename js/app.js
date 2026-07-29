@@ -438,7 +438,7 @@
                   teamIds: [],
                   createdAt: Date.now(),
                   marketSettings: { depreciationPct: 10, initialRosterDepreciationPct: 50, isOpen: true, freePlayerOverallLimit: { enabled:false, minOverall:1, maxOverall:99 }, playerTradeLock:{ enabled:false, gamesRequired:50 } },
-                  rosterSettings: { minPlayers: 23, maxPlayers: 30 },
+                  rosterSettings: { minPlayers: 23, maxPlayers: 30, minBaseRosterPlayers: 0 },
                   economySettings: { version: 2, winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
                   finalPrizeSettings: { firstPlacePrize: 20, lastPlacePercentage: 50 },
                   context: { teams: [], ownership: {}, playerStats: {}, transfers: [], tradeOffers: {}, financialTransactions: [], matches: [] },
@@ -803,6 +803,7 @@
           function marketAccessSettings(tournament = R) { return window.ManchaApp.MarketFeature.marketAccessSettings(tournament); }
           function inferPlayerAcquisition(playerId, ownershipItem, transfersValue = k) { return window.ManchaApp.MarketFeature.inferPlayerAcquisition(playerId, ownershipItem, transfersValue); }
           function isInitialRosterPlayer(playerId, teamId, ownershipValue = c, transfersValue = k) { return window.ManchaApp.MarketFeature.isInitialRosterPlayer(playerId, teamId, ownershipValue, transfersValue); }
+          function baseRosterSaleStatus(playerId, teamId, tournament = R, ownershipValue = c, transfersValue = k) { return window.ManchaApp.MarketFeature.baseRosterSaleStatus(playerId, teamId, tournament, ownershipValue, transfersValue); }
           function marketSaleDepreciation(tournament, playerId, teamId, ownershipValue = c, transfersValue = k) { return window.ManchaApp.MarketFeature.marketSaleDepreciation(tournament, playerId, teamId, ownershipValue, transfersValue); }
           function marketOperationBlock(player, status, tournament = R) { return window.ManchaApp.MarketFeature.marketOperationBlock(player, status, tournament); }
           function evaluateMarketBalance(player, buyerTeamId, tournament = R, teamsValue = p, ownershipValue = c, catalogValue = n) { return window.ManchaApp.MarketFeature.evaluateMarketBalance(player, buyerTeamId, tournament, teamsValue, ownershipValue, catalogValue); }
@@ -979,6 +980,11 @@
               window.alert(`Seu elenco possui o mínimo de ${minPlayers} jogadores. Contrate pelo menos mais um jogador antes de aceitar esta proposta.`);
               return;
             }
+            let localBaseRosterCheck = baseRosterSaleStatus(localOffer.playerId, localOffer.sellerTeamId, R, localOwnership, k);
+            if (localBaseRosterCheck.blocked) {
+              window.alert(`O vendedor precisa manter pelo menos ${localBaseRosterCheck.minimum} jogadores do elenco-base. A proposta continuará aberta.`);
+              return;
+            }
             let localTradeLock = playerTradeLockStatus(localOffer.playerId, localOffer.sellerTeamId, R, localOwnership, k);
             if (localTradeLock.locked) {
               window.alert(`Este jogador ainda precisa completar mais ${localTradeLock.gamesRemaining} jogos no time atual antes de ser negociado.`);
@@ -1030,6 +1036,8 @@
               let sellerSize = Object.values(ownership).filter((item) => item && String(item.teamId) === String(seller.id)).length;
               if (buyerSize >= maxPlayers) { failureReason = "buyer_roster_full"; return; }
               if (sellerSize <= minPlayers) { failureReason = "seller_min_roster"; return; }
+              let atomicBaseRosterCheck = baseRosterSaleStatus(offer.playerId, seller.id, tournament, ownership, context.transfers || []);
+              if (atomicBaseRosterCheck.blocked) { failureReason = "base_roster_minimum"; return; }
               let atomicTradeLock = playerTradeLockStatus(offer.playerId, seller.id, tournament, ownership, context.transfers || [], context.matches || tournament.matches || []);
               if (atomicTradeLock.locked) { failureReason = "player_trade_locked"; return; }
               if ((Number(buyer.budget) || 0) < Number(offer.currentAmount || 0)) { failureReason = "insufficient_funds"; return; }
@@ -1076,7 +1084,8 @@
                 offer_unavailable: "A proposta não está mais disponível.",
                 market_balance_lock: "A transferência está bloqueada pela regra de equilíbrio do mercado. A proposta continua aberta.",
                 market_closed: "O mercado está fechado. A proposta continuará aberta até a reabertura.",
-                player_trade_locked: "Este jogador ainda não cumpriu o número mínimo de jogos no time atual. A proposta continuará aberta."
+                player_trade_locked: "Este jogador ainda não cumpriu o número mínimo de jogos no time atual. A proposta continuará aberta.",
+                base_roster_minimum: "O vendedor precisa manter o número mínimo de jogadores do elenco-base. A proposta continuará aberta."
               };
               window.alert(messages[failureReason] || "A transferência não pôde ser concluída.");
             }, false);
@@ -1159,6 +1168,8 @@
             if (!marketAccessSettings(R).isOpen) { window.alert("O mercado está fechado pela administração."); return; }
             let tradeLock = playerTradeLockStatus(o.id, i);
             if (tradeLock.locked) { window.alert(`Este jogador ainda precisa completar mais ${tradeLock.gamesRemaining} jogos no seu time antes de ser negociado.`); return; }
+            let baseRosterCheck = baseRosterSaleStatus(o.id, i);
+            if (baseRosterCheck.blocked) { window.alert(`Você precisa manter pelo menos ${baseRosterCheck.minimum} jogadores do elenco-base no time.`); return; }
             let D = Math.max(1, Number(y) || o.value);
             (ne({ ...c, [o.id]: { ...(c[o.id] || {}), teamId: i, forSale: !0, price: D } }),
               Ae(null));
@@ -1172,6 +1183,8 @@
             if (!marketAccessSettings(R).isOpen) { window.alert("O mercado está fechado pela administração."); return; }
             let tradeLock = playerTradeLockStatus(o.id, ProfileTeam.id);
             if (tradeLock.locked) { window.alert(`Este jogador ainda precisa completar mais ${tradeLock.gamesRemaining} jogos no seu time antes de ser negociado.`); return; }
+            let baseRosterCheck = baseRosterSaleStatus(o.id, ProfileTeam.id);
+            if (baseRosterCheck.blocked) { window.alert(`Você precisa manter pelo menos ${baseRosterCheck.minimum} jogadores do elenco-base no time.`); return; }
             let minPlayers = Math.max(0, Number(R.rosterSettings && R.rosterSettings.minPlayers != null ? R.rosterSettings.minPlayers : 23) || 0);
             if (Oe(ProfileTeam.id).length <= minPlayers) {
               window.alert(`Você precisa manter no mínimo ${minPlayers} jogadores no elenco.`);
@@ -1195,6 +1208,8 @@
               if (!current || current.teamId !== teamId) return null;
               let serverTradeLock = playerTradeLockStatus(o.id, teamId, tournament, ownership, context.transfers || [], context.matches || tournament.matches || []);
               if (serverTradeLock.locked) { failureReason = "player_trade_locked"; return null; }
+              let serverBaseRosterCheck = baseRosterSaleStatus(o.id, teamId, tournament, ownership, context.transfers || []);
+              if (serverBaseRosterCheck.blocked) { failureReason = "base_roster_minimum"; return null; }
               let serverTransfers = Array.isArray(context.transfers) ? context.transfers : [];
               let serverRule = marketSaleDepreciation(tournament, o.id, teamId, ownership, serverTransfers);
               depreciationPct = serverRule.depreciationPct;
@@ -1240,7 +1255,7 @@
             }, (error, committed, snapshot) => {
               endMarketAction(actionKey);
               if (error) window.alert("Não foi possível concluir a venda. Tente novamente.");
-              else if (!committed) window.alert(failureReason === "player_trade_locked" ? "Este jogador ainda não cumpriu o número mínimo de jogos no seu time." : "A venda foi cancelada porque o jogador não pertence mais ao seu elenco.");
+              else if (!committed) window.alert(failureReason === "player_trade_locked" ? "Este jogador ainda não cumpriu o número mínimo de jogos no seu time." : failureReason === "base_roster_minimum" ? "A venda foi bloqueada porque o time precisa manter o mínimo de jogadores do elenco-base." : "A venda foi cancelada porque o jogador não pertence mais ao seu elenco.");
               else {
                 applyConfirmedTournamentSnapshot(snapshot);
                 setSaleModal(null);
@@ -1588,7 +1603,7 @@
               sourceChampionshipId: source ? source.id : null,
               inheritance: source ? inheritance : null,
               marketSettings: source && source.marketSettings ? { ...source.marketSettings } : { depreciationPct: 10, initialRosterDepreciationPct:50, isOpen:true, freePlayerOverallLimit:{enabled:false,minOverall:1,maxOverall:99} },
-              rosterSettings: source && source.rosterSettings ? { ...source.rosterSettings } : { minPlayers: 23, maxPlayers: 30 },
+              rosterSettings: source && source.rosterSettings ? { ...source.rosterSettings } : { minPlayers: 23, maxPlayers: 30, minBaseRosterPlayers: 0 },
               economySettings: source && source.economySettings ? { ...source.economySettings } : { winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
               finalPrizeSettings: source && source.finalPrizeSettings ? { ...source.finalPrizeSettings } : { firstPlacePrize: 20, lastPlacePercentage: 50 },
               context: { teams, ownership, playerStats: {}, transfers: [], tradeOffers: {}, financialTransactions },
@@ -2013,12 +2028,14 @@
             let next = { enabled: enabled === true, maxDifference: Math.max(0, Number(maxDifference) || 0) };
             ae(m.map((item) => item.id === R.id ? { ...item, marketBalanceSettings: next } : item));
           }
-          function updateRosterRules(minValue, maxValue) {
+          function updateRosterRules(minValue, maxValue, minBaseValue) {
             if (!R) return;
             let minPlayers = Math.max(0, Math.round(Number(minValue) || 0));
             let maxPlayers = Math.max(1, Math.round(Number(maxValue) || 0));
             if (maxPlayers < minPlayers) maxPlayers = minPlayers;
-            ae(m.map((item) => item.id === R.id ? { ...item, rosterSettings: { minPlayers, maxPlayers } } : item));
+            let currentBaseMinimum = R.rosterSettings && R.rosterSettings.minBaseRosterPlayers != null ? R.rosterSettings.minBaseRosterPlayers : 0;
+            let minBaseRosterPlayers = Math.max(0, Math.round(Number(minBaseValue != null ? minBaseValue : currentBaseMinimum) || 0));
+            ae(m.map((item) => item.id === R.id ? { ...item, rosterSettings: { ...(item.rosterSettings || {}), minPlayers, maxPlayers, minBaseRosterPlayers } } : item));
           }
           function viewTournament(tournamentId) {
             setSelectedTournamentId(tournamentId || null);
@@ -6450,11 +6467,12 @@ Hyago 0 x 0 Lucas`;
             adminSection === "rules" && currentTournament && React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Regras do elenco"),
               React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Define quantos jogadores cada time precisa manter e o limite para novas contratações."),
-              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 } },
-                React.createElement("div", null, React.createElement("label", { style: P }, "Mínimo"), React.createElement("input", { type: "number", min: 0, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, onChange: (event) => onUpdateRosterRules(event.target.value, currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30) })),
-                React.createElement("div", null, React.createElement("label", { style: P }, "Máximo"), React.createElement("input", { type: "number", min: 1, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30, onChange: (event) => onUpdateRosterRules(currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, event.target.value) }))
+              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 10 } },
+                React.createElement("div", null, React.createElement("label", { style: P }, "Mínimo total"), React.createElement("input", { type: "number", min: 0, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, onChange: (event) => onUpdateRosterRules(event.target.value, currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30, currentTournament.rosterSettings && currentTournament.rosterSettings.minBaseRosterPlayers != null ? currentTournament.rosterSettings.minBaseRosterPlayers : 0) })),
+                React.createElement("div", null, React.createElement("label", { style: P }, "Máximo total"), React.createElement("input", { type: "number", min: 1, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30, onChange: (event) => onUpdateRosterRules(currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, event.target.value, currentTournament.rosterSettings && currentTournament.rosterSettings.minBaseRosterPlayers != null ? currentTournament.rosterSettings.minBaseRosterPlayers : 0) })),
+                React.createElement("div", null, React.createElement("label", { style: P }, "Mínimo do elenco-base"), React.createElement("input", { type: "number", min: 0, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.minBaseRosterPlayers != null ? currentTournament.rosterSettings.minBaseRosterPlayers : 0, onChange: (event) => onUpdateRosterRules(currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30, event.target.value) }))
               ),
-              React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10 } }, "Times fora do novo limite mantêm seus jogadores, mas ficam impedidos de comprar ou vender até regularizarem o elenco.")
+              React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10, lineHeight:1.45 } }, "O mínimo do elenco-base impede a venda ao mercado ou para outro usuário quando o time atingir essa quantidade. Jogadores contratados posteriormente não entram nessa contagem.")
             ),
             adminSection === "participants" && currentTournament && React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Moedas dos participantes"),

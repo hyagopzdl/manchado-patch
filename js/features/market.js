@@ -64,6 +64,17 @@
     let origin = inferPlayerAcquisition(playerId, item, transfersValue);
     return origin.acquisitionSource === "initial_roster" && String(origin.initialTeamId || "") === String(teamId);
   }
+  function baseRosterMinimumSettings(tournament) {
+    let roster = tournament && tournament.rosterSettings && typeof tournament.rosterSettings === "object" ? tournament.rosterSettings : {};
+    return { minBaseRosterPlayers: Math.max(0, Math.round(Number(roster.minBaseRosterPlayers != null ? roster.minBaseRosterPlayers : 0) || 0)) };
+  }
+  function baseRosterSaleStatus(playerId, teamId, tournament, ownershipValue, transfersValue) {
+    let settings = baseRosterMinimumSettings(tournament);
+    let initialRoster = isInitialRosterPlayer(playerId, teamId, ownershipValue, transfersValue);
+    let count = Object.keys(ownershipValue && typeof ownershipValue === "object" ? ownershipValue : {}).filter((id) => isInitialRosterPlayer(id, teamId, ownershipValue, transfersValue)).length;
+    let blocked = initialRoster && settings.minBaseRosterPlayers > 0 && count <= settings.minBaseRosterPlayers;
+    return { blocked, initialRoster, count, minimum:settings.minBaseRosterPlayers, remainingAfterSale:Math.max(0,count-(initialRoster?1:0)) };
+  }
   function marketSaleDepreciation(tournament, playerId, teamId, ownershipValue, transfersValue) {
     let settings = tournament && tournament.marketSettings && typeof tournament.marketSettings === "object" ? tournament.marketSettings : {};
     let initialRoster = isInitialRosterPlayer(playerId, teamId, ownershipValue, transfersValue);
@@ -117,5 +128,5 @@
     return `Esta contratação elevaria a diferença entre os times para ${check.futureGap.toFixed(1)} OVR. Pela regra de equilíbrio, o máximo permitido agora é ${(check.currentGap > check.maxDifference ? check.currentGap : check.maxDifference).toFixed(1)} OVR. O time mais fraco está com ${check.weakestOverall.toFixed(1)} OVR.`;
   }
 
-  window.ManchaApp.MarketFeature = { fullSquadOverall, playerTradeLockSettings, playerTradeLockStatus, marketBalanceSettings, marketAccessSettings, inferPlayerAcquisition, isInitialRosterPlayer, marketSaleDepreciation, marketOperationBlock, evaluateMarketBalance, marketBalanceMessage };
+  window.ManchaApp.MarketFeature = { fullSquadOverall, playerTradeLockSettings, playerTradeLockStatus, marketBalanceSettings, marketAccessSettings, inferPlayerAcquisition, isInitialRosterPlayer, baseRosterMinimumSettings, baseRosterSaleStatus, marketSaleDepreciation, marketOperationBlock, evaluateMarketBalance, marketBalanceMessage };
 })();
