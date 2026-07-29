@@ -556,7 +556,8 @@
             let duplicate = pendingPlayerReviews().find((review) => String(review.playerId) === String(player.id) && String(review.createdByProfileId) === String(te.id));
             if (duplicate) { window.alert("Você já possui uma revisão pendente para este jogador."); return; }
             let id = _(), now = Date.now();
-            let review = { id, playerId:player.id, playerNameSnapshot:player.name, original:{ overall:Number(player.overall)||0, value:Number(player.value)||0, attributes:originalAttributes }, proposed:{ overall:proposedOverall, value:proposedValue, attributes:proposedAttributes }, createdByProfileId:te.id, createdByNameSnapshot:te.name||"Perfil", createdAt:now, status:"pending", votes:{} };
+            let systemSuggestion=values&&values.systemSuggestion&&typeof values.systemSuggestion==="object"?{overall:Number(values.systemSuggestion.overall)||null,value:Number(values.systemSuggestion.value)||null,valueMin:Number(values.systemSuggestion.valueMin)||null,valueMax:Number(values.systemSuggestion.valueMax)||null,confidence:String(values.systemSuggestion.confidence||"")}:null;
+            let review = { id, playerId:player.id, playerNameSnapshot:player.name, original:{ overall:Number(player.overall)||0, value:Number(player.value)||0, attributes:originalAttributes }, proposed:{ overall:proposedOverall, value:proposedValue, attributes:proposedAttributes }, systemSuggestion, createdByProfileId:te.id, createdByNameSnapshot:te.name||"Perfil", createdAt:now, status:"pending", votes:{} };
             let db = Ee();
             if (!db) { setPlayerReviews({ ...playerReviews, [id]:review }); setPlayerReportModal(null); return; }
             db.ref("pes/playerReviews/" + id).set(review).then(() => setPlayerReportModal(null)).catch((error) => { console.error("player review submit failed", error); window.alert("Não foi possível enviar a revisão. Tente novamente."); });
@@ -2857,8 +2858,8 @@
                         activeTeam: ProfileTeam,
                         onReport: (player) => setPlayerReportModal(player),
                       }),
-                    playerReportModal && React.createElement(PlayerReportModal, { player:playerReportModal, onClose:()=>setPlayerReportModal(null), onSubmit:submitPlayerReview }),
-                    playerReviewsOpen && React.createElement(PlayerReviewsModal, { reviews:pendingPlayerReviews(), catalogMap:xe, profiles:x, currentProfile:te, isAdmin:isAdminProfile(te), onClose:()=>setPlayerReviewsOpen(false), onVote:votePlayerReview, onRemove:removePlayerReview, onUpdateAttributes:updatePlayerReviewAttributes }),
+                    playerReportModal && React.createElement(PlayerReportModal, { player:playerReportModal, catalog:n, onClose:()=>setPlayerReportModal(null), onSubmit:submitPlayerReview }),
+                    playerReviewsOpen && React.createElement(PlayerReviewsModal, { reviews:pendingPlayerReviews(), catalog:n, catalogMap:xe, profiles:x, currentProfile:te, isAdmin:isAdminProfile(te), onClose:()=>setPlayerReviewsOpen(false), onVote:votePlayerReview, onRemove:removePlayerReview, onUpdateAttributes:updatePlayerReviewAttributes }),
                     We &&
                       React.createElement(so, {
                         data: We,
@@ -4616,10 +4617,79 @@
           let attrKey=String(key).replace(/^attrs\./,"");
           return Number(player.attrs && player.attrs[attrKey]);
         }
-        function PlayerReportModal({ player, onClose, onSubmit }) {
+        function applyProposedAttributesToPlayer(player, proposedAttributes) {
+          let next={...(player||{}),attrs:{...((player&&player.attrs)||{})}};
+          let source=proposedAttributes&&typeof proposedAttributes==="object"?proposedAttributes:{};
+          Object.entries(source).forEach(([key,raw])=>{
+            let value=Number(raw);
+            if (!Number.isFinite(value)) return;
+            if (key==="attack"||key==="defense") next[key]=value;
+            else next.attrs[String(key).replace(/^attrs\./,"")]=value;
+          });
+          return next;
+        }
+        function snapMarketValue(value) {
+          let number=Number(value)||0, step=number<20?1:number<100?5:10;
+          return Math.max(step,Math.round(number/step)*step);
+        }
+        function percentile(values, ratio) {
+          let sorted=(values||[]).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+          if (!sorted.length) return null;
+          let index=(sorted.length-1)*ratio, low=Math.floor(index), high=Math.ceil(index);
+          if (low===high) return sorted[low];
+          return sorted[low]+(sorted[high]-sorted[low])*(index-low);
+        }
+        function calculatePlayerReviewSuggestion(player, proposedAttributes, catalog) {
+          let changed=proposedAttributes&&typeof proposedAttributes==="object"?Object.keys(proposedAttributes):[];
+          if (!player||!changed.length||!Array.isArray(catalog)) return null;
+          let target=applyProposedAttributesToPlayer(player,proposedAttributes), definitions=reportablePlayerAttributeDefinitions();
+          let samePosition=catalog.filter((candidate)=>candidate&&String(candidate.id)!==String(player.id)&&String(candidate.position||"")===String(player.position||"")&&Number.isFinite(Number(candidate.overall))&&Number.isFinite(Number(candidate.value)));
+          if (samePosition.length<8) return null;
+          let distances=samePosition.map((candidate)=>{
+            let weightedSquare=0,totalWeight=0,compared=0;
+            definitions.forEach((definition)=>{
+              let a=readReportablePlayerAttribute(target,definition.key), b=readReportablePlayerAttribute(candidate,definition.key);
+              if (!Number.isFinite(a)||!Number.isFinite(b)) return;
+              let weight=changed.includes(definition.key)?2.4:.72;
+              let delta=(a-b)/definition.max;
+              weightedSquare+=weight*delta*delta; totalWeight+=weight; compared++;
+            });
+            if (compared<12||!totalWeight) return null;
+            let distance=Math.sqrt(weightedSquare/totalWeight);
+            return {player:candidate,distance,weight:1/Math.pow(.035+distance,2)};
+          }).filter(Boolean).sort((a,b)=>a.distance-b.distance).slice(0,18);
+          if (distances.length<6) return null;
+          let weightTotal=distances.reduce((sum,item)=>sum+item.weight,0);
+          let overall=Math.round(distances.reduce((sum,item)=>sum+Number(item.player.overall)*item.weight,0)/weightTotal);
+          overall=Math.max(1,Math.min(99,overall));
+          let pricePool=distances.filter((item)=>Math.abs(Number(item.player.overall)-overall)<=2).slice(0,12);
+          if (pricePool.length<5) pricePool=distances.slice(0,12);
+          let priceWeight=pricePool.reduce((sum,item)=>sum+item.weight,0);
+          let value=snapMarketValue(pricePool.reduce((sum,item)=>sum+Number(item.player.value)*item.weight,0)/priceWeight);
+          let rawValues=pricePool.map((item)=>Number(item.player.value));
+          let valueMin=snapMarketValue(percentile(rawValues,.25));
+          let valueMax=snapMarketValue(percentile(rawValues,.75));
+          if (valueMin>valueMax) [valueMin,valueMax]=[valueMax,valueMin];
+          let avgDistance=distances.slice(0,8).reduce((sum,item)=>sum+item.distance,0)/Math.min(8,distances.length);
+          let confidence=avgDistance<.075?"alta":avgDistance<.13?"média":"baixa";
+          return {overall,value,valueMin,valueMax,confidence,comparables:distances.slice(0,3).map((item)=>({id:item.player.id,name:item.player.name,overall:Number(item.player.overall),value:Number(item.player.value),position:item.player.position}))};
+        }
+        function PlayerSuggestionCard({ suggestion, compact=false }) {
+          if (!suggestion) return null;
+          return React.createElement("section",{style:{padding:compact?12:14,borderRadius:16,border:"1px solid color-mix(in srgb,var(--accent) 38%,var(--border))",background:"color-mix(in srgb,var(--accent) 7%,var(--surface))",display:"grid",gap:10}},
+            React.createElement("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}},React.createElement("div",null,React.createElement("strong",{style:{display:"block",fontSize:13}},"Sugestão do sistema"),React.createElement("small",{style:{display:"block",fontSize:10.5,color:"var(--muted)",marginTop:3,lineHeight:1.4}},"Calculada com jogadores da mesma posição e atributos semelhantes.")),React.createElement("span",{style:{fontSize:10,fontWeight:850,textTransform:"uppercase",letterSpacing:.4,color:"var(--muted)",padding:"5px 7px",borderRadius:999,background:"var(--surface-soft)"}},`confiança ${suggestion.confidence}`)),
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:8}},React.createElement("div",{style:{padding:"10px 11px",borderRadius:12,background:"var(--surface)"}},React.createElement("small",{style:{display:"block",fontSize:10,color:"var(--muted)",marginBottom:4}},"Overall sugerido"),React.createElement("strong",{style:{fontSize:21,color:overallColor(suggestion.overall)}},suggestion.overall)),React.createElement("div",{style:{padding:"10px 11px",borderRadius:12,background:"var(--surface)"}},React.createElement("small",{style:{display:"block",fontSize:10,color:"var(--muted)",marginBottom:4}},"Valor sugerido"),React.createElement("strong",{style:{fontSize:17}},L(suggestion.value)),React.createElement("small",{style:{display:"block",fontSize:9.5,color:"var(--muted)",marginTop:3}},`${L(suggestion.valueMin)} – ${L(suggestion.valueMax)}`))),
+            !compact&&suggestion.comparables&&suggestion.comparables.length>0&&React.createElement("div",{style:{display:"grid",gap:5}},React.createElement("small",{style:{fontSize:10,color:"var(--muted)"}},"Referências mais próximas"),suggestion.comparables.map((item)=>React.createElement("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto auto",gap:9,alignItems:"center",fontSize:11.5}},React.createElement("span",{style:{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},item.name),React.createElement("strong",null,item.overall),React.createElement("span",{style:{color:"var(--muted)"}},L(item.value))))),
+            React.createElement("small",{style:{fontSize:10,color:"var(--muted)",lineHeight:1.45}},"A sugestão é apenas uma referência e não altera os campos automaticamente.")
+          );
+        }
+        function PlayerReportModal({ player, catalog = [], onClose, onSubmit }) {
           let [overall,setOverall]=b(""),[value,setValue]=b(""),[attributesOpen,setAttributesOpen]=b(false),[attributes,setAttributes]=b({});
           let definitions=reportablePlayerAttributeDefinitions();
-          let changedCount=definitions.filter((definition)=>String(attributes[definition.key]??"").trim()!==""&&Number(attributes[definition.key])!==readReportablePlayerAttribute(player,definition.key)).length;
+          let proposedAttributes={};
+          definitions.forEach((definition)=>{let raw=String(attributes[definition.key]??"").trim(),current=readReportablePlayerAttribute(player,definition.key);if(raw!==""&&Number(raw)!==current)proposedAttributes[definition.key]=Number(raw);});
+          let changedCount=Object.keys(proposedAttributes).length;
+          let systemSuggestion=calculatePlayerReviewSuggestion(player,proposedAttributes,catalog);
           return React.createElement(ee,{title:"Sugerir correção",onClose},
             React.createElement("div",{style:{...E,padding:16,marginBottom:14}},React.createElement("strong",{style:{fontSize:17}},player.name),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:4}},"A sugestão será analisada por outros usuários.")),
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12}},
@@ -4640,10 +4710,11 @@
                 );
               }))
             ),
-            React.createElement("button",{className:"tapbtn",onClick:()=>onSubmit(player,{overall,value,attributes}),style:{...M,...W,width:"100%",marginTop:18}},"Enviar para revisão")
+            systemSuggestion&&React.createElement("div",{style:{marginTop:16}},React.createElement(PlayerSuggestionCard,{suggestion:systemSuggestion})),
+            React.createElement("button",{className:"tapbtn",onClick:()=>onSubmit(player,{overall,value,attributes,systemSuggestion}),style:{...M,...W,width:"100%",marginTop:18}},"Enviar para revisão")
           );
         }
-        function PlayerReviewsModal({ reviews, catalogMap, profiles, currentProfile, isAdmin, onClose, onVote, onRemove, onUpdateAttributes }) {
+        function PlayerReviewsModal({ reviews, catalog = [], catalogMap, profiles, currentProfile, isAdmin, onClose, onVote, onRemove, onUpdateAttributes }) {
           let ordered=[...(reviews||[])].sort((a,b)=>Number(a.createdAt||0)-Number(b.createdAt||0));
           let [attributeDrafts,setAttributeDrafts]=b({});
           let voteAvatars=(items)=>items.length?React.createElement("div",{style:{position:"absolute",top:-16,left:"50%",transform:"translateX(-50%)",display:"flex",justifyContent:"center",paddingLeft:6,zIndex:2}},items.slice(0,5).map((vote,i)=>React.createElement(ProfileVoteAvatar,{key:`${vote.profileId||vote.profileNameSnapshot||i}-${i}`,vote,profiles}))):null;
@@ -4660,6 +4731,9 @@
             let removeLabel=own?"Cancelar pedido":"Remover revisão";
             let changedOverall=review.proposed&&review.proposed.overall!=null;
             let changedValue=review.proposed&&review.proposed.value!=null;
+            let suggestionAttributes={...((review.proposed&&review.proposed.attributes)||{})};
+            Object.keys(suggestionAttributes).forEach((key)=>{let draft=attributeDrafts[`${review.id}:${key}`];if(draft!==undefined&&String(draft).trim()!=="")suggestionAttributes[key]=Number(draft);});
+            let liveSuggestion=calculatePlayerReviewSuggestion(player,suggestionAttributes,catalog)||review.systemSuggestion||null;
             return React.createElement("article",{key:review.id,className:"family-card",style:{padding:"20px 18px 18px",borderRadius:22,overflow:"visible"}},
               React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:14,alignItems:"flex-start",marginBottom:18}},
                 React.createElement("div",{style:{minWidth:0}},React.createElement("h3",{style:{fontSize:19,margin:0,lineHeight:1.2}},player.name||review.playerNameSnapshot),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:5}},`Sugestão de ${review.createdByNameSnapshot||"um usuário"}`)),
@@ -4672,6 +4746,7 @@
                 React.createElement("div",{style:{display:"grid",gap:7}},Object.keys(review.proposed.attributes).map((key)=>{let definition=reportablePlayerAttributeDefinitions().find((item)=>item.key===key)||{key,label:key,max:99};let draftKey=`${review.id}:${key}`,draftValue=attributeDrafts[draftKey]??review.proposed.attributes[key];return React.createElement("div",{key,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:"9px 10px",borderRadius:12,background:"var(--surface-soft)"}},React.createElement("div",null,React.createElement("div",{style:{fontSize:12,fontWeight:750}},definition.label),React.createElement("small",{style:{fontSize:10.5,color:"var(--muted)"}},`Atual: ${review.original&&review.original.attributes?review.original.attributes[key]:"—"}`)),isAdmin?React.createElement("input",{type:"number",min:1,max:definition.max,value:draftValue,onChange:(event)=>setAttributeDrafts({...attributeDrafts,[draftKey]:event.target.value}),style:{...q,width:64,height:34,padding:"0 7px",textAlign:"center",fontWeight:850}}):React.createElement("strong",{style:{fontSize:15,color:"var(--green)"}},draftValue));})),
                 isAdmin&&React.createElement("button",{className:"tapbtn",onClick:()=>{let next={};Object.keys(review.proposed.attributes).forEach((key)=>{next[key]=attributeDrafts[`${review.id}:${key}`]??review.proposed.attributes[key];});onUpdateAttributes(review.id,next);},style:{...M,width:"100%",marginTop:10,minHeight:40,fontSize:12}},"Salvar ajustes dos atributos")
               ),
+              liveSuggestion&&React.createElement("div",{style:{padding:"14px 0",borderTop:"1px solid var(--border)"}},React.createElement(PlayerSuggestionCard,{suggestion:liveSuggestion,compact:true})),
               own&&React.createElement("div",{style:{fontSize:12,color:"var(--muted)",textAlign:"center",padding:"13px 10px 2px",borderTop:"1px solid var(--border)"}},"Você enviou esta sugestão e não pode votar nela."),
               !own&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:20,paddingTop:8}},
                 React.createElement("div",{style:{position:"relative"}},voteAvatars(rejections),React.createElement("button",{className:"tapbtn",onClick:()=>onVote(review.id,"reject"),style:{...M,width:"100%",margin:0,minHeight:50,background:myVote&&myVote.decision==="reject"?"var(--danger)":"color-mix(in srgb,var(--danger) 10%,var(--surface))",color:myVote&&myVote.decision==="reject"?"white":"var(--danger)",border:"1px solid color-mix(in srgb,var(--danger) 38%,var(--border))"}},"Recusar")),
