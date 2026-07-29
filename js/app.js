@@ -4591,10 +4591,35 @@
           let color=profile.color||vote&&vote.colorSnapshot||"var(--surface-soft)";
           return React.createElement("span", { title:label, style:{ width:30,height:30,borderRadius:"50%",overflow:"hidden",display:"grid",placeItems:"center",background:color,color:"white",fontSize:11,fontWeight:850,border:"2px solid var(--surface)",marginLeft:-6 } }, avatar?React.createElement("img",{src:avatar,alt:"",style:{width:"100%",height:"100%",objectFit:"cover"}}):label.charAt(0).toUpperCase());
         }
+        function reportablePlayerAttributeDefinitions() {
+          return [
+            { key:"attack", label:"Ataque", max:99 }, { key:"defense", label:"Defesa", max:99 },
+            { key:"attrs.balance", label:"Equilíbrio", max:99 }, { key:"attrs.stamina", label:"Fôlego", max:99 },
+            { key:"attrs.topSpeed", label:"Velocidade máxima", max:99 }, { key:"attrs.acceleration", label:"Aceleração", max:99 },
+            { key:"attrs.response", label:"Resposta", max:99 }, { key:"attrs.agility", label:"Agilidade", max:99 },
+            { key:"attrs.dribbleAccuracy", label:"Precisão no drible", max:99 }, { key:"attrs.dribbleSpeed", label:"Velocidade no drible", max:99 },
+            { key:"attrs.shortPassAccuracy", label:"Precisão no passe curto", max:99 }, { key:"attrs.shortPassSpeed", label:"Velocidade do passe curto", max:99 },
+            { key:"attrs.longPassAccuracy", label:"Precisão no passe longo", max:99 }, { key:"attrs.longPassSpeed", label:"Velocidade no passe longo", max:99 },
+            { key:"attrs.shotAccuracy", label:"Precisão do chute", max:99 }, { key:"attrs.shotPower", label:"Força do chute", max:99 },
+            { key:"attrs.shotTechnique", label:"Técnica de chute", max:99 }, { key:"attrs.freeKickAccuracy", label:"Precisão em cobranças de falta", max:99 },
+            { key:"attrs.curve", label:"Curva", max:99 }, { key:"attrs.heading", label:"Cabeceio", max:99 },
+            { key:"attrs.jump", label:"Impulsão", max:99 }, { key:"attrs.technique", label:"Técnica", max:99 },
+            { key:"attrs.aggression", label:"Agressividade", max:99 }, { key:"attrs.mentality", label:"Mentalidade", max:99 },
+            { key:"attrs.goalKeepingSkills", label:"Habilidade de goleiro", max:99 }, { key:"attrs.teamwork", label:"Trabalho em equipe", max:99 },
+            { key:"attrs.consistency", label:"Consistência", max:8 }, { key:"attrs.conditionFitness", label:"Condição física", max:8 },
+            { key:"attrs.weakFootAccuracy", label:"Precisão com o pé ruim", max:8 }, { key:"attrs.weakFootFrequency", label:"Frequência de uso do pé ruim", max:8 }
+          ];
+        }
+        function readReportablePlayerAttribute(player, key) {
+          if (!player || !key) return null;
+          if (key === "attack" || key === "defense") return Number(player[key]);
+          let attrKey=String(key).replace(/^attrs\./,"");
+          return Number(player.attrs && player.attrs[attrKey]);
+        }
         function PlayerReportModal({ player, onClose, onSubmit }) {
           let [overall,setOverall]=b(""),[value,setValue]=b(""),[attributesOpen,setAttributesOpen]=b(false),[attributes,setAttributes]=b({});
-          let definitions=playerAttributeDefinitions();
-          let changedCount=definitions.filter((definition)=>String(attributes[definition.key]??"").trim()!==""&&Number(attributes[definition.key])!==readPlayerAttribute(player,definition.key)).length;
+          let definitions=reportablePlayerAttributeDefinitions();
+          let changedCount=definitions.filter((definition)=>String(attributes[definition.key]??"").trim()!==""&&Number(attributes[definition.key])!==readReportablePlayerAttribute(player,definition.key)).length;
           return React.createElement(ee,{title:"Sugerir correção",onClose},
             React.createElement("div",{style:{...E,padding:16,marginBottom:14}},React.createElement("strong",{style:{fontSize:17}},player.name),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:4}},"A sugestão será analisada por outros usuários.")),
             React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12}},
@@ -4608,7 +4633,7 @@
                 React.createElement("span",{style:{fontSize:18,color:"var(--muted)",transform:attributesOpen?"rotate(180deg)":"none",transition:"transform .18s ease"}},"⌄")
               ),
               attributesOpen&&React.createElement("div",{style:{padding:"4px 14px 14px",borderTop:"1px solid var(--border)",display:"grid",gap:2,maxHeight:"min(52vh,520px)",overflowY:"auto"}},definitions.map((definition)=>{
-                let current=readPlayerAttribute(player,definition.key), raw=attributes[definition.key]??"", changed=String(raw).trim()!==""&&Number(raw)!==current;
+                let current=readReportablePlayerAttribute(player,definition.key), raw=attributes[definition.key]??"", changed=String(raw).trim()!==""&&Number(raw)!==current;
                 return React.createElement("label",{key:definition.key,style:{minHeight:48,display:"grid",gridTemplateColumns:"minmax(0,1fr) 72px",alignItems:"center",gap:12,borderBottom:"1px solid var(--border)",fontSize:12.5,color:changed?"var(--heading)":"var(--muted)"}},
                   React.createElement("span",null,definition.label,React.createElement("small",{style:{display:"block",fontSize:10,color:"var(--muted)",marginTop:2}},`Atual: ${Number.isFinite(current)?current:"—"}`)),
                   React.createElement("input",{type:"number",min:1,max:definition.max,step:1,value:raw,placeholder:String(Number.isFinite(current)?current:""),onChange:(event)=>setAttributes({...attributes,[definition.key]:event.target.value}),style:{...q,height:36,padding:"0 8px",textAlign:"center",fontWeight:800,borderColor:changed?"var(--green)":"var(--border)"}})
@@ -4644,7 +4669,7 @@
               changedValue&&React.createElement("div",{style:{padding:"14px 0",borderTop:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap"}},React.createElement("strong",{style:{fontSize:12.5}},"Valor de mercado"),React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10,marginLeft:"auto"}},valueBadge(review.original&&review.original.value,true,false),comparisonArrow(),valueBadge(review.proposed.value,false,true))),
               review.proposed&&review.proposed.attributes&&Object.keys(review.proposed.attributes).length>0&&React.createElement("div",{style:{padding:"14px 0",borderTop:"1px solid var(--border)"}},
                 React.createElement("strong",{style:{display:"block",fontSize:12.5,marginBottom:8}},"Atributos do jogador"),
-                React.createElement("div",{style:{display:"grid",gap:7}},Object.keys(review.proposed.attributes).map((key)=>{let definition=playerAttributeDefinitions().find((item)=>item.key===key)||{key,label:key,max:99};let draftKey=`${review.id}:${key}`,draftValue=attributeDrafts[draftKey]??review.proposed.attributes[key];return React.createElement("div",{key,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:"9px 10px",borderRadius:12,background:"var(--surface-soft)"}},React.createElement("div",null,React.createElement("div",{style:{fontSize:12,fontWeight:750}},definition.label),React.createElement("small",{style:{fontSize:10.5,color:"var(--muted)"}},`Atual: ${review.original&&review.original.attributes?review.original.attributes[key]:"—"}`)),isAdmin?React.createElement("input",{type:"number",min:1,max:definition.max,value:draftValue,onChange:(event)=>setAttributeDrafts({...attributeDrafts,[draftKey]:event.target.value}),style:{...q,width:64,height:34,padding:"0 7px",textAlign:"center",fontWeight:850}}):React.createElement("strong",{style:{fontSize:15,color:"var(--green)"}},draftValue));})),
+                React.createElement("div",{style:{display:"grid",gap:7}},Object.keys(review.proposed.attributes).map((key)=>{let definition=reportablePlayerAttributeDefinitions().find((item)=>item.key===key)||{key,label:key,max:99};let draftKey=`${review.id}:${key}`,draftValue=attributeDrafts[draftKey]??review.proposed.attributes[key];return React.createElement("div",{key,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:12,alignItems:"center",padding:"9px 10px",borderRadius:12,background:"var(--surface-soft)"}},React.createElement("div",null,React.createElement("div",{style:{fontSize:12,fontWeight:750}},definition.label),React.createElement("small",{style:{fontSize:10.5,color:"var(--muted)"}},`Atual: ${review.original&&review.original.attributes?review.original.attributes[key]:"—"}`)),isAdmin?React.createElement("input",{type:"number",min:1,max:definition.max,value:draftValue,onChange:(event)=>setAttributeDrafts({...attributeDrafts,[draftKey]:event.target.value}),style:{...q,width:64,height:34,padding:"0 7px",textAlign:"center",fontWeight:850}}):React.createElement("strong",{style:{fontSize:15,color:"var(--green)"}},draftValue));})),
                 isAdmin&&React.createElement("button",{className:"tapbtn",onClick:()=>{let next={};Object.keys(review.proposed.attributes).forEach((key)=>{next[key]=attributeDrafts[`${review.id}:${key}`]??review.proposed.attributes[key];});onUpdateAttributes(review.id,next);},style:{...M,width:"100%",marginTop:10,minHeight:40,fontSize:12}},"Salvar ajustes dos atributos")
               ),
               own&&React.createElement("div",{style:{fontSize:12,color:"var(--muted)",textAlign:"center",padding:"13px 10px 2px",borderTop:"1px solid var(--border)"}},"Você enviou esta sugestão e não pode votar nela."),
