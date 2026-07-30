@@ -183,9 +183,34 @@
           He(() => {
             if (!playerReviewsOpen || typeof loadPlayerReviews !== "function") return;
             let active = true;
-            loadPlayerReviews({ force:true }).then((reviews) => { if (active) setPlayerReviews(reviews && typeof reviews === "object" ? reviews : {}); }).catch((error) => console.error("Falha ao carregar revisões", error));
+            loadPlayerReviews({ force:true }).then((reviews) => {
+              if (active) setPlayerReviews(reviews && typeof reviews === "object" ? reviews : {});
+            }).catch((error) => { if (active) console.error("Falha ao carregar revisões", error); });
             return () => { active = false; };
           }, [playerReviewsOpen]);
+          He(() => {
+            if (Y !== "market" || !te || !te.id || typeof loadPlayerReviews !== "function") return;
+            let active = true;
+            let refreshing = false;
+            const refresh = () => {
+              if (!active || refreshing) return;
+              refreshing = true;
+              loadPlayerReviews({ force:true }).then((reviews) => {
+                if (active) setPlayerReviews(reviews && typeof reviews === "object" ? reviews : {});
+              }).catch((error) => {
+                if (active) console.error("Falha ao sincronizar revisões do mercado", error);
+              }).finally(() => { refreshing = false; });
+            };
+            refresh();
+            const handleFocus = () => refresh();
+            window.addEventListener("focus", handleFocus);
+            const timer = window.setInterval(refresh, 60000);
+            return () => {
+              active = false;
+              window.removeEventListener("focus", handleFocus);
+              window.clearInterval(timer);
+            };
+          }, [Y, te && te.id]);
           He(() => {
             if (!te || !te.id || typeof startPresenceHeartbeat !== "function") return;
             return startPresenceHeartbeat(te.id);
@@ -504,8 +529,18 @@
               setAdminGate({ ...gate, password, submitting: false, error: "Não foi possível validar a senha. Tente novamente." });
             }
           }
+          async function refreshPlayerReviews() {
+            if (typeof loadPlayerReviews !== "function") return playerReviews && typeof playerReviews === "object" ? playerReviews : {};
+            const reviews=await loadPlayerReviews({force:true});
+            const normalized=reviews && typeof reviews === "object" ? reviews : {};
+            setPlayerReviews(normalized);
+            return normalized;
+          }
+          function reviewIsPending(review) {
+            return !!review && String(review.status || "pending").toLowerCase() === "pending";
+          }
           function pendingPlayerReviews() {
-            return Object.values(playerReviews && typeof playerReviews === "object" ? playerReviews : {}).filter((review) => review && String(review.status || "pending").toLowerCase() === "pending");
+            return Object.values(playerReviews && typeof playerReviews === "object" ? playerReviews : {}).filter(reviewIsPending);
           }
           function playerAttributeDefinitions() {
             return [
@@ -563,10 +598,7 @@
             if (!db) { setPlayerReportModal(null); return; }
             db.ref("pes/playerReviews/" + id).set(review).then(async () => {
               try {
-                if (typeof loadPlayerReviews === "function") {
-                  let refreshed=await loadPlayerReviews({ force:true });
-                  setPlayerReviews(refreshed && typeof refreshed === "object" ? refreshed : { [id]:review });
-                }
+                if (typeof loadPlayerReviews === "function") await refreshPlayerReviews();
                 setPlayerReportModal(null);
               } catch (refreshError) {
                 console.warn("player review refresh failed", refreshError);
@@ -581,7 +613,7 @@
           function updatePlayerReviewAttributes(reviewId, attributes) {
             if (!isAdminProfile(te) || !reviewId || !attributes || typeof attributes !== "object") return;
             let review=playerReviews && playerReviews[reviewId];
-            if (!review || review.status !== "pending") return;
+            if (!review || !reviewIsPending(review)) { window.alert("Esta revisão não está mais disponível."); return; }
             let proposed={...(review.proposed||{}),attributes:{...((review.proposed&&review.proposed.attributes)||{})}};
             for (let definition of playerAttributeDefinitions()) {
               if (!(definition.key in attributes)) continue;
@@ -591,14 +623,22 @@
             }
             let db=Ee();
             if (!db) return;
-            db.ref("pes/playerReviews/"+reviewId+"/proposed").set(proposed).catch((error)=>{console.error("review attributes update failed",error);window.alert("Não foi possível salvar os ajustes.");});
+            db.ref("pes/playerReviews/"+reviewId+"/proposed").set(proposed).then(async()=>{
+              setPlayerReviews((current)=>{
+                let existing=current&&current[reviewId];
+                if(!existing)return current;
+                return {...current,[reviewId]:{...existing,proposed,updatedAt:Date.now()}};
+              });
+              try { await refreshPlayerReviews(); }
+              catch(error){ console.warn("review attributes refresh failed",error); }
+            }).catch((error)=>{console.error("review attributes update failed",error);window.alert("Não foi possível salvar os ajustes.");});
           }
           function removePlayerReview(reviewId) {
             if (!reviewId || !te || !te.id) return;
             let review = playerReviews && typeof playerReviews === "object" ? playerReviews[reviewId] : null;
             if (!review) { window.alert("Esta revisão não está mais disponível."); return; }
             let adminCanRemove = isAdminProfile(te);
-            let ownPendingReview = String(review.createdByProfileId) === String(te.id) && review.status === "pending";
+            let ownPendingReview = String(review.createdByProfileId) === String(te.id) && reviewIsPending(review);
             if (!adminCanRemove && !ownPendingReview) { window.alert("Você não tem permissão para remover esta revisão."); return; }
             let actionLabel = adminCanRemove && !ownPendingReview ? "remover esta revisão" : "cancelar este pedido";
             if (!window.confirm(`Tem certeza que deseja ${actionLabel}?`)) return;
@@ -613,7 +653,7 @@
             db.ref("pes/playerReviews/" + reviewId).transaction((reviewValue) => {
               let current = reviewValue && typeof reviewValue === "object" ? reviewValue : null;
               if (!current) { failureReason = "unavailable"; return; }
-              let canRemoveCurrent = adminCanRemove || (String(current.createdByProfileId) === String(te.id) && current.status === "pending");
+              let canRemoveCurrent = adminCanRemove || (String(current.createdByProfileId) === String(te.id) && reviewIsPending(current));
               if (!canRemoveCurrent) { failureReason = "forbidden"; return; }
               failureReason = null;
               return null;
@@ -626,7 +666,14 @@
               if (!committed) {
                 let messages = { unavailable:"Esta revisão não está mais disponível.", forbidden:"Você não tem permissão para remover esta revisão." };
                 window.alert(messages[failureReason] || "A revisão não pôde ser removida.");
+                return;
               }
+              setPlayerReviews((current)=>{
+                let next={...(current&&typeof current==="object"?current:{})};
+                delete next[reviewId];
+                return next;
+              });
+              refreshPlayerReviews().catch((refreshError)=>console.warn("player review removal refresh failed",refreshError));
             });
           }
           function votePlayerReview(reviewId, decision) {
@@ -639,7 +686,7 @@
             let reviewRef = db.ref("pes/playerReviews/" + reviewId);
             reviewRef.transaction((reviewValue) => {
               let review = reviewValue && typeof reviewValue === "object" ? { ...reviewValue } : null;
-              if (!review || review.status !== "pending") { failureReason="unavailable"; return; }
+              if (!review || !reviewIsPending(review)) { failureReason="unavailable"; return; }
               if (String(review.createdByProfileId) === String(te.id)) { failureReason="own_review"; return; }
               let votes = review.votes && typeof review.votes === "object" ? { ...review.votes } : {};
               votes[te.id] = { decision, profileNameSnapshot:voter.name||te.name||"Perfil", colorSnapshot:voter.color||null, createdAt:Date.now() };
@@ -658,28 +705,44 @@
                 return;
               }
               let savedReview = snapshot && snapshot.val();
-              if (!savedReview || savedReview.status !== "applying") return;
+              if (savedReview) {
+                setPlayerReviews((current)=>({...((current&&typeof current==="object")?current:{}),[reviewId]:savedReview}));
+              }
+              if (!savedReview || String(savedReview.status||"pending").toLowerCase() !== "applying") {
+                refreshPlayerReviews().catch((refreshError)=>console.warn("player review vote refresh failed",refreshError));
+                return;
+              }
               let basePlayer = (Array.isArray(baseCatalog) ? baseCatalog : []).find((player) => player && String(player.id) === String(savedReview.playerId));
               if (!basePlayer) {
-                reviewRef.update({ status:"outdated", resolvedAt:Date.now(), resolutionReason:"player_not_found" });
+                reviewRef.update({ status:"outdated", resolvedAt:Date.now(), resolutionReason:"player_not_found" }).then(()=>refreshPlayerReviews()).catch((updateError)=>console.error("player review outdated update failed",updateError));
                 return;
               }
               let applyReview=window.ManchaApp && window.ManchaApp.applyPlayerReviewOverride;
               if (typeof applyReview !== "function") {
-                reviewRef.transaction((reviewValue) => reviewValue && reviewValue.status === "applying" ? { ...reviewValue, status:"pending", applyingAt:null, applyingByProfileId:null } : reviewValue);
+                reviewRef.transaction((reviewValue) => reviewValue && String(reviewValue.status||"").toLowerCase() === "applying" ? { ...reviewValue, status:"pending", applyingAt:null, applyingByProfileId:null } : reviewValue).then(()=>refreshPlayerReviews()).catch((resetError)=>console.error("player review reset failed",resetError));
                 window.alert("Execute a atualização do Supabase incluída neste patch antes de aprovar correções de atributos.");
                 return;
               }
+              let overrideApplied=false;
               Promise.resolve(applyReview(savedReview,basePlayer,te.id)).then(()=>{
-                reviewRef.update({ status:"approved", resolvedAt:Date.now(), resolvedByProfileId:te.id, applyingAt:null, applyingByProfileId:null });
-              }).catch((error)=>{
+                overrideApplied=true;
+                return reviewRef.update({ status:"approved", resolvedAt:Date.now(), resolvedByProfileId:te.id, applyingAt:null, applyingByProfileId:null });
+              }).then(()=>refreshPlayerReviews()).catch((error)=>{
                 console.error("player review apply failed",error);
-                let reason=error&&error.message==="player_changed"?"player_changed":null;
-                if (reason) reviewRef.update({ status:"outdated", resolvedAt:Date.now(), resolutionReason:"player_changed", applyingAt:null, applyingByProfileId:null });
-                else {
-                  reviewRef.transaction((reviewValue) => reviewValue && reviewValue.status === "applying" ? { ...reviewValue, status:"pending", applyingAt:null, applyingByProfileId:null } : reviewValue);
-                  window.alert("O voto foi registrado, mas não foi possível aplicar a correção. Tente novamente.");
+                if (overrideApplied) {
+                  reviewRef.update({ status:"approved", resolvedAt:Date.now(), resolvedByProfileId:te.id, applyingAt:null, applyingByProfileId:null }).then(()=>refreshPlayerReviews()).catch((finalizeError)=>{
+                    console.error("player review finalize failed",finalizeError);
+                    refreshPlayerReviews().catch(()=>{});
+                    window.alert("A correção foi aplicada, mas não foi possível finalizar a revisão. Tente novamente em instantes.");
+                  });
+                  return;
                 }
+                let reason=error&&error.message==="player_changed"?"player_changed":null;
+                let recovery=reason
+                  ? reviewRef.update({ status:"outdated", resolvedAt:Date.now(), resolutionReason:"player_changed", applyingAt:null, applyingByProfileId:null })
+                  : reviewRef.transaction((reviewValue) => reviewValue && String(reviewValue.status||"").toLowerCase() === "applying" ? { ...reviewValue, status:"pending", applyingAt:null, applyingByProfileId:null } : reviewValue);
+                Promise.resolve(recovery).then(()=>refreshPlayerReviews()).catch((recoveryError)=>console.error("player review recovery failed",recoveryError));
+                if (!reason) window.alert("O voto foi registrado, mas não foi possível aplicar a correção. Tente novamente.");
               });
             });
           }

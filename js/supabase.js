@@ -226,15 +226,61 @@
     const tournaments=asArray(getAt(state,"pes/tournaments")).map(t=>String(t&&t.id)===id?{...t,context:{...asObject(t.context),financialTransactions:rows.map(mapFinancialRow),__financialLoaded:true}}:t);
     setAt(state,"pes/tournaments",tournaments); deferredLoaded.financial.add(id); emitAll();
   }
-  async function loadPlayerReviews({ force=false }={}) {
-    await load(); if(deferredLoaded.reviews&&!force) return clone(getAt(state,"pes/playerReviews")||{});
+  function mapPlayerReviewRows(reviews, votes) {
+    const votesByReview=new Map();
+    asArray(votes).forEach(v=>{
+      if(!v||!v.review_id)return;
+      if(!votesByReview.has(v.review_id))votesByReview.set(v.review_id,[]);
+      votesByReview.get(v.review_id).push(v);
+    });
+    const map={};
+    asArray(reviews).forEach(row=>{
+      if(!row||!row.id)return;
+      const reviewVotes={};
+      (votesByReview.get(row.id)||[]).forEach(v=>{
+        if(!v||!v.profile_id)return;
+        reviewVotes[v.profile_id]={decision:v.vote,profileId:v.profile_id,profileNameSnapshot:v.name_snapshot,createdAt:ms(v.created_at)};
+      });
+      const proposed=asObject(row.proposed);
+      map[row.id]={
+        id:row.id,
+        playerId:row.player_id,
+        playerNameSnapshot:row.player_name_snapshot,
+        createdByProfileId:row.created_by_profile_id,
+        createdByNameSnapshot:row.created_by_name_snapshot,
+        original:asObject(row.original),
+        proposed,
+        status:String(row.status||"pending").toLowerCase(),
+        systemSuggestion:proposed.systemSuggestion||null,
+        applyingByProfileId:row.applying_by_profile_id,
+        applyingAt:ms(row.applying_at),
+        resolvedByProfileId:row.resolved_by_profile_id,
+        resolvedAt:ms(row.resolved_at),
+        resolutionReason:row.resolution_reason,
+        createdAt:ms(row.created_at),
+        updatedAt:ms(row.updated_at),
+        votes:reviewVotes
+      };
+    });
+    return map;
+  }
+
+  async function fetchPlayerReviewsMap({ force=false }={}) {
     const [reviews,votes]=await Promise.all([
-      selectAll("player_reviews", "id,player_id,player_name_snapshot,created_by_profile_id,created_by_name_snapshot,original,proposed,status,applying_by_profile_id,applying_at,resolved_by_profile_id,resolved_at,resolution_reason,created_at,updated_at", q=>q.order("created_at").order("id"), force?null:"reviews:all"),
-      selectAll("player_review_votes", "review_id,profile_id,vote,name_snapshot,created_at", q=>q.order("review_id").order("profile_id"), force?null:"reviews:votes")
+      selectAll("player_reviews", "id,player_id,player_name_snapshot,created_by_profile_id,created_by_name_snapshot,original,proposed,status,applying_by_profile_id,applying_at,resolved_by_profile_id,resolved_at,resolution_reason,created_at,updated_at", q=>q.order("created_at").order("id"), force?null:"reviews:all", force?0:CACHE_TTL_MS),
+      selectAll("player_review_votes", "review_id,profile_id,vote,name_snapshot,created_at", q=>q.order("review_id").order("profile_id"), force?null:"reviews:votes", force?0:CACHE_TTL_MS)
     ]);
-    const votesByReview=new Map(); votes.forEach(v=>{if(!votesByReview.has(v.review_id))votesByReview.set(v.review_id,[]);votesByReview.get(v.review_id).push(v);});
-    const map={}; reviews.forEach(row=>{const reviewVotes={};(votesByReview.get(row.id)||[]).forEach(v=>{reviewVotes[v.profile_id]={decision:v.vote,profileId:v.profile_id,profileNameSnapshot:v.name_snapshot,createdAt:ms(v.created_at)}});const proposed=asObject(row.proposed);map[row.id]={id:row.id,playerId:row.player_id,playerNameSnapshot:row.player_name_snapshot,createdByProfileId:row.created_by_profile_id,createdByNameSnapshot:row.created_by_name_snapshot,original:row.original,proposed,status:row.status||"pending",systemSuggestion:proposed.systemSuggestion||null,applyingByProfileId:row.applying_by_profile_id,applyingAt:ms(row.applying_at),resolvedByProfileId:row.resolved_by_profile_id,resolvedAt:ms(row.resolved_at),resolutionReason:row.resolution_reason,createdAt:ms(row.created_at),updatedAt:ms(row.updated_at),votes:reviewVotes};});
-    setAt(state,"pes/playerReviews",map); deferredLoaded.reviews=true; emitAll(); return clone(map);
+    return mapPlayerReviewRows(reviews,votes);
+  }
+
+  async function loadPlayerReviews({ force=false }={}) {
+    await load();
+    if(deferredLoaded.reviews&&!force) return clone(getAt(state,"pes/playerReviews")||{});
+    const map=await fetchPlayerReviewsMap({force});
+    setAt(state,"pes/playerReviews",map);
+    deferredLoaded.reviews=true;
+    emitAll();
+    return clone(map);
   }
 
   async function load() {
@@ -389,6 +435,7 @@
     const localNonTournamentPatch=buildNonTournamentPatch(baseState,nextState);
     const hasTournamentWrite=tournamentDeltaHasChanges(localTournamentDelta);
     const hasNonTournamentWrite=Object.keys(localNonTournamentPatch.documents).length>0||localNonTournamentPatch.deleteKeys.length>0;
+    const hasPlayerReviewWrite=Object.keys(localNonTournamentPatch.documents).some(key=>key.startsWith("review:"))||localNonTournamentPatch.deleteKeys.some(key=>key.startsWith("review:"));
     if(!hasTournamentWrite&&!hasNonTournamentWrite){state=syncLegacyMirrors(nextState);emitAll();return;}
     if(hasTournamentWrite&&!explicitUserInteraction){
       console.error("[Tournament Delta] Escrita automática durante carregamento bloqueada",{eventType,localTournamentDelta});
@@ -398,6 +445,14 @@
       invalidateCache("boot:");
       let remoteState=await loadNormalizedState();
       remoteState=hydrateRemoteDeferredCollections(remoteState,baseState);
+      // Reviews are intentionally omitted from the boot payload. Before mutating
+      // one of them, hydrate the live rows and votes so safeDiff can preserve
+      // concurrent votes and can emit real review deletions instead of only
+      // removing the item from the browser state.
+      if(hasPlayerReviewWrite){
+        const remoteReviews=await fetchPlayerReviewsMap({force:true});
+        setAt(remoteState,"pes/playerReviews",remoteReviews);
+      }
       const mergedState=syncLegacyMirrors(applySafeDiff(remoteState,baseState,nextState));
       const tournamentDelta=buildTournamentDelta(remoteState,mergedState);
       const nonTournamentPatch=buildNonTournamentPatch(remoteState,mergedState);
@@ -424,7 +479,7 @@
 
   async function runTransaction(path,updater,completion){
     await load();
-    if (path === "pes/playerReviews" || path.startsWith("pes/playerReviews/")) await loadPlayerReviews();
+    if (path === "pes/playerReviews" || path.startsWith("pes/playerReviews/")) await loadPlayerReviews({force:true});
     let base=clone(state), current=clone(getAt(base,path)), updated=updater(current);
     if(updated===undefined){const snapshot={val:()=>current}; if(completion)completion(null,false,snapshot); return{committed:false,snapshot};}
     const next=setAt(base,path,clone(updated));
