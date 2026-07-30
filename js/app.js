@@ -183,7 +183,7 @@
           He(() => {
             if (!playerReviewsOpen || typeof loadPlayerReviews !== "function") return;
             let active = true;
-            loadPlayerReviews().then((reviews) => { if (active) setPlayerReviews(reviews && typeof reviews === "object" ? reviews : {}); }).catch((error) => console.error("Falha ao carregar revisões", error));
+            loadPlayerReviews({ force:true }).then((reviews) => { if (active) setPlayerReviews(reviews && typeof reviews === "object" ? reviews : {}); }).catch((error) => console.error("Falha ao carregar revisões", error));
             return () => { active = false; };
           }, [playerReviewsOpen]);
           He(() => {
@@ -505,7 +505,7 @@
             }
           }
           function pendingPlayerReviews() {
-            return Object.values(playerReviews && typeof playerReviews === "object" ? playerReviews : {}).filter((review) => review && review.status === "pending");
+            return Object.values(playerReviews && typeof playerReviews === "object" ? playerReviews : {}).filter((review) => review && String(review.status || "pending").toLowerCase() === "pending");
           }
           function playerAttributeDefinitions() {
             return [
@@ -557,10 +557,26 @@
             if (duplicate) { window.alert("Você já possui uma revisão pendente para este jogador."); return; }
             let id = _(), now = Date.now();
             let systemSuggestion=values&&values.systemSuggestion&&typeof values.systemSuggestion==="object"?{overall:Number(values.systemSuggestion.overall)||null,value:Number(values.systemSuggestion.value)||null,valueMin:Number(values.systemSuggestion.valueMin)||null,valueMax:Number(values.systemSuggestion.valueMax)||null,confidence:String(values.systemSuggestion.confidence||"")}:null;
-            let review = { id, playerId:player.id, playerNameSnapshot:player.name, original:{ overall:Number(player.overall)||0, value:Number(player.value)||0, attributes:originalAttributes }, proposed:{ overall:proposedOverall, value:proposedValue, attributes:proposedAttributes }, systemSuggestion, createdByProfileId:te.id, createdByNameSnapshot:te.name||"Perfil", createdAt:now, status:"pending", votes:{} };
+            let review = { id, playerId:player.id, playerNameSnapshot:player.name, original:{ overall:Number(player.overall)||0, value:Number(player.value)||0, attributes:originalAttributes }, proposed:{ overall:proposedOverall, value:proposedValue, attributes:proposedAttributes, systemSuggestion }, createdByProfileId:te.id, createdByNameSnapshot:te.name||"Perfil", createdAt:now, status:"pending", votes:{} };
+            setPlayerReviews((current) => ({ ...(current && typeof current === "object" ? current : {}), [id]:review }));
             let db = Ee();
-            if (!db) { setPlayerReviews({ ...playerReviews, [id]:review }); setPlayerReportModal(null); return; }
-            db.ref("pes/playerReviews/" + id).set(review).then(() => setPlayerReportModal(null)).catch((error) => { console.error("player review submit failed", error); window.alert("Não foi possível enviar a revisão. Tente novamente."); });
+            if (!db) { setPlayerReportModal(null); return; }
+            db.ref("pes/playerReviews/" + id).set(review).then(async () => {
+              try {
+                if (typeof loadPlayerReviews === "function") {
+                  let refreshed=await loadPlayerReviews({ force:true });
+                  setPlayerReviews(refreshed && typeof refreshed === "object" ? refreshed : { [id]:review });
+                }
+                setPlayerReportModal(null);
+              } catch (refreshError) {
+                console.warn("player review refresh failed", refreshError);
+                setPlayerReportModal(null);
+              }
+            }).catch((error) => {
+              console.error("player review submit failed", error);
+              setPlayerReviews((current) => { let next={...(current||{})}; delete next[id]; return next; });
+              window.alert("Não foi possível enviar a revisão. Tente novamente.");
+            });
           }
           function updatePlayerReviewAttributes(reviewId, attributes) {
             if (!isAdminProfile(te) || !reviewId || !attributes || typeof attributes !== "object") return;
@@ -4733,7 +4749,7 @@
             let changedValue=review.proposed&&review.proposed.value!=null;
             let suggestionAttributes={...((review.proposed&&review.proposed.attributes)||{})};
             Object.keys(suggestionAttributes).forEach((key)=>{let draft=attributeDrafts[`${review.id}:${key}`];if(draft!==undefined&&String(draft).trim()!=="")suggestionAttributes[key]=Number(draft);});
-            let liveSuggestion=calculatePlayerReviewSuggestion(player,suggestionAttributes,catalog)||review.systemSuggestion||null;
+            let liveSuggestion=calculatePlayerReviewSuggestion(player,suggestionAttributes,catalog)||(review.proposed&&review.proposed.systemSuggestion)||review.systemSuggestion||null;
             return React.createElement("article",{key:review.id,className:"family-card",style:{padding:"20px 18px 18px",borderRadius:22,overflow:"visible"}},
               React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:14,alignItems:"flex-start",marginBottom:18}},
                 React.createElement("div",{style:{minWidth:0}},React.createElement("h3",{style:{fontSize:19,margin:0,lineHeight:1.2}},player.name||review.playerNameSnapshot),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:5}},`Sugestão de ${review.createdByNameSnapshot||"um usuário"}`)),
