@@ -708,7 +708,18 @@
     invalidateCache("boot:overrides");
     return data||{applied:true};
   }
-  function Ee(){return client?{ref,fetchPage,loadFinancialTransactions,loadPlayerReviews,hydrateTournamentFinancial}:null;}
+
+  async function loadPlayerOverrideHistory(limit=200){
+    await load();
+    if(!client)throw new Error("Supabase não configurado");
+    const safeLimit=Math.min(1000,Math.max(1,Number(limit)||200));
+    const{data,error}=await client.from("player_override_history").select("id,player_id,review_id,action,previous_data,new_data,actor_profile_id,actor_name_snapshot,metadata,created_at").order("created_at",{ascending:false}).limit(safeLimit);
+    if(error)throw error;
+    const labels={legacy_import:"Override antigo importado",override_created:"Override aplicado",override_updated:"Override atualizado",override_deleted:"Override removido"};
+    return(data||[]).map(row=>({id:row.id,playerId:row.player_id,reviewId:row.review_id,action:row.action,actionLabel:labels[row.action]||row.action,previousData:asObject(row.previous_data),newData:asObject(row.new_data),actorProfileId:row.actor_profile_id,actorNameSnapshot:row.actor_name_snapshot,metadata:asObject(row.metadata),createdAt:ms(row.created_at)}));
+  }
+
+  function Ee(){return client?{ref,fetchPage,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial}:null;}
   function U(path,value){const db=Ee();return db?db.ref(`pes/${path}`).set(value===undefined?null:value):Promise.resolve();}
   function Q(path,callback){const db=Ee();if(!db){callback(null);return()=>{};}const reference=db.ref(`pes/${path}`),handler=snapshot=>callback(snapshot.val());reference.on("value",handler);return()=>reference.off("value",handler);}
 
@@ -716,5 +727,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,hydrateTournamentFinancial,applyPlayerReviewOverride,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();
