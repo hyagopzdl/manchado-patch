@@ -713,10 +713,38 @@
     await load();
     if(!client)throw new Error("Supabase não configurado");
     const safeLimit=Math.min(1000,Math.max(1,Number(limit)||200));
-    const{data,error}=await client.from("player_override_history").select("id,player_id,review_id,action,previous_data,new_data,actor_profile_id,actor_name_snapshot,metadata,created_at").order("created_at",{ascending:false}).limit(safeLimit);
-    if(error)throw error;
+    const [historyResult,reviewsResult,votesResult]=await Promise.all([
+      client.from("player_override_history").select("id,player_id,review_id,action,previous_data,new_data,actor_profile_id,actor_name_snapshot,metadata,created_at").order("created_at",{ascending:false}).limit(safeLimit),
+      client.from("player_reviews").select("id,player_id,created_by_profile_id,created_by_name_snapshot,resolved_by_profile_id,resolved_at,created_at,updated_at,status").order("created_at",{ascending:true}),
+      client.from("player_review_votes").select("review_id,profile_id,vote,name_snapshot,created_at").order("created_at",{ascending:true})
+    ]);
+    if(historyResult.error)throw historyResult.error;
+    if(reviewsResult.error)throw reviewsResult.error;
+    if(votesResult.error)throw votesResult.error;
+    const reviews=reviewsResult.data||[],votes=votesResult.data||[];
+    const reviewById=new Map(reviews.map(review=>[String(review.id),review]));
+    const reviewsByPlayer=new Map();
+    reviews.forEach(review=>{let key=String(review.player_id||"");if(!reviewsByPlayer.has(key))reviewsByPlayer.set(key,[]);reviewsByPlayer.get(key).push(review)});
+    const votesByReview=new Map();
+    votes.forEach(vote=>{let key=String(vote.review_id||"");if(!votesByReview.has(key))votesByReview.set(key,[]);votesByReview.get(key).push(vote)});
     const labels={legacy_import:"Override antigo importado",override_created:"Override aplicado",override_updated:"Override atualizado",override_deleted:"Override removido"};
-    return(data||[]).map(row=>({id:row.id,playerId:row.player_id,reviewId:row.review_id,action:row.action,actionLabel:labels[row.action]||row.action,previousData:asObject(row.previous_data),newData:asObject(row.new_data),actorProfileId:row.actor_profile_id,actorNameSnapshot:row.actor_name_snapshot,metadata:asObject(row.metadata),createdAt:ms(row.created_at)}));
+    function relatedReview(row){
+      if(row.review_id&&reviewById.has(String(row.review_id)))return reviewById.get(String(row.review_id));
+      const candidates=reviewsByPlayer.get(String(row.player_id||""))||[];
+      if(!candidates.length)return null;
+      const historyAt=ms(row.created_at)||0;
+      return candidates.map(review=>{
+        const reviewAt=ms(review.resolved_at)||ms(review.updated_at)||ms(review.created_at)||0;
+        const actorMatch=row.actor_profile_id&&review.resolved_by_profile_id&&String(row.actor_profile_id)===String(review.resolved_by_profile_id)?0:1;
+        return{review,distance:Math.abs(historyAt-reviewAt),actorMatch};
+      }).sort((a,b)=>a.actorMatch-b.actorMatch||a.distance-b.distance)[0].review;
+    }
+    return(historyResult.data||[]).map(row=>{
+      const review=relatedReview(row),reviewVotes=review?(votesByReview.get(String(review.id))||[]):[];
+      const approvals=reviewVotes.filter(vote=>String(vote.vote||"").toLowerCase()==="approve").map(vote=>({profileId:vote.profile_id,nameSnapshot:vote.name_snapshot,createdAt:ms(vote.created_at)}));
+      const rejections=reviewVotes.filter(vote=>String(vote.vote||"").toLowerCase()==="reject").map(vote=>({profileId:vote.profile_id,nameSnapshot:vote.name_snapshot,createdAt:ms(vote.created_at)}));
+      return{id:row.id,playerId:row.player_id,reviewId:review&&review.id||row.review_id,action:row.action,actionLabel:labels[row.action]||row.action,previousData:asObject(row.previous_data),newData:asObject(row.new_data),actorProfileId:row.actor_profile_id,actorNameSnapshot:row.actor_name_snapshot,metadata:asObject(row.metadata),createdAt:ms(row.created_at),review:review?{id:review.id,suggestedByProfileId:review.created_by_profile_id,suggestedByNameSnapshot:review.created_by_name_snapshot,suggestedAt:ms(review.created_at),resolvedByProfileId:review.resolved_by_profile_id,resolvedAt:ms(review.resolved_at),status:review.status,approvals,rejections}:null};
+    });
   }
 
   function Ee(){return client?{ref,fetchPage,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial}:null;}
