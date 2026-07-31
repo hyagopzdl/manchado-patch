@@ -713,15 +713,19 @@
     await load();
     if(!client)throw new Error("Supabase não configurado");
     const safeLimit=Math.min(1000,Math.max(1,Number(limit)||200));
-    const [historyResult,reviewsResult,votesResult]=await Promise.all([
+    const [historyResult,reviewsResult,votesResult,profilesResult]=await Promise.all([
       client.from("player_override_history").select("id,player_id,review_id,action,previous_data,new_data,actor_profile_id,actor_name_snapshot,metadata,created_at").order("created_at",{ascending:false}).limit(safeLimit),
       client.from("player_reviews").select("id,player_id,created_by_profile_id,created_by_name_snapshot,resolved_by_profile_id,resolved_at,created_at,updated_at,status").order("created_at",{ascending:true}),
-      client.from("player_review_votes").select("review_id,profile_id,vote,name_snapshot,created_at").order("created_at",{ascending:true})
+      client.from("player_review_votes").select("review_id,profile_id,vote,name_snapshot,created_at").order("created_at",{ascending:true}),
+      client.from("profiles").select("id,name")
     ]);
     if(historyResult.error)throw historyResult.error;
     if(reviewsResult.error)throw reviewsResult.error;
     if(votesResult.error)throw votesResult.error;
+    if(profilesResult.error)throw profilesResult.error;
     const reviews=reviewsResult.data||[],votes=votesResult.data||[];
+    const profileNameById=new Map((profilesResult.data||[]).map(profile=>[String(profile.id),String(profile.name||"").trim()]).filter(([,name])=>name));
+    const resolvedProfileName=(profileId,snapshot)=>String(snapshot||"").trim()||profileNameById.get(String(profileId||""))||null;
     const reviewById=new Map(reviews.map(review=>[String(review.id),review]));
     const reviewsByPlayer=new Map();
     reviews.forEach(review=>{let key=String(review.player_id||"");if(!reviewsByPlayer.has(key))reviewsByPlayer.set(key,[]);reviewsByPlayer.get(key).push(review)});
@@ -741,9 +745,9 @@
     }
     return(historyResult.data||[]).map(row=>{
       const review=relatedReview(row),reviewVotes=review?(votesByReview.get(String(review.id))||[]):[];
-      const approvals=reviewVotes.filter(vote=>String(vote.vote||"").toLowerCase()==="approve").map(vote=>({profileId:vote.profile_id,nameSnapshot:vote.name_snapshot,createdAt:ms(vote.created_at)}));
-      const rejections=reviewVotes.filter(vote=>String(vote.vote||"").toLowerCase()==="reject").map(vote=>({profileId:vote.profile_id,nameSnapshot:vote.name_snapshot,createdAt:ms(vote.created_at)}));
-      return{id:row.id,playerId:row.player_id,reviewId:review&&review.id||row.review_id,action:row.action,actionLabel:labels[row.action]||row.action,previousData:asObject(row.previous_data),newData:asObject(row.new_data),actorProfileId:row.actor_profile_id,actorNameSnapshot:row.actor_name_snapshot,metadata:asObject(row.metadata),createdAt:ms(row.created_at),review:review?{id:review.id,suggestedByProfileId:review.created_by_profile_id,suggestedByNameSnapshot:review.created_by_name_snapshot,suggestedAt:ms(review.created_at),resolvedByProfileId:review.resolved_by_profile_id,resolvedAt:ms(review.resolved_at),status:review.status,approvals,rejections}:null};
+      const approvals=reviewVotes.filter(vote=>String(vote.vote||"").toLowerCase()==="approve").map(vote=>({profileId:vote.profile_id,nameSnapshot:resolvedProfileName(vote.profile_id,vote.name_snapshot),createdAt:ms(vote.created_at)}));
+      const rejections=reviewVotes.filter(vote=>String(vote.vote||"").toLowerCase()==="reject").map(vote=>({profileId:vote.profile_id,nameSnapshot:resolvedProfileName(vote.profile_id,vote.name_snapshot),createdAt:ms(vote.created_at)}));
+      return{id:row.id,playerId:row.player_id,reviewId:review&&review.id||row.review_id,action:row.action,actionLabel:labels[row.action]||row.action,previousData:asObject(row.previous_data),newData:asObject(row.new_data),actorProfileId:row.actor_profile_id,actorNameSnapshot:resolvedProfileName(row.actor_profile_id,row.actor_name_snapshot),metadata:asObject(row.metadata),createdAt:ms(row.created_at),review:review?{id:review.id,suggestedByProfileId:review.created_by_profile_id,suggestedByNameSnapshot:resolvedProfileName(review.created_by_profile_id,review.created_by_name_snapshot),suggestedAt:ms(review.created_at),resolvedByProfileId:review.resolved_by_profile_id,resolvedAt:ms(review.resolved_at),status:review.status,approvals,rejections}:null};
     });
   }
 
