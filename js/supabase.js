@@ -715,7 +715,7 @@
     const safeLimit=Math.min(1000,Math.max(1,Number(limit)||200));
     const [historyResult,reviewsResult,votesResult,profilesResult]=await Promise.all([
       client.from("player_override_history").select("id,player_id,review_id,action,previous_data,new_data,actor_profile_id,actor_name_snapshot,metadata,created_at").order("created_at",{ascending:false}).limit(safeLimit),
-      client.from("player_reviews").select("id,player_id,created_by_profile_id,created_by_name_snapshot,resolved_by_profile_id,resolved_at,created_at,updated_at,status").order("created_at",{ascending:true}),
+      client.from("player_reviews").select("id,player_id,created_by_profile_id,created_by_name_snapshot,resolved_by_profile_id,resolved_at,created_at,updated_at,status,original,proposed").order("created_at",{ascending:true}),
       client.from("player_review_votes").select("review_id,profile_id,vote,name_snapshot,created_at").order("created_at",{ascending:true}),
       client.from("profiles").select("id,name")
     ]);
@@ -743,11 +743,33 @@
         return{review,distance:Math.abs(historyAt-reviewAt),actorMatch};
       }).sort((a,b)=>a.actorMatch-b.actorMatch||a.distance-b.distance)[0].review;
     }
+    function reviewDataSnapshot(payload){
+      const source=asObject(payload),attributeSource=asObject(source.attributes),attributes={};
+      let attack=null,defense=null;
+      Object.entries(attributeSource).forEach(([rawKey,value])=>{
+        const key=String(rawKey||"");
+        if(key==="attack")attack=value;
+        else if(key==="defense")defense=value;
+        else attributes[key.replace(/^attrs\./,"")]=value;
+      });
+      const snapshot={};
+      if(source.overall!=null)snapshot.overall=source.overall;
+      if(source.value!=null)snapshot.market_value=source.value;
+      if(attack!=null)snapshot.attack=attack;
+      if(defense!=null)snapshot.defense=defense;
+      if(Object.keys(attributes).length)snapshot.attributes=attributes;
+      return snapshot;
+    }
     return(historyResult.data||[]).map(row=>{
       const review=relatedReview(row),reviewVotes=review?(votesByReview.get(String(review.id))||[]):[];
       const approvals=reviewVotes.filter(vote=>String(vote.vote||"").toLowerCase()==="approve").map(vote=>({profileId:vote.profile_id,nameSnapshot:resolvedProfileName(vote.profile_id,vote.name_snapshot),createdAt:ms(vote.created_at)}));
       const rejections=reviewVotes.filter(vote=>String(vote.vote||"").toLowerCase()==="reject").map(vote=>({profileId:vote.profile_id,nameSnapshot:resolvedProfileName(vote.profile_id,vote.name_snapshot),createdAt:ms(vote.created_at)}));
-      return{id:row.id,playerId:row.player_id,reviewId:review&&review.id||row.review_id,action:row.action,actionLabel:labels[row.action]||row.action,previousData:asObject(row.previous_data),newData:asObject(row.new_data),actorProfileId:row.actor_profile_id,actorNameSnapshot:resolvedProfileName(row.actor_profile_id,row.actor_name_snapshot),metadata:asObject(row.metadata),createdAt:ms(row.created_at),review:review?{id:review.id,suggestedByProfileId:review.created_by_profile_id,suggestedByNameSnapshot:resolvedProfileName(review.created_by_profile_id,review.created_by_name_snapshot),suggestedAt:ms(review.created_at),resolvedByProfileId:review.resolved_by_profile_id,resolvedAt:ms(review.resolved_at),status:review.status,approvals,rejections}:null};
+      const storedPrevious=asObject(row.previous_data),storedNew=asObject(row.new_data);
+      const recoveredPrevious=review?reviewDataSnapshot(review.original):{};
+      const recoveredNew=review?reviewDataSnapshot(review.proposed):{};
+      const previousData={...recoveredPrevious,...storedPrevious,attributes:{...asObject(recoveredPrevious.attributes),...asObject(storedPrevious.attributes)}};
+      const newData={...recoveredNew,...storedNew,attributes:{...asObject(recoveredNew.attributes),...asObject(storedNew.attributes)}};
+      return{id:row.id,playerId:row.player_id,reviewId:review&&review.id||row.review_id,action:row.action,actionLabel:labels[row.action]||row.action,previousData,newData,actorProfileId:row.actor_profile_id,actorNameSnapshot:resolvedProfileName(row.actor_profile_id,row.actor_name_snapshot),metadata:asObject(row.metadata),createdAt:ms(row.created_at),review:review?{id:review.id,suggestedByProfileId:review.created_by_profile_id,suggestedByNameSnapshot:resolvedProfileName(review.created_by_profile_id,review.created_by_name_snapshot),suggestedAt:ms(review.created_at),resolvedByProfileId:review.resolved_by_profile_id,resolvedAt:ms(review.resolved_at),status:review.status,approvals,rejections}:null};
     });
   }
 
