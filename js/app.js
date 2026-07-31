@@ -462,7 +462,7 @@
                   participants: [],
                   teamIds: [],
                   createdAt: Date.now(),
-                  marketSettings: { depreciationPct: 10, initialRosterDepreciationPct: 50, isOpen: true, freePlayerOverallLimit: { enabled:false, minOverall:1, maxOverall:99 }, playerTradeLock:{ enabled:false, gamesRequired:50 } },
+                  marketSettings: { depreciationPct: 10, initialRosterDepreciationPct: 50, isOpen: true, freePlayerOverallLimit: { enabled:false, minOverall:1, maxOverall:99 }, playerTradeLock:{ enabled:false, gamesRequired:50 }, playerReportsEnabled:true },
                   rosterSettings: { minPlayers: 23, maxPlayers: 30, minBaseRosterPlayers: 0 },
                   economySettings: { version: 2, winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
                   finalPrizeSettings: { firstPlacePrize: 20, lastPlacePercentage: 50 },
@@ -569,6 +569,11 @@
           }
           function submitPlayerReview(player, values) {
             if (!player || !te || !te.id) return;
+            if (R && R.marketSettings && R.marketSettings.playerReportsEnabled === false) {
+              setPlayerReportModal(null);
+              window.alert("O envio de correções de jogadores está desabilitado pela administração.");
+              return;
+            }
             let overallText = String(values && values.overall != null ? values.overall : "").trim();
             let valueText = String(values && values.value != null ? values.value : "").trim();
             let proposedOverall = overallText === "" ? null : Number(overallText);
@@ -2138,12 +2143,12 @@
             let safeField = field === "initialRosterDepreciationPct" ? "initialRosterDepreciationPct" : "depreciationPct";
             ae(m.map((item) => item.id === R.id ? { ...item, marketSettings: { ...(item.marketSettings || {}), [safeField]: pct } } : item));
           }
-          function updateMarketAccessRules(isOpen, limitEnabled, minOverall, maxOverall, tradeLockEnabled, tradeLockGames) {
+          function updateMarketAccessRules(isOpen, limitEnabled, minOverall, maxOverall, tradeLockEnabled, tradeLockGames, playerReportsEnabled) {
             if (!R) return;
             let normalizedMin = Math.min(99, Math.max(1, Math.round(Number(minOverall) || 1)));
             let normalizedMax = Math.min(99, Math.max(1, Math.round(Number(maxOverall) || 99)));
             if (normalizedMin > normalizedMax) { window.alert("O overall mínimo não pode ser maior que o overall máximo."); return; }
-            let nextSettings = { ...(R.marketSettings || {}), isOpen: isOpen === true, freePlayerOverallLimit: { enabled: limitEnabled === true, minOverall: normalizedMin, maxOverall: normalizedMax }, playerTradeLock:{ enabled:tradeLockEnabled === true, gamesRequired:Math.max(0,Math.round(Number(tradeLockGames)||0)) } };
+            let nextSettings = { ...(R.marketSettings || {}), isOpen: isOpen === true, playerReportsEnabled: playerReportsEnabled !== false, freePlayerOverallLimit: { enabled: limitEnabled === true, minOverall: normalizedMin, maxOverall: normalizedMax }, playerTradeLock:{ enabled:tradeLockEnabled === true, gamesRequired:Math.max(0,Math.round(Number(tradeLockGames)||0)) } };
             ae(m.map((item) => item.id === R.id ? { ...item, marketSettings: nextSettings } : item));
           }
           function updateMarketBalanceRules(enabled, maxDifference) {
@@ -2935,7 +2940,11 @@
                         onOffer: (player) => { be(null); kt(player); },
                         onBuy: (player) => { be(null); kt(player); },
                         activeTeam: ProfileTeam,
-                        onReport: (player) => setPlayerReportModal(player),
+                        playerReportsEnabled: !(R && R.marketSettings && R.marketSettings.playerReportsEnabled === false),
+                        onReport: (player) => {
+                          if (R && R.marketSettings && R.marketSettings.playerReportsEnabled === false) return;
+                          setPlayerReportModal(player);
+                        },
                       }),
                     playerReportModal && React.createElement(PlayerReportModal, { player:playerReportModal, catalog:n, onClose:()=>setPlayerReportModal(null), onSubmit:submitPlayerReview }),
                     playerReviewsOpen && React.createElement(PlayerReviewsModal, { reviews:pendingPlayerReviews(), catalog:n, catalogMap:xe, profiles:x, currentProfile:te, isAdmin:isAdminProfile(te), onClose:()=>setPlayerReviewsOpen(false), onVote:votePlayerReview, onRemove:removePlayerReview, onUpdateAttributes:updatePlayerReviewAttributes }),
@@ -4885,7 +4894,7 @@
             value(rightNumber,hasRight,"right")
           );
         }
-        function ro({ player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport }) {
+        function ro({ player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport, playerReportsEnabled = true }) {
           let detailContext = e && e.player ? e : { player:e, fromOtherTeam:false };
           e = detailContext.player;
           let [comparePlayer,setComparePlayer] = b(null), [pickerOpen,setPickerOpen] = b(false), [compareQuery,setCompareQuery] = b("");
@@ -4986,7 +4995,7 @@
                 React.createElement("button", { className:"tapbtn", onClick:()=>setPickerOpen(true), title:"Comparar jogadores", "aria-label":"Comparar com outro jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", left:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--heading)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(ComparePlayersIcon,{size:21})),
                 comparePlayer
                   ? React.createElement("button", { className:"tapbtn", onClick:()=>setComparePlayer(null), title:"Encerrar comparação", "aria-label":"Encerrar comparação", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--heading)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(Ye,{size:18}))
-                  : React.createElement("button", { className:"tapbtn", onClick:()=>onReport&&onReport(e), title:"Reportar problema", "aria-label":"Reportar problema no jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--yellow)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(FlagIcon,{size:20})),
+                  : playerReportsEnabled && React.createElement("button", { className:"tapbtn", onClick:()=>onReport&&onReport(e), title:"Reportar problema", "aria-label":"Reportar problema no jogador", style:{ position:"fixed", top:"max(16px,env(safe-area-inset-top))", right:16, zIndex:1002, width:42, height:42, borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 88%,transparent)", color:"var(--yellow)", display:"grid", placeItems:"center", boxShadow:"var(--shadow-soft)", backdropFilter:"blur(18px)", cursor:"pointer" } }, React.createElement(FlagIcon,{size:20})),
                 comparePlayer ? React.createElement(React.Fragment,null,
                   React.createElement("header", { style:{ padding:"4px 0 16px" } },
                     React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"minmax(0,1fr) 28px minmax(0,1fr)", gap:8, alignItems:"center" } }, compactPlayerHeader(e,false,comparePlayer), React.createElement("span", { style:{textAlign:"center",fontSize:10,color:"var(--muted)",fontWeight:900,letterSpacing:".08em"} }, "VS"), compactPlayerHeader(comparePlayer,true,e))
@@ -5226,12 +5235,13 @@
           let settings=tournament&&tournament.marketSettings&&typeof tournament.marketSettings==="object"?tournament.marketSettings:{};
           let limit=settings.freePlayerOverallLimit&&typeof settings.freePlayerOverallLimit==="object"?settings.freePlayerOverallLimit:{};
           let tradeLock=settings.playerTradeLock&&typeof settings.playerTradeLock==="object"?settings.playerTradeLock:{};
-          let [isOpen,setIsOpen]=b(settings.isOpen!==false),[limitEnabled,setLimitEnabled]=b(limit.enabled===true),[minOverall,setMinOverall]=b(limit.minOverall!=null?limit.minOverall:1),[maxOverall,setMaxOverall]=b(limit.maxOverall!=null?limit.maxOverall:99),[tradeLockEnabled,setTradeLockEnabled]=b(tradeLock.enabled===true),[tradeLockGames,setTradeLockGames]=b(tradeLock.gamesRequired!=null?tradeLock.gamesRequired:50);
-          He(()=>{setIsOpen(settings.isOpen!==false);setLimitEnabled(limit.enabled===true);setMinOverall(limit.minOverall!=null?limit.minOverall:1);setMaxOverall(limit.maxOverall!=null?limit.maxOverall:99);setTradeLockEnabled(tradeLock.enabled===true);setTradeLockGames(tradeLock.gamesRequired!=null?tradeLock.gamesRequired:50)},[tournament&&tournament.id,settings.isOpen,limit.enabled,limit.minOverall,limit.maxOverall,tradeLock.enabled,tradeLock.gamesRequired]);
+          let [isOpen,setIsOpen]=b(settings.isOpen!==false),[reportsEnabled,setReportsEnabled]=b(settings.playerReportsEnabled!==false),[limitEnabled,setLimitEnabled]=b(limit.enabled===true),[minOverall,setMinOverall]=b(limit.minOverall!=null?limit.minOverall:1),[maxOverall,setMaxOverall]=b(limit.maxOverall!=null?limit.maxOverall:99),[tradeLockEnabled,setTradeLockEnabled]=b(tradeLock.enabled===true),[tradeLockGames,setTradeLockGames]=b(tradeLock.gamesRequired!=null?tradeLock.gamesRequired:50);
+          He(()=>{setIsOpen(settings.isOpen!==false);setReportsEnabled(settings.playerReportsEnabled!==false);setLimitEnabled(limit.enabled===true);setMinOverall(limit.minOverall!=null?limit.minOverall:1);setMaxOverall(limit.maxOverall!=null?limit.maxOverall:99);setTradeLockEnabled(tradeLock.enabled===true);setTradeLockGames(tradeLock.gamesRequired!=null?tradeLock.gamesRequired:50)},[tournament&&tournament.id,settings.isOpen,settings.playerReportsEnabled,limit.enabled,limit.minOverall,limit.maxOverall,tradeLock.enabled,tradeLock.gamesRequired]);
           return React.createElement("div",{style:{marginTop:18,paddingTop:18,borderTop:"1px solid var(--border)"}},
             React.createElement("h3",{style:{margin:"0 0 6px"}},"Mercado"),
             React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginBottom:14}},"Controle quando as negociações podem acontecer e o intervalo de overall permitido para compras diretas de jogadores livres."),
             React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Mercado aberto"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},"Quando fechado, nenhuma compra, venda, oferta ou contraproposta pode ser concluída.")),React.createElement("input",{type:"checkbox",checked:isOpen,onChange:(event)=>setIsOpen(event.target.checked)})),
+            React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Reportar jogadores"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3,lineHeight:1.4}},"Exibe o botão de reporte e permite enviar novas correções de overall, valor e atributos. Revisões já enviadas continuam disponíveis para análise.")),React.createElement("input",{type:"checkbox",checked:reportsEnabled,onChange:(event)=>setReportsEnabled(event.target.checked)})),
             React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Limitar overall de jogadores livres"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},"Não afeta ofertas e transferências entre usuários.")),React.createElement("input",{type:"checkbox",checked:limitEnabled,onChange:(event)=>setLimitEnabled(event.target.checked)})),
             limitEnabled&&React.createElement(React.Fragment,null,
               React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}},
@@ -5243,7 +5253,7 @@
             React.createElement("div",{style:{height:1,background:"var(--border)",margin:"18px 0"}}),
             React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Travar revenda após contratação"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3,lineHeight:1.4}},"Jogadores comprados do mercado ou de outro usuário precisam cumprir jogos no novo time antes de serem negociados novamente. A regra também vale para compras antigas que possam ser identificadas.")),React.createElement("input",{type:"checkbox",checked:tradeLockEnabled,onChange:(event)=>setTradeLockEnabled(event.target.checked)})),
             tradeLockEnabled&&React.createElement("div",null,React.createElement("label",{style:P},"Jogos necessários no novo time"),React.createElement("input",{type:"number",min:1,max:999,step:1,value:tradeLockGames,onChange:(event)=>setTradeLockGames(event.target.value),style:q}),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:7,lineHeight:1.4}},"O cálculo usa as partidas do time depois da data da aquisição. Não gera consultas adicionais por jogador.")),
-            React.createElement("button",{onClick:()=>onSave(isOpen,limitEnabled,minOverall,maxOverall,tradeLockEnabled,tradeLockGames),disabled:limitEnabled&&Number(minOverall)>Number(maxOverall),style:{...M,...W,marginTop:12,opacity:limitEnabled&&Number(minOverall)>Number(maxOverall)?.55:1}},"Salvar regras do mercado")
+            React.createElement("button",{onClick:()=>onSave(isOpen,limitEnabled,minOverall,maxOverall,tradeLockEnabled,tradeLockGames,reportsEnabled),disabled:limitEnabled&&Number(minOverall)>Number(maxOverall),style:{...M,...W,marginTop:12,opacity:limitEnabled&&Number(minOverall)>Number(maxOverall)?.55:1}},"Salvar regras do mercado")
           );
         }
         function MarketBalanceAdminForm({ tournament, teams, catalog, onSave }) {
