@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -11,6 +11,137 @@
         const EraserIcon = SvgIcon(["m4 15 8-8a2.5 2.5 0 0 1 3.5 0l2.5 2.5a2.5 2.5 0 0 1 0 3.5L11 20H7l-3-3a1.4 1.4 0 0 1 0-2Z", "m9 10 6 6", "M11 20h9"]);
         const ComparePlayersIcon = SvgIcon(["M8.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M3.5 19a5 5 0 0 1 10 0", "M17 10a2.5 2.5 0 1 0 0-5", "M15 14.5a4.5 4.5 0 0 1 5.5 4.4"]);
         const HigherValueIcon = SvgIcon(["m8.5 13.5 3.5-3.5 3.5 3.5"]);
+        const BALANCED_ROSTER_GROUPS = [
+          { key:"GOL", label:"Goleiros", positions:["GK"], count:3, offsets:[-3,0,3] },
+          { key:"ZAG", label:"Zagueiros", positions:["CB","CWB"], count:5, offsets:[-5,-2,0,2,5] },
+          { key:"LAT", label:"Laterais", positions:["SB","WB"], count:4, offsets:[-4,-1,1,4] },
+          { key:"MEI", label:"Meias", positions:["DMF","CMF","AMF","SMF"], count:6, offsets:[-6,-3,-1,1,3,6] },
+          { key:"ATK", label:"Atacantes", positions:["WF","SS","CF"], count:5, offsets:[-5,-2,0,2,5] },
+        ];
+        function balancedRosterGroupFor(player) {
+          let position=String(player&&player.position||"").toUpperCase();
+          return BALANCED_ROSTER_GROUPS.find((group)=>group.positions.includes(position))||null;
+        }
+        function randomShuffle(list) {
+          let result=[...(list||[])];
+          for(let i=result.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[result[i],result[j]]=[result[j],result[i]];}
+          return result;
+        }
+        function balancedRosterMetrics(players) {
+          let list=(Array.isArray(players)?players:[]).filter(Boolean), overalls=list.map((player)=>Number(player.overall)||0), values=list.map((player)=>Number(player.value)||0);
+          let groupAverages={};
+          BALANCED_ROSTER_GROUPS.forEach((group)=>{let rows=list.filter((player)=>balancedRosterGroupFor(player)?.key===group.key);groupAverages[group.key]=rows.length?rows.reduce((sum,player)=>sum+(Number(player.overall)||0),0)/rows.length:0;});
+          let sorted=[...overalls].sort((a,b)=>b-a);
+          return {
+            averageOverall:list.length?overalls.reduce((a,b)=>a+b,0)/list.length:0,
+            startingElevenOverall:sorted.length?sorted.slice(0,Math.min(11,sorted.length)).reduce((a,b)=>a+b,0)/Math.min(11,sorted.length):0,
+            marketValue:values.reduce((a,b)=>a+b,0),
+            groupAverages
+          };
+        }
+        function balancedRosterObjective(rosters) {
+          let metrics=rosters.map(balancedRosterMetrics); if(metrics.length<2)return 0;
+          let mean=(key)=>metrics.reduce((sum,row)=>sum+Number(row[key]||0),0)/metrics.length;
+          let avgMean=mean("averageOverall"), xiMean=mean("startingElevenOverall"), valueMean=Math.max(1,mean("marketValue"));
+          return metrics.reduce((score,row)=>{
+            score+=Math.pow((row.averageOverall-avgMean)*5,2);
+            score+=Math.pow((row.startingElevenOverall-xiMean)*3.5,2);
+            score+=Math.pow(((row.marketValue-valueMean)/valueMean)*18,2);
+            BALANCED_ROSTER_GROUPS.forEach((group)=>{let gm=metrics.reduce((sum,item)=>sum+Number(item.groupAverages[group.key]||0),0)/metrics.length;score+=Math.pow((Number(row.groupAverages[group.key]||0)-gm)*2.2,2);});
+            return score;
+          },0);
+        }
+        function eligibleBalancedPlayers(catalog,group,target,minimum) {
+          let rows=(Array.isArray(catalog)?catalog:[]).filter((player)=>player&&player.id&&group.positions.includes(String(player.position||"").toUpperCase())&&Number.isFinite(Number(player.overall)));
+          for(let band of [8,10,12,16,24,99]){let filtered=rows.filter((player)=>Math.abs((Number(player.overall)||0)-target)<=band);if(filtered.length>=minimum)return filtered;}
+          return rows;
+        }
+        function buildBalancedInitialRosters(catalog,teams,targetOverall) {
+          let teamList=(Array.isArray(teams)?teams:[]).filter(Boolean), target=Math.max(60,Math.min(95,Math.round(Number(targetOverall)||80)));
+          if(teamList.length<2)return {ok:false,message:"Selecione pelo menos dois participantes."};
+          let rosters=teamList.map(()=>[]), used=new Set();
+          for(let group of BALANCED_ROSTER_GROUPS){
+            let needed=teamList.length*group.count, candidates=eligibleBalancedPlayers(catalog,group,target,needed);
+            if(candidates.length<needed)return {ok:false,message:`Não há jogadores suficientes em ${group.label}. Necessários: ${needed}; disponíveis: ${candidates.length}.`};
+            let available=randomShuffle(candidates);
+            for(let slot=0;slot<group.count;slot++){
+              let order=slot%2===0?[...Array(teamList.length).keys()]:[...Array(teamList.length).keys()].reverse();
+              order=randomShuffle(order);
+              for(let teamIndex of order){
+                let slotTarget=target+(group.offsets[slot]||0);
+                let ranked=available.filter((player)=>!used.has(String(player.id))).sort((a,b)=>{
+                  let da=Math.abs((Number(a.overall)||0)-slotTarget), db=Math.abs((Number(b.overall)||0)-slotTarget);
+                  if(da!==db)return da-db;
+                  return Math.random()-.5;
+                });
+                let shortlist=ranked.slice(0,Math.min(10,ranked.length));
+                let chosen=shortlist[Math.floor(Math.random()*shortlist.length)]||ranked[0];
+                if(!chosen)return {ok:false,message:`Não foi possível completar ${group.label}.`};
+                used.add(String(chosen.id)); rosters[teamIndex].push(chosen);
+              }
+            }
+          }
+          let byGroup=(player)=>balancedRosterGroupFor(player)?.key||"";
+          let bestScore=balancedRosterObjective(rosters);
+          for(let attempt=0;attempt<2600;attempt++){
+            let a=Math.floor(Math.random()*rosters.length), b=Math.floor(Math.random()*rosters.length); if(a===b)continue;
+            let group=BALANCED_ROSTER_GROUPS[Math.floor(Math.random()*BALANCED_ROSTER_GROUPS.length)];
+            let ai=rosters[a].map((player,index)=>byGroup(player)===group.key?index:-1).filter((index)=>index>=0), bi=rosters[b].map((player,index)=>byGroup(player)===group.key?index:-1).filter((index)=>index>=0);
+            if(!ai.length||!bi.length)continue;
+            let ia=ai[Math.floor(Math.random()*ai.length)], ib=bi[Math.floor(Math.random()*bi.length)];
+            [rosters[a][ia],rosters[b][ib]]=[rosters[b][ib],rosters[a][ia]];
+            let score=balancedRosterObjective(rosters);
+            if(score<=bestScore)bestScore=score;else [rosters[a][ia],rosters[b][ib]]=[rosters[b][ib],rosters[a][ia]];
+          }
+          let metrics=rosters.map(balancedRosterMetrics), averages=metrics.map((item)=>item.averageOverall), values=metrics.map((item)=>item.marketValue);
+          return {ok:true,targetOverall:target,rosters,metrics,balance:{minOverall:Math.min(...averages),maxOverall:Math.max(...averages),minValue:Math.min(...values),maxValue:Math.max(...values)}};
+        }
+        function buildBestBalancedInitialRosters(catalog,teams,targetOverall) {
+          let best=null,bestScore=Infinity;
+          for(let attempt=0;attempt<10;attempt++){
+            let result=buildBalancedInitialRosters(catalog,teams,targetOverall);
+            if(!result.ok)return result;
+            let metrics=result.metrics||[],values=metrics.map((item)=>Number(item.marketValue)||0),averages=metrics.map((item)=>Number(item.averageOverall)||0),meanValue=Math.max(1,values.reduce((a,b)=>a+b,0)/Math.max(1,values.length));
+            let valueSpread=(Math.max(...values)-Math.min(...values))/meanValue,overallSpread=Math.max(...averages)-Math.min(...averages),score=valueSpread*10+overallSpread;
+            if(score<bestScore){best=result;bestScore=score;best.balance={...(best.balance||{}),valueSpreadPct:valueSpread*100,overallSpread};}
+            if(valueSpread<=.05&&overallSpread<=.35)break;
+          }
+          if(best&&best.balance&&best.balance.valueSpreadPct>10)return {ok:false,message:`Não foi possível equilibrar o patrimônio dentro de 10% com alvo ${Math.round(Number(targetOverall)||80)} OVR. Ajuste o overall alvo ou reduza o número de participantes.`};
+          return best||{ok:false,message:"Não foi possível gerar elencos balanceados."};
+        }
+        function buildEquivalentReroll(catalog,currentRoster,ownership,ownTeamId,targetOverall) {
+          let current=(Array.isArray(currentRoster)?currentRoster:[]).filter(Boolean); if(current.length!==23)return {ok:false,message:"O elenco atual precisa ter exatamente 23 jogadores para rerrolar."};
+          let currentIds=new Set(current.map((player)=>String(player.id))), blocked=new Set();
+          Object.entries(ownership&&typeof ownership==="object"?ownership:{}).forEach(([playerId,item])=>{if(item&&item.teamId&&String(item.teamId)!==String(ownTeamId))blocked.add(String(playerId));});
+          let desired=balancedRosterMetrics(current), best=null, bestScore=Infinity;
+          for(let trial=0;trial<90;trial++){
+            let picked=[], used=new Set();
+            let failed=false;
+            for(let group of BALANCED_ROSTER_GROUPS){
+              let source=current.filter((player)=>balancedRosterGroupFor(player)?.key===group.key).sort((a,b)=>(Number(b.overall)||0)-(Number(a.overall)||0));
+              let candidates=(Array.isArray(catalog)?catalog:[]).filter((player)=>player&&player.id&&group.positions.includes(String(player.position||"").toUpperCase())&&!blocked.has(String(player.id))&&!currentIds.has(String(player.id))&&!used.has(String(player.id)));
+              if(candidates.length<group.count){failed=true;break;}
+              for(let reference of source){
+                let ranked=candidates.filter((player)=>!used.has(String(player.id))).map((player)=>({player,score:Math.abs((Number(player.overall)||0)-(Number(reference.overall)||0))*4+Math.abs((Number(player.value)||0)-(Number(reference.value)||0))/18+Math.random()*2.5})).sort((a,b)=>a.score-b.score);
+                let shortlist=ranked.slice(0,Math.min(8,ranked.length)); let chosen=(shortlist[Math.floor(Math.random()*shortlist.length)]||ranked[0]);
+                if(!chosen){failed=true;break;} used.add(String(chosen.player.id));picked.push(chosen.player);
+              }
+              if(failed)break;
+            }
+            if(failed||picked.length!==23)continue;
+            let metrics=balancedRosterMetrics(picked), valueBase=Math.max(1,desired.marketValue);
+            let score=Math.abs(metrics.averageOverall-desired.averageOverall)*9+Math.abs(metrics.startingElevenOverall-desired.startingElevenOverall)*5+Math.abs(metrics.marketValue-desired.marketValue)/valueBase*70;
+            BALANCED_ROSTER_GROUPS.forEach((group)=>score+=Math.abs((metrics.groupAverages[group.key]||0)-(desired.groupAverages[group.key]||0))*3.5);
+            score+=Math.abs(metrics.averageOverall-(Number(targetOverall)||metrics.averageOverall))*1.5;
+            if(score<bestScore){bestScore=score;best={players:picked,metrics};}
+          }
+          if(!best)return {ok:false,message:"Não encontrei uma nova combinação equivalente disponível. Tente novamente mais tarde."};
+          let valueDiff=Math.abs((Number(best.metrics.marketValue)||0)-(Number(desired.marketValue)||0))/Math.max(1,Number(desired.marketValue)||1);
+          let overallDiff=Math.abs((Number(best.metrics.averageOverall)||0)-(Number(desired.averageOverall)||0));
+          let xiDiff=Math.abs((Number(best.metrics.startingElevenOverall)||0)-(Number(desired.startingElevenOverall)||0));
+          if(valueDiff>.08||overallDiff>.55||xiDiff>.75)return {ok:false,message:"O pool disponível não permite outro elenco com força equivalente sem prejudicar o balanceamento."};
+          return {ok:true,...best};
+        }
         async function hashProfilePin(value) {
           if (!window.crypto || !window.crypto.subtle) throw new Error("Criptografia indisponível neste navegador.");
           let bytes = new TextEncoder().encode(`profile-pin:${String(value || "")}`);
@@ -88,6 +219,7 @@
             [playerReportModal, setPlayerReportModal] = b(null),
             [playerReviewsOpen, setPlayerReviewsOpen] = b(false),
             [marketActionKey, setMarketActionKey] = b(null),
+            [randomRosterBusy, setRandomRosterBusy] = b(false),
             marketActionRef = Rf(null);
           function signalImportantUpdate() {
             return Promise.resolve();
@@ -891,6 +1023,45 @@
             }, [te, p, ProfileName]),
             ProfileTeams = ProfileTeam ? [ProfileTeam] : [],
             unreadOfferCount = ProfileTeam ? Object.values(tradeOffers).filter((offer) => isOfferOpen(offer) && String(offer.lastActorTeamId) !== String(ProfileTeam.id) && (String(offer.buyerTeamId) === String(ProfileTeam.id) || String(offer.sellerTeamId) === String(ProfileTeam.id))).length : 0;
+          async function rerollCurrentBalancedRoster() {
+            if(randomRosterBusy||!R||!R.randomRoster||!ProfileTeam||!te||!te.id)return;
+            let member=R.randomRoster.members&&R.randomRoster.members[String(te.id)]||{};
+            let maxRolls=Math.max(1,Number(R.randomRoster.maxRolls)||3),currentRoll=Math.max(1,Number(member.rollNumber)||1);
+            if(member.accepted){window.alert("Este elenco já foi confirmado.");return;}
+            if(currentRoll>=maxRolls){window.alert("Você já usou todas as tentativas disponíveis.");return;}
+            if(!window.confirm(`Gerar a tentativa ${currentRoll+1} de ${maxRolls}? O elenco atual será descartado e não poderá ser recuperado.`))return;
+            let result=buildEquivalentReroll(n,Oe(ProfileTeam.id),c,ProfileTeam.id,R.randomRoster.targetOverall);
+            if(!result.ok){window.alert(result.message||"Não foi possível gerar outro elenco equivalente.");return;}
+            setRandomRosterBusy(true);
+            try{
+              if(typeof rerollBalancedRoster!=="function")throw new Error("Instale o SQL do sorteio balanceado no Supabase.");
+              await rerollBalancedRoster({tournamentId:R.id,profileId:te.id,playerIds:result.players.map((player)=>String(player.id)),expectedRoll:currentRoll,metrics:result.metrics});
+            }catch(error){console.error("balanced roster reroll failed",error);window.alert(`Não foi possível gerar outro elenco. ${error&&error.message?error.message:"Tente novamente."}`);}finally{setRandomRosterBusy(false);}
+          }
+          async function acceptCurrentBalancedRoster() {
+            if(randomRosterBusy||!R||!R.randomRoster||!ProfileTeam||!te||!te.id)return;
+            let member=R.randomRoster.members&&R.randomRoster.members[String(te.id)]||{};
+            if(member.accepted)return;
+            if(!window.confirm("Confirmar este elenco? Depois de aceitar, você não poderá mais rerrolar."))return;
+            setRandomRosterBusy(true);
+            try{
+              if(typeof acceptBalancedRoster!=="function")throw new Error("Instale o SQL do sorteio balanceado no Supabase.");
+              await acceptBalancedRoster({tournamentId:R.id,profileId:te.id});
+            }catch(error){console.error("balanced roster accept failed",error);window.alert(`Não foi possível confirmar o elenco. ${error&&error.message?error.message:"Tente novamente."}`);}finally{setRandomRosterBusy(false);}
+          }
+          async function startCurrentBalancedTournament() {
+            if(randomRosterBusy||!R||!R.randomRoster||!te||!isAdminProfile(te))return;
+            let members=R.randomRoster.members&&typeof R.randomRoster.members==="object"?R.randomRoster.members:{};
+            let pending=(R.participants||[]).map(String).filter((profileId)=>!(members[profileId]&&members[profileId].accepted));
+            if(pending.length){window.alert(`Ainda faltam ${pending.length} participante(s) confirmar o elenco.`);return;}
+            if(!window.confirm("Todos confirmaram os elencos. Iniciar o campeonato e liberar mercado, tabela e partidas?"))return;
+            setRandomRosterBusy(true);
+            try{
+              if(typeof startBalancedRosterTournament!=="function")throw new Error("Instale o SQL do sorteio balanceado no Supabase.");
+              await startBalancedRosterTournament({tournamentId:R.id,profileId:te.id});
+              oe("table");
+            }catch(error){console.error("balanced roster start failed",error);window.alert(`Não foi possível iniciar o campeonato. ${error&&error.message?error.message:"Tente novamente."}`);}finally{setRandomRosterBusy(false);}
+          }
           function At() {
             (le({ name: "", color: se[p.length % se.length], budget: 300 }),
               ge(!0));
@@ -1726,19 +1897,39 @@
                 financialTransactions.unshift(financeEntry("initial_balance", teamId, budget, "Saldo inicial da competição"));
               });
             }
+            let randomRoster=null;
+            if(!source && options.randomRoster && options.randomRoster.enabled){
+              let targetOverall=Math.max(60,Math.min(95,Math.round(Number(options.randomRoster.targetOverall)||80)));
+              let creationCatalog=(Array.isArray(baseCatalog)?baseCatalog:[]).map((player)=>{
+                let override=playerCatalogOverrides&&playerCatalogOverrides[player&&player.id];
+                if(!player||!override||typeof override!=="object")return player;
+                return {...player,overall:override.overall!=null?Number(override.overall):player.overall,value:override.value!=null?Number(override.value):player.value,attack:override.attack!=null?Number(override.attack):player.attack,defense:override.defense!=null?Number(override.defense):player.defense,attrs:{...(player.attrs||{}),...((override.attrs&&typeof override.attrs==="object")?override.attrs:{})}};
+              });
+              let generated=buildBestBalancedInitialRosters(creationCatalog,teams,targetOverall);
+              if(!generated.ok){window.alert(generated.message||"Não foi possível gerar elencos balanceados.");return false;}
+              ownership={};
+              let members={},now=Date.now();
+              teams.forEach((team,index)=>{
+                let roster=generated.rosters[index]||[],metrics=generated.metrics[index]||balancedRosterMetrics(roster),profileId=String(team.profileId);
+                roster.forEach((player)=>{ownership[String(player.id)]={playerId:String(player.id),teamId:String(team.id),initialTeamId:String(team.id),squadRole:"base",acquisitionSource:"initial_roster",acquiredAt:now,forSale:false,randomRoster:true,rollNumber:1};});
+                members[profileId]={teamId:String(team.id),rollNumber:1,maxRolls:3,accepted:false,acceptedAt:null,metrics,updatedAt:now};
+              });
+              randomRoster={version:1,enabled:true,status:"selection",targetOverall,maxRolls:3,rosterSize:23,composition:Object.fromEntries(BALANCED_ROSTER_GROUPS.map((group)=>[group.key,group.count])),generatedAt:now,members,balance:generated.balance};
+            }
             let tournament = {
               id: _(), name, format: source ? (source.format || "liga") : "liga", season: B.seasonCounter,
-              teamIds: teams.map((team) => team.id), participants, groups: null, matches: [], status: "ongoing",
+              teamIds: teams.map((team) => team.id), participants, groups: null, matches: [], status: randomRoster ? "roster_selection" : "ongoing",
               champion: null, createdAt: Date.now(),
               sourceChampionshipId: source ? source.id : null,
               inheritance: source ? inheritance : null,
+              randomRoster,
               marketSettings: source && source.marketSettings ? { ...source.marketSettings } : { depreciationPct: 10, initialRosterDepreciationPct:50, isOpen:true, freePlayerOverallLimit:{enabled:false,minOverall:1,maxOverall:99} },
               rosterSettings: source && source.rosterSettings ? { ...source.rosterSettings } : { minPlayers: 23, maxPlayers: 30, minBaseRosterPlayers: 0 },
               economySettings: source && source.economySettings ? { ...source.economySettings } : { winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
               finalPrizeSettings: source && source.finalPrizeSettings ? { ...source.finalPrizeSettings } : { firstPlacePrize: 20, lastPlacePercentage: 50 },
               context: { teams, ownership, playerStats: {}, transfers: [], tradeOffers: {}, financialTransactions },
             };
-            ae([...m, tournament]);
+            let savePromise=ae([...m, tournament]);
             setAdminTournamentName("");
             setSelectedTournamentId(tournament.id);
             qe("pes-selected-tournament", tournament.id);
@@ -1746,7 +1937,8 @@
             he(null);
             Ae(null);
             ve(null);
-            oe("admin");
+            oe(randomRoster ? "table" : "admin");
+            return savePromise.then((result)=>result&&result.committed!==false);
           }
           function deleteAdminTournament(id) {
             if (!window.confirm("Excluir este campeonato e todos os dados dele?")) return;
@@ -2667,7 +2859,21 @@
                       onErase: eraseProfilePinDigit,
                     })
                   ))
-                : React.createElement(
+                : R && R.randomRoster && R.randomRoster.enabled && R.randomRoster.status !== "active" && R.status !== "finished"
+                  ? React.createElement(BalancedRosterLobby, {
+                      tournament:R,
+                      team:ProfileTeam,
+                      squad:ProfileTeam?Oe(ProfileTeam.id):[],
+                      profile:te,
+                      profiles:x,
+                      isAdmin:isAdminProfile(te),
+                      busy:randomRosterBusy,
+                      onReroll:rerollCurrentBalancedRoster,
+                      onAccept:acceptCurrentBalancedRoster,
+                      onStart:startCurrentBalancedTournament,
+                      onSwitchProfile:ht,
+                    })
+                  : React.createElement(
                     "div",
                     {
                       className: "app-shell",
@@ -3002,6 +3208,55 @@
           );
         }
 
+        function BalancedRosterLobby({ tournament, team, squad, profile, profiles, isAdmin, busy, onReroll, onAccept, onStart, onSwitchProfile }) {
+          let rr=tournament&&tournament.randomRoster&&typeof tournament.randomRoster==="object"?tournament.randomRoster:{},members=rr.members&&typeof rr.members==="object"?rr.members:{};
+          let profileId=profile&&profile.id?String(profile.id):"",member=members[profileId]||null,maxRolls=Math.max(1,Number(rr.maxRolls)||3),rollNumber=member?Math.max(1,Number(member.rollNumber)||1):1;
+          let roster=(Array.isArray(squad)?squad:[]).filter(Boolean),metrics=member&&member.metrics?member.metrics:balancedRosterMetrics(roster);
+          let participantIds=(Array.isArray(tournament&&tournament.participants)?tournament.participants:[]).map(String),acceptedCount=participantIds.filter((id)=>members[id]&&members[id].accepted).length,allAccepted=participantIds.length>0&&acceptedCount===participantIds.length;
+          let profileById=(id)=>(profiles||[]).find((item)=>item&&String(item.id)===String(id))||null;
+          let groups=BALANCED_ROSTER_GROUPS.map((group)=>({group,players:roster.filter((player)=>balancedRosterGroupFor(player)?.key===group.key)}));
+          return React.createElement("div", { style:{ minHeight:"100vh",background:"var(--surface)",color:"var(--heading)",fontFamily:"Manrope,system-ui,-apple-system,Segoe UI,Roboto,sans-serif",padding:"20px 14px 36px" } },
+            React.createElement("div", { style:{ maxWidth:920,margin:"0 auto" } },
+              React.createElement("div", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:20 } },
+                React.createElement("div", null, React.createElement("div", { style:{ fontSize:12,color:"var(--green)",fontWeight:850,textTransform:"uppercase",letterSpacing:".12em" } }, "Sorteio balanceado"), React.createElement("h1", { style:{ margin:"5px 0 0",fontSize:"clamp(24px,5vw,36px)",letterSpacing:"-.035em" } }, tournament.name)),
+                React.createElement("button", { onClick:onSwitchProfile,style:{ ...M,marginTop:0,width:"auto",padding:"9px 13px",background:"var(--surface-soft)",color:"var(--heading)",border:"1px solid var(--border)" } }, "Trocar perfil")
+              ),
+              member&&team ? React.createElement(React.Fragment,null,
+                React.createElement("section", { className:"family-card",style:{ padding:"18px 18px 16px",marginBottom:14 } },
+                  React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:14,flexWrap:"wrap" } },
+                    React.createElement("div", null, React.createElement("div", { style:{fontSize:21,fontWeight:900} }, team.name||"Seu time"), React.createElement("div", { style:{fontSize:12.5,color:"var(--muted)",marginTop:3} }, member.accepted?"Elenco confirmado":"Escolha seu elenco antes do campeonato começar")),
+                    React.createElement("div", { style:{ textAlign:"right" } }, React.createElement("div", { style:{fontWeight:900,color:member.accepted?"var(--green)":"var(--heading)"} }, member.accepted?"✓ Confirmado":`Tentativa ${rollNumber} de ${maxRolls}`), React.createElement("div", { style:{fontSize:11.5,color:"var(--muted)",marginTop:3} }, `${roster.length}/23 jogadores`))
+                  ),
+                  React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8,marginTop:16 } },
+                    [["Overall médio",Number(metrics.averageOverall||0).toFixed(1)],["Melhores 11",Number(metrics.startingElevenOverall||0).toFixed(1)],["Valor do elenco",`${Math.round(Number(metrics.marketValue)||0)}M`]].map(([label,value])=>React.createElement("div",{key:label,style:{padding:"11px 9px",borderRadius:12,background:"var(--surface-soft)",textAlign:"center"}},React.createElement("div",{style:{fontSize:11,color:"var(--muted)"}},label),React.createElement("div",{style:{fontSize:17,fontWeight:900,marginTop:3}},value)))
+                  )
+                ),
+                React.createElement("section", { className:"family-card",style:{padding:14,marginBottom:14} },
+                  groups.map(({group,players})=>React.createElement("div",{key:group.key,style:{marginBottom:group.key==="ATK"?0:16}},
+                    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}},React.createElement("strong",{style:{fontSize:12.5}},group.key),React.createElement("span",{style:{fontSize:11,color:"var(--muted)"}},`${players.length}/${group.count}`)),
+                    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:6}},players.map((player)=>React.createElement("div",{key:player.id,style:{display:"grid",gridTemplateColumns:"44px minmax(0,1fr) auto",alignItems:"center",gap:10,padding:"9px 10px",borderRadius:12,background:"var(--surface-soft)",border:"1px solid var(--border)"}},
+                      React.createElement("div",{style:{width:40,height:40,borderRadius:11,display:"grid",placeItems:"center",fontSize:17,fontWeight:950,color:overallColor(Number(player.overall)||0),border:`1px solid ${overallColor(Number(player.overall)||0)}`}},player.overall),
+                      React.createElement("div",{style:{minWidth:0}},React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6,minWidth:0}},React.createElement("span",{style:{fontWeight:850,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},player.name),React.createElement("span",{style:{padding:"2px 6px",borderRadius:7,fontSize:10,fontWeight:900,background:positionColor(player.position),color:"#fff",flexShrink:0}},player.position)),React.createElement("div",{style:{fontSize:11,color:"var(--muted)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},player.club||"—")),
+                      React.createElement("div",{style:{fontSize:12,fontWeight:850,color:"var(--muted)"}},`${Number(player.value)||0}M`)
+                    )))
+                  ))
+                ),
+                React.createElement("div", { style:{ display:"grid",gridTemplateColumns:member.accepted?"1fr":"1fr 1fr",gap:10,marginBottom:18 } },
+                  !member.accepted&&React.createElement("button",{disabled:busy||rollNumber>=maxRolls,onClick:onReroll,style:{...M,marginTop:0,opacity:busy||rollNumber>=maxRolls?.45:1,background:"var(--surface-soft)",color:"var(--heading)",border:"1px solid var(--border)"}},rollNumber>=maxRolls?"Sem novas tentativas":busy?"Gerando...":"Sortear novamente"),
+                  !member.accepted&&React.createElement("button",{disabled:busy,onClick:onAccept,style:{...M,...W,marginTop:0,opacity:busy?.55:1}},busy?"Salvando...":"Aceitar elenco"),
+                  member.accepted&&React.createElement("div",{style:{padding:13,borderRadius:14,textAlign:"center",background:"color-mix(in srgb,var(--green) 10%,var(--surface-soft))",color:"var(--green)",fontWeight:850}},allAccepted?"Todos confirmaram. Aguardando o administrador iniciar.":"Seu elenco está travado. Aguardando os demais participantes.")
+                )
+              ):React.createElement("div",{className:"family-card",style:{padding:20,marginBottom:14,color:"var(--muted)"}},isAdmin?"Você não participa desta liga. Acompanhe as confirmações abaixo.":"Seu time não foi encontrado neste sorteio."),
+              React.createElement("section", { className:"family-card",style:{padding:18} },
+                React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",marginBottom:12}},React.createElement("strong",null,"Confirmações"),React.createElement("span",{style:{fontSize:12,color:"var(--muted)"}},`${acceptedCount} de ${participantIds.length}`)),
+                React.createElement("div",{style:{display:"grid",gap:7}},participantIds.map((id)=>{let item=profileById(id),accepted=!!(members[id]&&members[id].accepted);return React.createElement("div",{key:id,style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{fontWeight:750}},item&&item.name?item.name:"Participante"),React.createElement("span",{style:{fontSize:12,fontWeight:850,color:accepted?"var(--green)":"var(--muted)"}},accepted?"✓ Confirmado":"Aguardando"));})),
+                isAdmin&&React.createElement("button",{disabled:busy||!allAccepted,onClick:onStart,style:{...M,...W,marginTop:16,opacity:busy||!allAccepted?.45:1}},busy?"Iniciando...":allAccepted?"Iniciar campeonato":"Aguardando todos confirmarem")
+              ),
+              React.createElement("div",{style:{fontSize:11.5,lineHeight:1.5,color:"var(--muted)",textAlign:"center",marginTop:14}},"Os elencos dos adversários permanecem ocultos até o campeonato ser iniciado. O reroll troca apenas o seu time e preserva uma força equivalente.")
+            )
+          );
+        }
+
         function oo({ profiles: e, tournaments: t, selectedTournamentId: l, onSelectTournament: a, onPick: n, belongsToTournament: r }) {
           let [pickerOpen, setPickerOpen] = b(false);
           let ordered = [...(t || [])].sort((x,y)=>(Number(y.createdAt || y.finishedAt)||0)-(Number(x.createdAt || x.finishedAt)||0));
@@ -3017,14 +3272,14 @@
           function tournamentRow(item){
             let champion = item.finalStandings && item.finalStandings[0] ? item.finalStandings[0].profileNameSnapshot : null;
             return React.createElement("button", { key:item.id, onClick:()=>chooseTournament(item.id), style:{ width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between", gap:14, padding:"14px 4px", border:0, borderBottom:"1px solid var(--border)", background:"transparent", color:"var(--heading)", cursor:"pointer", textAlign:"left" } },
-              React.createElement("div", null, React.createElement("div", { style:{ fontWeight:800, fontSize:15 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)", fontSize:12, marginTop:3 } }, item.status === "finished" ? `Encerrado${champion ? ` · Campeão: ${champion}` : ""}` : "Em andamento")),
+              React.createElement("div", null, React.createElement("div", { style:{ fontWeight:800, fontSize:15 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)", fontSize:12, marginTop:3 } }, item.status === "finished" ? `Encerrado${champion ? ` · Campeão: ${champion}` : ""}` : item.randomRoster&&item.randomRoster.enabled&&item.randomRoster.status!=="active" ? "Escolha de elenco" : "Em andamento")),
               item.id === (selected&&selected.id) && React.createElement("span", { style:{ color:"var(--green)", fontWeight:900 } }, "✓")
             );
           }
           return React.createElement("div", { className: "profile-gate", style: { minHeight: "100vh", color: "var(--heading)", fontFamily: "Manrope,system-ui,-apple-system,Segoe UI,Roboto,sans-serif", padding: "clamp(24px,5vw,64px) 24px", display:"flex", flexDirection:"column", justifyContent:"center", alignItems:"center" } },
             React.createElement("div", { style: { width:"min(100%,980px)", textAlign:"center" } },
               React.createElement("div", { style: { marginBottom: "clamp(28px,5vw,52px)" } }, React.createElement("div", { style: { fontSize: "clamp(13px,1.2vw,15px)", textTransform:"uppercase", letterSpacing:".22em", color:"var(--muted)", fontWeight:800, marginBottom:14 } }, "MANCHADO PATCH"), React.createElement("h1", { style: { margin:0, fontSize:"clamp(32px,5vw,58px)", lineHeight:1.05, fontWeight:700, letterSpacing:"-.045em" } }, `Quem é o ${ctaWord} da vez?`)),
-              selected ? React.createElement("button", { onClick:()=>setPickerOpen(true), className:"tapbtn", style:{ minWidth:"min(100%,340px)", padding:"13px 20px", borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 92%,transparent)", color:"var(--heading)", cursor:"pointer", textAlign:"center", boxShadow:"0 12px 36px rgba(0,0,0,.16)", backdropFilter:"blur(16px)", marginBottom:"clamp(34px,5vw,56px)" } }, React.createElement("div", { style:{ fontSize:14, fontWeight:850 } }, selected.name), React.createElement("div", { style:{ fontSize:11, color:selected.status === "finished" ? "#ffbb26" : "var(--green)", marginTop:3, fontWeight:750 } }, selected.status === "finished" ? "Encerrado · Ver histórico" : "Em andamento · Trocar campeonato")) : React.createElement("div", { className:"family-card", style:{ padding:24, color:"var(--muted)", marginBottom:36 } }, "Nenhum campeonato foi encontrado."),
+              selected ? React.createElement("button", { onClick:()=>setPickerOpen(true), className:"tapbtn", style:{ minWidth:"min(100%,340px)", padding:"13px 20px", borderRadius:999, border:"1px solid var(--border)", background:"color-mix(in srgb,var(--surface) 92%,transparent)", color:"var(--heading)", cursor:"pointer", textAlign:"center", boxShadow:"0 12px 36px rgba(0,0,0,.16)", backdropFilter:"blur(16px)", marginBottom:"clamp(34px,5vw,56px)" } }, React.createElement("div", { style:{ fontSize:14, fontWeight:850 } }, selected.name), React.createElement("div", { style:{ fontSize:11, color:selected.status === "finished" ? "#ffbb26" : "var(--green)", marginTop:3, fontWeight:750 } }, selected.status === "finished" ? "Encerrado · Ver histórico" : selected.randomRoster&&selected.randomRoster.enabled&&selected.randomRoster.status!=="active" ? "Escolha de elenco · Trocar campeonato" : "Em andamento · Trocar campeonato")) : React.createElement("div", { className:"family-card", style:{ padding:24, color:"var(--muted)", marginBottom:36 } }, "Nenhum campeonato foi encontrado."),
               !selected ? React.createElement("div", { style:{ color:"var(--muted)", padding:28 } }, "Selecione um campeonato.") : visibleProfiles.length ? React.createElement("div", { style:{ display:"flex", flexWrap:"wrap", justifyContent:"center", gap:"clamp(26px,4vw,46px)" } }, visibleProfiles.map((profile) => React.createElement("button", { key:(profile.raw&&profile.raw.id)||profile.name, onClick:()=>n(profile.raw), className:"profile-choice tapbtn", style:{ width:"clamp(112px,15vw,154px)", background:"none", border:0, color:"var(--heading)", cursor:"pointer", padding:0, textAlign:"center" } }, React.createElement("div", { className:"profile-choice-avatar", style:{ width:"clamp(104px,14vw,146px)", height:"clamp(104px,14vw,146px)", margin:"0 auto", borderRadius:"50%", background:profile.color, overflow:"hidden", display:"grid", placeItems:"center", fontSize:"clamp(38px,5vw,56px)", fontWeight:800, border:"3px solid transparent", boxShadow:"0 18px 46px rgba(0,0,0,.28)" } }, profile.raw && profile.raw.avatar ? React.createElement("img", { src:profile.raw.avatar, alt:profile.name, style:{ width:"100%", height:"100%", objectFit:"cover" } }) : profile.name.charAt(0).toUpperCase()), React.createElement("div", { style:{ fontSize:"clamp(15px,1.6vw,18px)", fontWeight:750, marginTop:14, color:"var(--heading)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" } }, profile.name)))) : React.createElement("div", { className:"family-card", style:{ padding:24, color:"var(--muted)" } }, "Nenhum perfil pertence a este campeonato."),
               pickerOpen && React.createElement(ee, { title:"Escolher campeonato", onClose:()=>setPickerOpen(false) }, active.length ? React.createElement(React.Fragment,null,React.createElement("div", { style:{ color:"var(--muted)",fontSize:12,fontWeight:800,textTransform:"uppercase",letterSpacing:".12em",marginBottom:4 } },"Em andamento"),active.map(tournamentRow)) : null, finished.length ? React.createElement(React.Fragment,null,React.createElement("div", { style:{ color:"var(--muted)",fontSize:12,fontWeight:800,textTransform:"uppercase",letterSpacing:".12em",margin:"20px 0 4px" } },"Encerrados"),finished.map(tournamentRow)) : null)
             )
@@ -6458,6 +6713,8 @@ Hyago 0 x 0 Lucas`;
           let [adminSection, setAdminSection] = b("home");
           let [newParticipantIds, setNewParticipantIds] = b([]);
           let [newParticipantDrafts, setNewParticipantDrafts] = b({});
+          let [randomRosterEnabled, setRandomRosterEnabled] = b(false);
+          let [randomRosterTargetOverall, setRandomRosterTargetOverall] = b(80);
           let activeLeagues = (tournaments || []).filter((item)=>item&&item.type!=="cup"&&item.status!=="finished");
           let [cupLeagueId, setCupLeagueId] = b(activeLeagues[0]?activeLeagues[0].id:"");
           let [groupLegs, setGroupLegs] = b(1);
@@ -6545,6 +6802,8 @@ Hyago 0 x 0 Lucas`;
             setNewParticipantDrafts(drafts);
             setCompetitionType("league");
             setCreationMode(sourceCandidates.length ? "continue" : "new");
+            setRandomRosterEnabled(false);
+            setRandomRosterTargetOverall(80);
             setCompetitionWizardStep(1);
             setTournamentName("");
             setCompetitionWizardOpen(true);
@@ -6574,7 +6833,7 @@ Hyago 0 x 0 Lucas`;
               ? { competitionType:"cup", linkedLeagueId:cupLeagueId, groupLegs, cupPrize, cupParticipantIds }
               : creationMode === "continue"
                 ? { competitionType:"league", mode:"continue", sourceTournamentId, inheritance, participantOverrides }
-                : { competitionType:"league", mode:"new", newParticipantIds, newParticipantDrafts };
+                : { competitionType:"league", mode:"new", newParticipantIds, newParticipantDrafts, randomRoster:{enabled:randomRosterEnabled,targetOverall:randomRosterTargetOverall,maxRolls:3} };
             try {
               let result = await onCreateTournament(options);
               if (result !== false) closeCompetitionWizard();
@@ -6627,16 +6886,30 @@ Hyago 0 x 0 Lucas`;
                   React.createElement("div", null, React.createElement("div", { style:{ fontWeight:800, marginBottom:8 } }, "Revise os participantes"), React.createElement("div", { style:{ display:"grid",gap:8,maxHeight:330,overflow:"auto" } }, (Array.isArray(sourceTournament.context&&sourceTournament.context.teams)?sourceTournament.context.teams.filter((team)=>team&&team.active!==false&&team.profileId):[]).map((team)=>{ let profile=globalProfiles.find((item)=>String(item.id)===String(team.profileId)); let draft=participantOverrides[String(team.profileId)]||{include:true,teamName:team.name||"",budget:Number(team.budget)||0,inheritRoster:true}; return React.createElement("div", { key:team.id,style:{padding:12,border:"1px solid var(--border)",borderRadius:14,opacity:draft.include===false?.5:1} },React.createElement("label",{style:{display:"flex",gap:8,alignItems:"center",fontWeight:800,marginBottom:9}},React.createElement("input",{type:"checkbox",checked:draft.include!==false,onChange:(event)=>setParticipantOverrides({...participantOverrides,[String(team.profileId)]:{...draft,include:event.target.checked}})}),profile?profile.name:team.name),React.createElement("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 105px",gap:8}},React.createElement("input",{style:q,disabled:draft.include===false,value:draft.teamName,onChange:(event)=>setParticipantOverrides({...participantOverrides,[String(team.profileId)]:{...draft,teamName:event.target.value}})}),React.createElement("input",{style:q,disabled:draft.include===false,type:"number",min:0,value:draft.budget,onChange:(event)=>setParticipantOverrides({...participantOverrides,[String(team.profileId)]:{...draft,budget:event.target.value}})})),inheritance.rosters&&React.createElement("label",{style:{display:"flex",gap:7,alignItems:"center",fontSize:12,color:"var(--muted)",marginTop:9}},React.createElement("input",{type:"checkbox",disabled:draft.include===false,checked:draft.inheritRoster!==false,onChange:(event)=>setParticipantOverrides({...participantOverrides,[String(team.profileId)]:{...draft,inheritRoster:event.target.checked}})}),"Herdar elenco")); })))
                 );
               } else {
-                content = React.createElement("div", null,
-                  React.createElement("div", { style:{ fontWeight:800, marginBottom:4 } }, `Participantes · ${newParticipantIds.length} selecionados`),
-                  React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:10 } }, "Escolha quem começa na nova liga e ajuste nome do time e saldo inicial."),
-                  React.createElement("div", { style:{ display:"grid",gap:8,maxHeight:360,overflow:"auto" } }, globalProfiles.map((profile)=>{ let id=String(profile.id),checked=newParticipantIds.includes(id),draft=newParticipantDrafts[id]||{teamName:profile.name,budget:Number(profileBudget)||300}; return React.createElement("div", { key:id,style:{padding:12,border:"1px solid var(--border)",borderRadius:14,opacity:checked?1:.5} },React.createElement("label",{style:{display:"flex",gap:8,alignItems:"center",fontWeight:800,marginBottom:9}},React.createElement("input",{type:"checkbox",checked,onChange:()=>toggleNewParticipant(id)}),profile.name),React.createElement("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 105px",gap:8}},React.createElement("input",{style:q,disabled:!checked,value:draft.teamName,onChange:(event)=>setNewParticipantDrafts({...newParticipantDrafts,[id]:{...draft,teamName:event.target.value}})}),React.createElement("input",{style:q,disabled:!checked,type:"number",min:0,value:draft.budget,onChange:(event)=>setNewParticipantDrafts({...newParticipantDrafts,[id]:{...draft,budget:event.target.value}})}))); }))
+                content = React.createElement("div", { style:{ display:"grid", gap:16 } },
+                  React.createElement("div", { style:{ padding:15,border:"1px solid var(--border)",borderRadius:16,background:randomRosterEnabled?"color-mix(in srgb,var(--green) 8%,var(--surface-soft))":"var(--surface-soft)" } },
+                    React.createElement("label", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,cursor:"pointer" } },
+                      React.createElement("span", null, React.createElement("span", { style:{ display:"block",fontWeight:850,fontSize:14 } }, "Gerar elencos balanceados automaticamente"), React.createElement("span", { style:{ display:"block",fontSize:11.5,lineHeight:1.45,color:"var(--muted)",marginTop:4 } }, "23 jogadores por time, posições equilibradas e 3 tentativas totais por participante.")),
+                      React.createElement("input", { type:"checkbox",checked:randomRosterEnabled,onChange:(event)=>setRandomRosterEnabled(event.target.checked) })
+                    ),
+                    randomRosterEnabled && React.createElement("div", { style:{ marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)",display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
+                      React.createElement("div", null, React.createElement("div", { style:{fontWeight:750,fontSize:12.5} }, "Overall médio alvo"), React.createElement("div", { style:{fontSize:11,color:"var(--muted)",marginTop:3,lineHeight:1.4} }, "O algoritmo também equilibra melhor XI, setores e valor de mercado.")),
+                      React.createElement("input", { style:q,type:"number",min:60,max:95,step:1,value:randomRosterTargetOverall,onChange:(event)=>setRandomRosterTargetOverall(event.target.value) })
+                    ),
+                    randomRosterEnabled && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.55,marginTop:12 } }, "Composição fixa: 3 GOL · 5 ZAG · 4 LAT · 6 MEI · 5 ATK. Cada reroll descarta a opção atual e gera outra de força equivalente.")
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("div", { style:{ fontWeight:800, marginBottom:4 } }, `Participantes · ${newParticipantIds.length} selecionados`),
+                    React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:10 } }, "Escolha quem começa na nova liga e ajuste nome do time e saldo inicial."),
+                    React.createElement("div", { style:{ display:"grid",gap:8,maxHeight:360,overflow:"auto" } }, globalProfiles.map((profile)=>{ let id=String(profile.id),checked=newParticipantIds.includes(id),draft=newParticipantDrafts[id]||{teamName:profile.name,budget:Number(profileBudget)||300}; return React.createElement("div", { key:id,style:{padding:12,border:"1px solid var(--border)",borderRadius:14,opacity:checked?1:.5} },React.createElement("label",{style:{display:"flex",gap:8,alignItems:"center",fontWeight:800,marginBottom:9}},React.createElement("input",{type:"checkbox",checked,onChange:()=>toggleNewParticipant(id)}),profile.name),React.createElement("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) 105px",gap:8}},React.createElement("input",{style:q,disabled:!checked,value:draft.teamName,onChange:(event)=>setNewParticipantDrafts({...newParticipantDrafts,[id]:{...draft,teamName:event.target.value}})}),React.createElement("input",{style:q,disabled:!checked,type:"number",min:0,value:draft.budget,onChange:(event)=>setNewParticipantDrafts({...newParticipantDrafts,[id]:{...draft,budget:event.target.value}})}))); }))
+                  )
                 );
               }
             } else {
               let participantCount = competitionType === "cup" ? cupParticipantIds.length : creationMode === "continue" ? Object.values(participantOverrides).filter((item)=>item&&item.include!==false).length : newParticipantIds.length;
               content = React.createElement("div", { style:{ display:"grid", gap:10 } },
                 [["Tipo",competitionType==="cup"?"Copa · grupos + mata-mata":"Campeonato · pontos corridos"],["Nome",tournamentName],["Participantes",String(participantCount)]].map(([label,value])=>React.createElement("div",{key:label,style:{display:"flex",justifyContent:"space-between",gap:16,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},label),React.createElement("strong",{style:{textAlign:"right"}},value))),
+                competitionType==="league"&&creationMode==="new"&&React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:16,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},"Elencos iniciais"),React.createElement("strong",{style:{textAlign:"right"}},randomRosterEnabled?`Balanceados · alvo ${Math.max(60,Math.min(95,Math.round(Number(randomRosterTargetOverall)||80)))} OVR · 3 tentativas`:"Manuais")),
                 competitionType==="cup"&&React.createElement(React.Fragment,null,React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},"Liga vinculada"),React.createElement("strong",null,cupLeague?cupLeague.name:"—")),React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},"Fase de grupos"),React.createElement("strong",null,groupLegs===2?"Ida e volta":"Somente ida")),React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"12px 0"}},React.createElement("span",{style:{color:"var(--muted)"}},"Premiação"),React.createElement("strong",null,`${Math.max(0,Number(cupPrize)||0)}M`)))
               );
             }

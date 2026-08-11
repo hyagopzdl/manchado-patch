@@ -445,6 +445,18 @@
       invalidateCache("boot:");
       let remoteState=await loadNormalizedState();
       remoteState=hydrateRemoteDeferredCollections(remoteState,baseState);
+      if(hasTournamentWrite){
+        const baseById=indexById(asObject(baseState&&baseState.pes).tournaments),nextById=indexById(asObject(nextState&&nextState.pes).tournaments);
+        for(const remoteTournament of asArray(asObject(remoteState&&remoteState.pes).tournaments)){
+          if(!remoteTournament||!remoteTournament.id)continue;
+          const rr=asObject(remoteTournament.randomRoster);
+          if(rr.enabled!==true||rr.status==="active")continue;
+          const id=String(remoteTournament.id),before=baseById.get(id),after=nextById.get(id);
+          if(before&&JSON.stringify(before)!==JSON.stringify(after)){
+            throw new Error("Campeonato bloqueado durante a escolha dos elencos. Use apenas as ações de reroll, aceite ou início.");
+          }
+        }
+      }
       // Reviews are intentionally omitted from the boot payload. Before mutating
       // one of them, hydrate the live rows and votes so safeDiff can preserve
       // concurrent votes and can emit real review deletions instead of only
@@ -709,6 +721,46 @@
     return data||{applied:true};
   }
 
+  async function refreshNormalizedStateAfterRpc(){
+    invalidateCache();
+    let remote=await loadNormalizedState();
+    state=syncLegacyMirrors(remote);
+    loaded=true;
+    emitAll();
+    return clone(state);
+  }
+
+  async function rerollBalancedRoster({tournamentId,profileId,playerIds,expectedRoll,metrics}){
+    await load();
+    if(!client)throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("reroll_balanced_roster",{
+      p_tournament_id:String(tournamentId),
+      p_profile_id:String(profileId),
+      p_player_ids:(playerIds||[]).map(String),
+      p_expected_roll:Number(expectedRoll)||1,
+      p_metrics:metrics&&typeof metrics==="object"?metrics:{}
+    });
+    if(error)throw error;
+    await refreshNormalizedStateAfterRpc();
+    return data||{ok:true};
+  }
+  async function acceptBalancedRoster({tournamentId,profileId}){
+    await load();
+    if(!client)throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("accept_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId)});
+    if(error)throw error;
+    await refreshNormalizedStateAfterRpc();
+    return data||{ok:true};
+  }
+  async function startBalancedRosterTournament({tournamentId,profileId}){
+    await load();
+    if(!client)throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("start_balanced_roster_tournament",{p_tournament_id:String(tournamentId),p_actor_profile_id:profileId?String(profileId):actorProfileId()});
+    if(error)throw error;
+    await refreshNormalizedStateAfterRpc();
+    return data||{ok:true};
+  }
+
   async function loadPlayerOverrideHistory(limit=200){
     await load();
     if(!client)throw new Error("Supabase não configurado");
@@ -781,5 +833,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();
