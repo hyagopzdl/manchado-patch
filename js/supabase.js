@@ -452,7 +452,13 @@
           const rr=asObject(remoteTournament.randomRoster);
           if(rr.enabled!==true||rr.status==="active")continue;
           const id=String(remoteTournament.id),before=baseById.get(id),after=nextById.get(id);
-          if(before&&JSON.stringify(before)!==JSON.stringify(after)){
+          // Explicit admin deletion is allowed during roster selection. The
+          // protection below exists to prevent generic edits from rewriting a
+          // draft tournament while users are choosing their generated squads.
+          // When `after` is absent the whole tournament is intentionally being
+          // deleted, and apply_tournament_delta already handles the atomic
+          // tournament deletion path.
+          if(before&&after&&JSON.stringify(before)!==JSON.stringify(after)){
             throw new Error("Campeonato bloqueado durante a escolha dos elencos. Use apenas as ações de reroll, aceite ou início.");
           }
         }
