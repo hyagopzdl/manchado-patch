@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -141,6 +141,40 @@
           let xiDiff=Math.abs((Number(best.metrics.startingElevenOverall)||0)-(Number(desired.startingElevenOverall)||0));
           if(valueDiff>.08||overallDiff>.55||xiDiff>.75)return {ok:false,message:"O pool disponível não permite outro elenco com força equivalente sem prejudicar o balanceamento."};
           return {ok:true,...best};
+        }
+        function medianNumber(values) {
+          let rows=(values||[]).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+          if(!rows.length)return 0;let mid=Math.floor(rows.length/2);return rows.length%2?rows[mid]:(rows[mid-1]+rows[mid])/2;
+        }
+        function balancedTournamentBenchmark(tournament,teams,ownership,catalog) {
+          let participantIds=new Set((Array.isArray(tournament&&tournament.participants)?tournament.participants:[]).map(String));
+          let active=(Array.isArray(teams)?teams:[]).filter((team)=>team&&team.active!==false&&participantIds.has(String(team.profileId)));
+          let rows=active.map((team)=>{let roster=(Array.isArray(catalog)?catalog:[]).filter((player)=>player&&ownership&&ownership[String(player.id)]&&String(ownership[String(player.id)].teamId)===String(team.id));return {team,metrics:balancedRosterMetrics(roster)};}).filter((row)=>row.metrics.averageOverall>0);
+          let groupAverages={};BALANCED_ROSTER_GROUPS.forEach((group)=>{groupAverages[group.key]=medianNumber(rows.map((row)=>row.metrics.groupAverages[group.key]));});
+          let averageOverall=medianNumber(rows.map((row)=>row.metrics.averageOverall)),startingElevenOverall=medianNumber(rows.map((row)=>row.metrics.startingElevenOverall)),marketValue=medianNumber(rows.map((row)=>row.metrics.marketValue));
+          let rr=tournament&&tournament.randomRoster&&typeof tournament.randomRoster==='object'?tournament.randomRoster:{},members=rr.members&&typeof rr.members==='object'?rr.members:{};
+          let recordedInitial=active.map((team)=>Number(members[String(team.profileId)]&&members[String(team.profileId)].initialBudget)).filter(Number.isFinite),currentBudgets=active.map((team)=>Number(team.budget)).filter(Number.isFinite);
+          let baseBudget=recordedInitial.length?medianNumber(recordedInitial):medianNumber(currentBudgets);
+          let matches=(Array.isArray(tournament&&tournament.matches)?tournament.matches:[]).filter((match)=>match&&match.played&&match.status!=='voided'&&!match.bye),economy=economySettingsOf(tournament);
+          let gameRows=active.map((team)=>{let teamMatches=matches.filter((match)=>String(match.homeId)===String(team.id)||String(match.awayId)===String(team.id));let rewardTotal=teamMatches.reduce((sum,match)=>{let stored=match.economyRewards&&match.economyRewards[team.id];return sum+(stored!=null&&Number.isFinite(Number(stored))?Number(stored):matchEconomyForTeam(match,team.id,economy).total);},0);return {played:teamMatches.length,rewardPerMatch:teamMatches.length?rewardTotal/teamMatches.length:0};}).sort((a,b)=>b.played-a.played);
+          let leaders=gameRows.slice(0,Math.max(1,Math.ceil(gameRows.length/2))),referenceGames=Math.round(medianNumber(leaders.map((row)=>row.played))),rates=leaders.filter((row)=>row.played>0).map((row)=>row.rewardPerMatch).sort((a,b)=>a-b);if(rates.length>=4)rates=rates.slice(1,-1);
+          let averageReward=rates.length?rates.reduce((a,b)=>a+b,0)/rates.length:0,compPct=Number(balanceLoanSettingsOf(tournament).compensationPercentage)||60,compensation=Math.max(0,Math.round(referenceGames*averageReward*(compPct/100)));
+          let suggestedBudget=Math.max(0,Math.round(baseBudget+(recordedInitial.length?compensation:0)));
+          return {teamCount:rows.length,averageOverall,startingElevenOverall,marketValue,groupAverages,suggestedOverall:Math.max(60,Math.min(95,Math.round(averageOverall||Number(rr.targetOverall)||80))),baseBudget,compensation,suggestedBudget,referenceGames,averageReward,usedRecordedInitialBudget:recordedInitial.length>0};
+        }
+        function buildBalancedRosterForBenchmark(catalog,ownership,benchmark,targetOverall) {
+          let target=Math.max(60,Math.min(95,Math.round(Number(targetOverall)||Number(benchmark&&benchmark.suggestedOverall)||80))),blocked=new Set();
+          Object.entries(ownership&&typeof ownership==='object'?ownership:{}).forEach(([id,item])=>{if(item&&item.teamId)blocked.add(String(id));});
+          let best=null,bestScore=Infinity;
+          for(let trial=0;trial<140;trial++){let picked=[],used=new Set(),failed=false;
+            for(let group of BALANCED_ROSTER_GROUPS){let baseGroup=Number(benchmark&&benchmark.groupAverages&&benchmark.groupAverages[group.key])||target,shift=target-(Number(benchmark&&benchmark.averageOverall)||target),groupTarget=baseGroup+shift,candidates=(Array.isArray(catalog)?catalog:[]).filter((player)=>player&&player.id&&group.positions.includes(String(player.position||'').toUpperCase())&&!blocked.has(String(player.id)));if(candidates.length<group.count){failed=true;break;}
+              for(let slot=0;slot<group.count;slot++){let slotTarget=groupTarget+(group.offsets[slot]||0)*.55,ranked=candidates.filter((player)=>!used.has(String(player.id))).map((player)=>({player,score:Math.abs((Number(player.overall)||0)-slotTarget)*5+Math.random()*3})).sort((a,b)=>a.score-b.score),shortlist=ranked.slice(0,Math.min(12,ranked.length)),chosen=shortlist[Math.floor(Math.random()*shortlist.length)]||ranked[0];if(!chosen){failed=true;break;}used.add(String(chosen.player.id));picked.push(chosen.player);}if(failed)break;
+            }
+            if(failed||picked.length!==23)continue;let metrics=balancedRosterMetrics(picked),desiredXi=(Number(benchmark&&benchmark.startingElevenOverall)||target)+(target-(Number(benchmark&&benchmark.averageOverall)||target)),desiredValue=Math.max(1,Number(benchmark&&benchmark.marketValue)||metrics.marketValue),score=Math.abs(metrics.averageOverall-target)*12+Math.abs(metrics.startingElevenOverall-desiredXi)*5+Math.abs(metrics.marketValue-desiredValue)/desiredValue*45;BALANCED_ROSTER_GROUPS.forEach((group)=>{let desired=(Number(benchmark&&benchmark.groupAverages&&benchmark.groupAverages[group.key])||target)+(target-(Number(benchmark&&benchmark.averageOverall)||target));score+=Math.abs((metrics.groupAverages[group.key]||0)-desired)*3;});if(score<bestScore){bestScore=score;best={players:picked,metrics};}
+          }
+          if(!best)return {ok:false,message:'Não há jogadores livres suficientes para montar um elenco balanceado.'};
+          if(Math.abs(best.metrics.averageOverall-target)>.7)return {ok:false,message:'O pool disponível não permite atingir o overall escolhido com segurança.'};
+          return {ok:true,...best,targetOverall:target};
         }
         async function hashProfilePin(value) {
           if (!window.crypto || !window.crypto.subtle) throw new Error("Criptografia indisponível neste navegador.");
@@ -903,6 +937,10 @@
             let item = typeof profile === "object" && profile ? profile : { name: String(profile) };
             if (isAdminProfile(item)) return true;
             if (item.active === false) return false;
+            if (item.id && tournament.randomRoster && tournament.randomRoster.lateJoin && tournament.randomRoster.lateJoin.members) {
+              let pending=tournament.randomRoster.lateJoin.members[String(item.id)];
+              if(pending&&pending.status==="selection")return true;
+            }
             if (Array.isArray(tournament.participants) && item.id) {
               let participantIds = tournament.participants.map((id) => String(id));
               return participantIds.includes(String(item.id));
@@ -1025,28 +1063,32 @@
             unreadOfferCount = ProfileTeam ? Object.values(tradeOffers).filter((offer) => isOfferOpen(offer) && String(offer.lastActorTeamId) !== String(ProfileTeam.id) && (String(offer.buyerTeamId) === String(ProfileTeam.id) || String(offer.sellerTeamId) === String(ProfileTeam.id))).length : 0;
           async function rerollCurrentBalancedRoster() {
             if(randomRosterBusy||!R||!R.randomRoster||!ProfileTeam||!te||!te.id)return;
-            let member=R.randomRoster.members&&R.randomRoster.members[String(te.id)]||{};
-            let maxRolls=Math.max(1,Number(R.randomRoster.maxRolls)||3),currentRoll=Math.max(1,Number(member.rollNumber)||1);
+            let lateMember=R.randomRoster.lateJoin&&R.randomRoster.lateJoin.members&&R.randomRoster.lateJoin.members[String(te.id)],isLate=lateMember&&lateMember.status==="selection";
+            let member=isLate?lateMember:(R.randomRoster.members&&R.randomRoster.members[String(te.id)]||{});
+            let maxRolls=Math.max(1,Number(member.maxRolls)||Number(R.randomRoster.maxRolls)||3),currentRoll=Math.max(1,Number(member.rollNumber)||1);
             if(member.accepted){window.alert("Este elenco já foi confirmado.");return;}
             if(currentRoll>=maxRolls){window.alert("Você já usou todas as tentativas disponíveis.");return;}
             if(!window.confirm(`Gerar a tentativa ${currentRoll+1} de ${maxRolls}? O elenco atual será descartado e não poderá ser recuperado.`))return;
-            let result=buildEquivalentReroll(n,Oe(ProfileTeam.id),c,ProfileTeam.id,R.randomRoster.targetOverall);
+            let target=isLate?Number(member.targetOverall)||R.randomRoster.targetOverall:R.randomRoster.targetOverall;
+            let result=buildEquivalentReroll(n,Oe(ProfileTeam.id),c,ProfileTeam.id,target);
             if(!result.ok){window.alert(result.message||"Não foi possível gerar outro elenco equivalente.");return;}
             setRandomRosterBusy(true);
             try{
-              if(typeof rerollBalancedRoster!=="function")throw new Error("Instale o SQL do sorteio balanceado no Supabase.");
-              await rerollBalancedRoster({tournamentId:R.id,profileId:te.id,playerIds:result.players.map((player)=>String(player.id)),expectedRoll:currentRoll,metrics:result.metrics});
+              if(isLate){if(typeof rerollLateJoinBalancedRoster!=="function")throw new Error("Instale o SQL da entrada balanceada no Supabase.");await rerollLateJoinBalancedRoster({tournamentId:R.id,profileId:te.id,playerIds:result.players.map((player)=>String(player.id)),expectedRoll:currentRoll,metrics:result.metrics});}
+              else {if(typeof rerollBalancedRoster!=="function")throw new Error("Instale o SQL do sorteio balanceado no Supabase.");await rerollBalancedRoster({tournamentId:R.id,profileId:te.id,playerIds:result.players.map((player)=>String(player.id)),expectedRoll:currentRoll,metrics:result.metrics});}
             }catch(error){console.error("balanced roster reroll failed",error);window.alert(`Não foi possível gerar outro elenco. ${error&&error.message?error.message:"Tente novamente."}`);}finally{setRandomRosterBusy(false);}
           }
           async function acceptCurrentBalancedRoster() {
             if(randomRosterBusy||!R||!R.randomRoster||!ProfileTeam||!te||!te.id)return;
-            let member=R.randomRoster.members&&R.randomRoster.members[String(te.id)]||{};
+            let lateMember=R.randomRoster.lateJoin&&R.randomRoster.lateJoin.members&&R.randomRoster.lateJoin.members[String(te.id)],isLate=lateMember&&lateMember.status==="selection";
+            let member=isLate?lateMember:(R.randomRoster.members&&R.randomRoster.members[String(te.id)]||{});
             if(member.accepted)return;
-            if(!window.confirm("Confirmar este elenco? Depois de aceitar, você não poderá mais rerrolar."))return;
+            let confirmMessage=isLate?`Confirmar sua entrada em ${R.name} com este elenco e saldo de ${Math.round(Number(member.budget)||0)}M? Depois de aceitar, você entra imediatamente no campeonato e não poderá mais rerrolar.`:"Confirmar este elenco? Depois de aceitar, você não poderá mais rerrolar.";
+            if(!window.confirm(confirmMessage))return;
             setRandomRosterBusy(true);
             try{
-              if(typeof acceptBalancedRoster!=="function")throw new Error("Instale o SQL do sorteio balanceado no Supabase.");
-              await acceptBalancedRoster({tournamentId:R.id,profileId:te.id});
+              if(isLate){if(typeof acceptLateJoinBalancedRoster!=="function")throw new Error("Instale o SQL da entrada balanceada no Supabase.");await acceptLateJoinBalancedRoster({tournamentId:R.id,profileId:te.id});}
+              else {if(typeof acceptBalancedRoster!=="function")throw new Error("Instale o SQL do sorteio balanceado no Supabase.");await acceptBalancedRoster({tournamentId:R.id,profileId:te.id});}
             }catch(error){console.error("balanced roster accept failed",error);window.alert(`Não foi possível confirmar o elenco. ${error&&error.message?error.message:"Tente novamente."}`);}finally{setRandomRosterBusy(false);}
           }
           async function startCurrentBalancedTournament() {
@@ -1912,7 +1954,7 @@
               teams.forEach((team,index)=>{
                 let roster=generated.rosters[index]||[],metrics=generated.metrics[index]||balancedRosterMetrics(roster),profileId=String(team.profileId);
                 roster.forEach((player)=>{ownership[String(player.id)]={playerId:String(player.id),teamId:String(team.id),initialTeamId:String(team.id),squadRole:"base",acquisitionSource:"initial_roster",acquiredAt:now,forSale:false,randomRoster:true,rollNumber:1};});
-                members[profileId]={teamId:String(team.id),rollNumber:1,maxRolls:3,accepted:false,acceptedAt:null,metrics,updatedAt:now};
+                members[profileId]={teamId:String(team.id),rollNumber:1,maxRolls:3,accepted:false,acceptedAt:null,metrics,initialBudget:Math.max(0,Number(team.budget)||0),updatedAt:now};
               });
               randomRoster={version:1,enabled:true,status:"selection",targetOverall,maxRolls:3,rosterSize:23,composition:Object.fromEntries(BALANCED_ROSTER_GROUPS.map((group)=>[group.key,group.count])),generatedAt:now,members,balance:generated.balance};
             }
@@ -1984,6 +2026,15 @@
             }
             let updated = { ...R, participants, teamIds: teams.filter((item) => item.active !== false && participants.includes(item.profileId)).map((item) => item.id), context: { ...(R.context || {}), teams } };
             ae(m.map((item) => item.id === R.id ? updated : item));
+          }
+          async function prepareLateJoinParticipant(options) {
+            if(!R||R.status!=="ongoing"||R.type==="cup"||!R.randomRoster||!R.randomRoster.enabled||R.randomRoster.status!=="active")throw new Error("Este campeonato não aceita entrada balanceada agora.");
+            if(!te||!isAdminProfile(te))throw new Error("Apenas administradores podem adicionar participantes.");
+            let profileId=String(options&&options.profileId||""),profile=x.find((item)=>item&&String(item.id)===profileId);if(!profile)throw new Error("Perfil não encontrado.");
+            if((R.participants||[]).map(String).includes(profileId))throw new Error("Este perfil já participa do campeonato.");
+            let benchmark=balancedTournamentBenchmark(R,p,c,n),target=Math.max(60,Math.min(95,Math.round(Number(options&&options.targetOverall)||benchmark.suggestedOverall||80))),budget=Math.max(0,Math.round(Number(options&&options.budget)||0));
+            let generated=buildBalancedRosterForBenchmark(n,c,benchmark,target);if(!generated.ok)throw new Error(generated.message||"Não foi possível gerar o elenco.");
+            let teamId=_();await prepareLateJoinBalancedRoster({tournamentId:R.id,profileId,teamId,teamName:String(options&&options.teamName||profile.name||"Novo time").trim()||profile.name,teamColor:profile.color||se[p.length%se.length],budget,playerIds:generated.players.map((player)=>String(player.id)),targetOverall:target,metrics:generated.metrics,benchmark,actorProfileId:te.id});return {profile,teamId,budget,targetOverall:target,metrics:generated.metrics,benchmark};
           }
           function toggleFavoritePlayer(player) {
             if (!te || typeof te !== "object" || !te.id || !R || !R.id || !player || player.id == null) return;
@@ -2859,7 +2910,7 @@
                       onErase: eraseProfilePinDigit,
                     })
                   ))
-                : R && R.randomRoster && R.randomRoster.enabled && R.randomRoster.status !== "active" && R.status !== "finished"
+                : R && R.randomRoster && R.randomRoster.enabled && R.status !== "finished" && (R.randomRoster.status !== "active" || (te&&R.randomRoster.lateJoin&&R.randomRoster.lateJoin.members&&R.randomRoster.lateJoin.members[String(te.id)]&&R.randomRoster.lateJoin.members[String(te.id)].status==="selection"))
                   ? React.createElement(BalancedRosterLobby, {
                       tournament:R,
                       team:ProfileTeam,
@@ -2871,6 +2922,7 @@
                       onReroll:rerollCurrentBalancedRoster,
                       onAccept:acceptCurrentBalancedRoster,
                       onStart:startCurrentBalancedTournament,
+                      lateJoin:!!(te&&R.randomRoster&&R.randomRoster.lateJoin&&R.randomRoster.lateJoin.members&&R.randomRoster.lateJoin.members[String(te.id)]&&R.randomRoster.lateJoin.members[String(te.id)].status==="selection"),
                       onSwitchProfile:ht,
                     })
                   : React.createElement(
@@ -2987,7 +3039,7 @@
                           tournamentName: adminTournamentName, setTournamentName: setAdminTournamentName,
                           onCreateProfile: createAdminProfile, onCreateTournament: createAdminTournament,
                           onDeleteTournament: deleteAdminTournament, onSelectTournament: selectTournament,
-                          onUpdateBudget: updateAdminBudget, onToggleParticipant: toggleTournamentParticipant,
+                          onUpdateBudget: updateAdminBudget, onToggleParticipant: toggleTournamentParticipant, onPrepareLateJoin: prepareLateJoinParticipant,
                           onDeleteProfile: deleteGlobalProfile, onResetTournament: resetCurrentTournament, onRemoveOrphanParticipant: removeOrphanParticipant, onRestoreOrphanProfile: restoreOrphanProfile,
                           onUpdateMarketDepreciation: updateMarketDepreciation,
                           onUpdateInitialRosterDepreciation: (value) => updateMarketDepreciation(value, "initialRosterDepreciationPct"),
@@ -3208,9 +3260,9 @@
           );
         }
 
-        function BalancedRosterLobby({ tournament, team, squad, profile, profiles, isAdmin, busy, onReroll, onAccept, onStart, onSwitchProfile }) {
-          let rr=tournament&&tournament.randomRoster&&typeof tournament.randomRoster==="object"?tournament.randomRoster:{},members=rr.members&&typeof rr.members==="object"?rr.members:{};
-          let profileId=profile&&profile.id?String(profile.id):"",member=members[profileId]||null,maxRolls=Math.max(1,Number(rr.maxRolls)||3),rollNumber=member?Math.max(1,Number(member.rollNumber)||1):1;
+        function BalancedRosterLobby({ tournament, team, squad, profile, profiles, isAdmin, busy, onReroll, onAccept, onStart, lateJoin=false, onSwitchProfile }) {
+          let rr=tournament&&tournament.randomRoster&&typeof tournament.randomRoster==="object"?tournament.randomRoster:{},members=rr.members&&typeof rr.members==="object"?rr.members:{},lateMembers=rr.lateJoin&&rr.lateJoin.members&&typeof rr.lateJoin.members==="object"?rr.lateJoin.members:{};
+          let profileId=profile&&profile.id?String(profile.id):"",member=lateJoin?(lateMembers[profileId]||null):(members[profileId]||null),maxRolls=Math.max(1,Number(member&&member.maxRolls)||Number(rr.maxRolls)||3),rollNumber=member?Math.max(1,Number(member.rollNumber)||1):1;
           let roster=(Array.isArray(squad)?squad:[]).filter(Boolean),metrics=member&&member.metrics?member.metrics:balancedRosterMetrics(roster);
           let participantIds=(Array.isArray(tournament&&tournament.participants)?tournament.participants:[]).map(String),acceptedCount=participantIds.filter((id)=>members[id]&&members[id].accepted).length,allAccepted=participantIds.length>0&&acceptedCount===participantIds.length;
           let profileById=(id)=>(profiles||[]).find((item)=>item&&String(item.id)===String(id))||null;
@@ -3218,17 +3270,17 @@
           return React.createElement("div", { style:{ minHeight:"100vh",background:"var(--surface)",color:"var(--heading)",fontFamily:"Manrope,system-ui,-apple-system,Segoe UI,Roboto,sans-serif",padding:"20px 14px 36px" } },
             React.createElement("div", { style:{ maxWidth:920,margin:"0 auto" } },
               React.createElement("div", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:20 } },
-                React.createElement("div", null, React.createElement("div", { style:{ fontSize:12,color:"var(--green)",fontWeight:850,textTransform:"uppercase",letterSpacing:".12em" } }, "Sorteio balanceado"), React.createElement("h1", { style:{ margin:"5px 0 0",fontSize:"clamp(24px,5vw,36px)",letterSpacing:"-.035em" } }, tournament.name)),
+                React.createElement("div", null, React.createElement("div", { style:{ fontSize:12,color:"var(--green)",fontWeight:850,textTransform:"uppercase",letterSpacing:".12em" } }, lateJoin?"Entrada no campeonato":"Sorteio balanceado"), React.createElement("h1", { style:{ margin:"5px 0 0",fontSize:"clamp(24px,5vw,36px)",letterSpacing:"-.035em" } }, tournament.name)),
                 React.createElement("button", { onClick:onSwitchProfile,style:{ ...M,marginTop:0,width:"auto",padding:"9px 13px",background:"var(--surface-soft)",color:"var(--heading)",border:"1px solid var(--border)" } }, "Trocar perfil")
               ),
               member&&team ? React.createElement(React.Fragment,null,
                 React.createElement("section", { className:"family-card",style:{ padding:"18px 18px 16px",marginBottom:14 } },
                   React.createElement("div", { style:{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:14,flexWrap:"wrap" } },
-                    React.createElement("div", null, React.createElement("div", { style:{fontSize:21,fontWeight:900} }, team.name||"Seu time"), React.createElement("div", { style:{fontSize:12.5,color:"var(--muted)",marginTop:3} }, member.accepted?"Elenco confirmado":"Escolha seu elenco antes do campeonato começar")),
+                    React.createElement("div", null, React.createElement("div", { style:{fontSize:21,fontWeight:900} }, team.name||"Seu time"), React.createElement("div", { style:{fontSize:12.5,color:"var(--muted)",marginTop:3} }, member.accepted?"Elenco confirmado":lateJoin?"Escolha seu elenco para entrar no campeonato":"Escolha seu elenco antes do campeonato começar")),
                     React.createElement("div", { style:{ textAlign:"right" } }, React.createElement("div", { style:{fontWeight:900,color:member.accepted?"var(--green)":"var(--heading)"} }, member.accepted?"✓ Confirmado":`Tentativa ${rollNumber} de ${maxRolls}`), React.createElement("div", { style:{fontSize:11.5,color:"var(--muted)",marginTop:3} }, `${roster.length}/23 jogadores`))
                   ),
                   React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8,marginTop:16 } },
-                    [["Overall médio",Number(metrics.averageOverall||0).toFixed(1)],["Melhores 11",Number(metrics.startingElevenOverall||0).toFixed(1)],["Valor do elenco",`${Math.round(Number(metrics.marketValue)||0)}M`]].map(([label,value])=>React.createElement("div",{key:label,style:{padding:"11px 9px",borderRadius:12,background:"var(--surface-soft)",textAlign:"center"}},React.createElement("div",{style:{fontSize:11,color:"var(--muted)"}},label),React.createElement("div",{style:{fontSize:17,fontWeight:900,marginTop:3}},value)))
+                    ([...[ ["Overall médio",Number(metrics.averageOverall||0).toFixed(1)],["Melhores 11",Number(metrics.startingElevenOverall||0).toFixed(1)],["Valor do elenco",`${Math.round(Number(metrics.marketValue)||0)}M`] ],...(lateJoin&&member?[["Saldo de entrada",`${Math.round(Number(member.budget)||0)}M`]]:[])]).map(([label,value])=>React.createElement("div",{key:label,style:{padding:"11px 9px",borderRadius:12,background:"var(--surface-soft)",textAlign:"center"}},React.createElement("div",{style:{fontSize:11,color:"var(--muted)"}},label),React.createElement("div",{style:{fontSize:17,fontWeight:900,marginTop:3}},value)))
                   )
                 ),
                 React.createElement("section", { className:"family-card",style:{padding:14,marginBottom:14} },
@@ -3247,12 +3299,12 @@
                   member.accepted&&React.createElement("div",{style:{padding:13,borderRadius:14,textAlign:"center",background:"color-mix(in srgb,var(--green) 10%,var(--surface-soft))",color:"var(--green)",fontWeight:850}},allAccepted?"Todos confirmaram. Aguardando o administrador iniciar.":"Seu elenco está travado. Aguardando os demais participantes.")
                 )
               ):React.createElement("div",{className:"family-card",style:{padding:20,marginBottom:14,color:"var(--muted)"}},isAdmin?"Você não participa desta liga. Acompanhe as confirmações abaixo.":"Seu time não foi encontrado neste sorteio."),
-              React.createElement("section", { className:"family-card",style:{padding:18} },
+              !lateJoin&&React.createElement("section", { className:"family-card",style:{padding:18} },
                 React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"center",marginBottom:12}},React.createElement("strong",null,"Confirmações"),React.createElement("span",{style:{fontSize:12,color:"var(--muted)"}},`${acceptedCount} de ${participantIds.length}`)),
                 React.createElement("div",{style:{display:"grid",gap:7}},participantIds.map((id)=>{let item=profileById(id),accepted=!!(members[id]&&members[id].accepted);return React.createElement("div",{key:id,style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{fontWeight:750}},item&&item.name?item.name:"Participante"),React.createElement("span",{style:{fontSize:12,fontWeight:850,color:accepted?"var(--green)":"var(--muted)"}},accepted?"✓ Confirmado":"Aguardando"));})),
                 isAdmin&&React.createElement("button",{disabled:busy||!allAccepted,onClick:onStart,style:{...M,...W,marginTop:16,opacity:busy||!allAccepted?.45:1}},busy?"Iniciando...":allAccepted?"Iniciar campeonato":"Aguardando todos confirmarem")
               ),
-              React.createElement("div",{style:{fontSize:11.5,lineHeight:1.5,color:"var(--muted)",textAlign:"center",marginTop:14}},"Os elencos dos adversários permanecem ocultos até o campeonato ser iniciado. O reroll troca apenas o seu time e preserva uma força equivalente.")
+              React.createElement("div",{style:{fontSize:11.5,lineHeight:1.5,color:"var(--muted)",textAlign:"center",marginTop:14}},lateJoin?"Enquanto você escolhe, os elencos dos adversários permanecem ocultos. Ao confirmar, você entra imediatamente na tabela e libera o restante do campeonato.":"Os elencos dos adversários permanecem ocultos até o campeonato ser iniciado. O reroll troca apenas o seu time e preserva uma força equivalente.")
             )
           );
         }
@@ -6685,7 +6737,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -6715,6 +6767,12 @@ Hyago 0 x 0 Lucas`;
           let [newParticipantDrafts, setNewParticipantDrafts] = b({});
           let [randomRosterEnabled, setRandomRosterEnabled] = b(false);
           let [randomRosterTargetOverall, setRandomRosterTargetOverall] = b(80);
+          let [lateJoinOpen,setLateJoinOpen]=b(false),[lateJoinProfileId,setLateJoinProfileId]=b(""),[lateJoinOverall,setLateJoinOverall]=b(80),[lateJoinBudget,setLateJoinBudget]=b(0),[lateJoinBusy,setLateJoinBusy]=b(false);
+          let lateJoinBenchmark=currentTournament?balancedTournamentBenchmark(currentTournament,teams,currentTournament.context&&currentTournament.context.ownership||{},catalog):null;
+          let lateJoinPending=currentTournament&&currentTournament.randomRoster&&currentTournament.randomRoster.lateJoin&&currentTournament.randomRoster.lateJoin.members?currentTournament.randomRoster.lateJoin.members:{};
+          let lateJoinEligible=globalProfiles.filter((profile)=>profile&&!(participants||[]).map(String).includes(String(profile.id))&&!(lateJoinPending[String(profile.id)]&&lateJoinPending[String(profile.id)].status==="selection"));
+          function openLateJoin(){let bench=lateJoinBenchmark||{};setLateJoinProfileId(lateJoinEligible[0]?String(lateJoinEligible[0].id):"");setLateJoinOverall(Math.max(60,Math.min(95,Math.round(Number(bench.suggestedOverall)||80))));setLateJoinBudget(Math.max(0,Math.round(Number(bench.suggestedBudget)||0)));setLateJoinOpen(true);}
+          async function confirmLateJoin(){if(!lateJoinProfileId||lateJoinBusy)return;setLateJoinBusy(true);try{await onPrepareLateJoin({profileId:lateJoinProfileId,targetOverall:lateJoinOverall,budget:lateJoinBudget});setLateJoinOpen(false);}catch(error){console.error("late join prepare failed",error);window.alert(error&&error.message?error.message:"Não foi possível preparar a entrada deste participante.");}finally{setLateJoinBusy(false);}}
           let activeLeagues = (tournaments || []).filter((item)=>item&&item.type!=="cup"&&item.status!=="finished");
           let [cupLeagueId, setCupLeagueId] = b(activeLeagues[0]?activeLeagues[0].id:"");
           let [groupLegs, setGroupLegs] = b(1);
@@ -6993,6 +7051,15 @@ Hyago 0 x 0 Lucas`;
                 React.createElement("button", { onClick: () => onSelectTournament(tournament.id), style: { flex: 1, background: tournament.id === (currentTournament && currentTournament.id) ? "var(--surface-soft)" : "transparent", border: "1px solid var(--border)", borderRadius: 10, padding: 10, textAlign: "left", fontWeight: 700, color: "var(--heading)", cursor: "pointer" } }, React.createElement("div", null, tournament.name), React.createElement("div", { style:{fontSize:11,color:"var(--muted)",marginTop:3,fontWeight:650} }, tournament.type === "cup" ? "Copa" : "Liga", " · ", tournament.status === "finished" ? "Encerrada" : (tournament.randomRoster&&tournament.randomRoster.enabled&&tournament.randomRoster.status!=="active" ? "Escolha de elenco" : "Em andamento"))),
                 React.createElement("button", { onClick: () => onDeleteTournament(tournament.id), style: { background: "transparent", color: "var(--danger)", border: "1px solid var(--danger)", borderRadius: 999, padding: "8px 12px", cursor: "pointer" } }, "Excluir")
               )) : React.createElement("div", { style: { color: "var(--muted)" } }, "Nenhum campeonato criado.")
+            ),
+            adminSection === "participants" && currentTournament && currentTournament.type!=="cup" && currentTournament.status==="ongoing" && currentTournament.randomRoster&&currentTournament.randomRoster.enabled&&currentTournament.randomRoster.status==="active" && React.createElement("div", { style:{...E,border:"1px solid color-mix(in srgb,var(--green) 34%,var(--border))"} },
+              React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}},React.createElement("div",null,React.createElement("div",{style:{fontSize:18,fontWeight:800}},"Adicionar participante balanceado"),React.createElement("div",{style:{fontSize:12.5,color:"var(--muted)",lineHeight:1.5,marginTop:4}},"Gere um elenco equivalente à força atual do campeonato. O participante terá até 3 tentativas antes de entrar na tabela.")),!lateJoinOpen&&React.createElement("button",{disabled:!lateJoinEligible.length,onClick:openLateJoin,style:{...M,...W,width:"auto",marginTop:0,padding:"10px 14px",opacity:lateJoinEligible.length?1:.45}},"Adicionar")),
+              lateJoinOpen&&React.createElement("div",{style:{marginTop:16,paddingTop:16,borderTop:"1px solid var(--border)",display:"grid",gap:12}},
+                React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8}},[["OVR atual",Number(lateJoinBenchmark&&lateJoinBenchmark.averageOverall||0).toFixed(1)],["Melhores 11",Number(lateJoinBenchmark&&lateJoinBenchmark.startingElevenOverall||0).toFixed(1)],["Times usados",String(lateJoinBenchmark&&lateJoinBenchmark.teamCount||0)]].map(([label,value])=>React.createElement("div",{key:label,style:{padding:10,borderRadius:12,background:"var(--surface-soft)",textAlign:"center"}},React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},label),React.createElement("strong",{style:{display:"block",marginTop:3}},value)))),
+                React.createElement("div",null,React.createElement("label",{style:P},"Perfil"),React.createElement("select",{style:q,value:lateJoinProfileId,onChange:(event)=>setLateJoinProfileId(event.target.value)},lateJoinEligible.map((profile)=>React.createElement("option",{key:profile.id,value:profile.id},profile.name)))),
+                React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},React.createElement("div",null,React.createElement("label",{style:P},"Overall do elenco"),React.createElement("input",{style:q,type:"number",min:60,max:95,value:lateJoinOverall,onChange:(event)=>setLateJoinOverall(event.target.value)}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},`Sugestão: ${Math.round(Number(lateJoinBenchmark&&lateJoinBenchmark.suggestedOverall)||80)}`)),React.createElement("div",null,React.createElement("label",{style:P},"Saldo de entrada"),React.createElement("input",{style:q,type:"number",min:0,value:lateJoinBudget,onChange:(event)=>setLateJoinBudget(event.target.value)}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},lateJoinBenchmark&&lateJoinBenchmark.usedRecordedInitialBudget?`Base ${Math.round(lateJoinBenchmark.baseBudget)}M + compensação ${Math.round(lateJoinBenchmark.compensation)}M por ${lateJoinBenchmark.referenceGames} rodada(s)`:`Sugestão baseada na mediana atual: ${Math.round(Number(lateJoinBenchmark&&lateJoinBenchmark.suggestedBudget)||0)}M`))),
+                React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},React.createElement("button",{disabled:lateJoinBusy,onClick:()=>setLateJoinOpen(false),style:{...M,marginTop:0,background:"var(--surface-soft)",color:"var(--heading)",border:"1px solid var(--border)"}},"Cancelar"),React.createElement("button",{disabled:lateJoinBusy||!lateJoinProfileId,onClick:confirmLateJoin,style:{...M,...W,marginTop:0,opacity:lateJoinBusy||!lateJoinProfileId?.5:1}},lateJoinBusy?"Gerando…":"Gerar elenco"))
+              )
             ),
             adminSection === "participants" && currentTournament && React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Participantes"),
