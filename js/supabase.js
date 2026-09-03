@@ -772,6 +772,11 @@
   }
   async function rerollLateJoinBalancedRoster({tournamentId,profileId,playerIds,expectedRoll,metrics}){await load();if(!client)throw new Error("Supabase não configurado");const {data,error}=await client.rpc("reroll_late_join_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId),p_player_ids:(playerIds||[]).map(String),p_expected_roll:Number(expectedRoll)||1,p_metrics:metrics&&typeof metrics==="object"?metrics:{}});if(error)throw error;await refreshNormalizedStateAfterRpc();return data||{ok:true};}
   async function acceptLateJoinBalancedRoster({tournamentId,profileId}){await load();if(!client)throw new Error("Supabase não configurado");const {data,error}=await client.rpc("accept_late_join_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId)});if(error)throw error;await refreshNormalizedStateAfterRpc();return data||{ok:true};}
+  async function importLateJoinTxtRoster({tournamentId,profileId,teamId,teamName,teamColor,budget,playerIds,squadRoles,metrics,benchmark,actorProfileId}){
+    await load();if(!client)throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("import_late_join_txt_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId),p_team_id:String(teamId),p_team_name:String(teamName||"Novo time"),p_team_color:String(teamColor||"#888888"),p_budget:Math.max(0,Math.round(Number(budget)||0)),p_player_ids:(playerIds||[]).map(String),p_squad_roles:squadRoles&&typeof squadRoles==="object"?squadRoles:{},p_metrics:metrics&&typeof metrics==="object"?metrics:{},p_benchmark:benchmark&&typeof benchmark==="object"?benchmark:{},p_actor_profile_id:actorProfileId?String(actorProfileId):null});
+    if(error)throw error;await refreshNormalizedStateAfterRpc();return data||{ok:true};
+  }
 
   async function loadPlayerOverrideHistory(limit=200){
     await load();
@@ -845,5 +850,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();

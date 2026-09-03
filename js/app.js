@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -2036,6 +2036,24 @@
             let generated=buildBalancedRosterForBenchmark(n,c,benchmark,target);if(!generated.ok)throw new Error(generated.message||"Não foi possível gerar o elenco.");
             let teamId=_();await prepareLateJoinBalancedRoster({tournamentId:R.id,profileId,teamId,teamName:String(options&&options.teamName||profile.name||"Novo time").trim()||profile.name,teamColor:profile.color||se[p.length%se.length],budget,playerIds:generated.players.map((player)=>String(player.id)),targetOverall:target,metrics:generated.metrics,benchmark,actorProfileId:te.id});return {profile,teamId,budget,targetOverall:target,metrics:generated.metrics,benchmark};
           }
+
+          async function importLateJoinParticipantTxt(options) {
+            if(!R||R.status!=="ongoing"||R.type==="cup"||!R.randomRoster||!R.randomRoster.enabled||R.randomRoster.status!=="active")throw new Error("Este campeonato não aceita entrada por TXT agora.");
+            if(!te||!isAdminProfile(te))throw new Error("Apenas administradores podem adicionar participantes.");
+            if(typeof importLateJoinTxtRoster!=="function")throw new Error("Instale o SQL da entrada por TXT no Supabase.");
+            let profileId=String(options&&options.profileId||""),profile=x.find((item)=>item&&String(item.id)===profileId);if(!profile)throw new Error("Perfil não encontrado.");
+            if((R.participants||[]).map(String).includes(profileId))throw new Error("Este perfil já participa do campeonato.");
+            let entries=Array.isArray(options&&options.entries)?options.entries:[];
+            if(entries.length!==23)throw new Error("O elenco importado precisa ter exatamente 23 jogadores.");
+            let ids=entries.map((entry)=>String(entry.playerId||"")).filter(Boolean);if(new Set(ids).size!==23)throw new Error("Existem jogadores duplicados ou não resolvidos no TXT.");
+            let ownership=R.context&&R.context.ownership&&typeof R.context.ownership==="object"?R.context.ownership:c;
+            if(ids.some((id)=>ownership&&ownership[id]&&ownership[id].teamId))throw new Error("Um ou mais jogadores do TXT já pertencem a outro time neste campeonato.");
+            let players=ids.map((id)=>n.find((player)=>player&&String(player.id)===id)).filter(Boolean);if(players.length!==23)throw new Error("Nem todos os jogadores importados existem no catálogo atual.");
+            let benchmark=balancedTournamentBenchmark(R,p,ownership,n),metrics=balancedRosterMetrics(players),budget=Math.max(0,Math.round(Number(options&&options.budget)||0)),teamId=_();
+            let squadRoles={};entries.forEach((entry)=>{squadRoles[String(entry.playerId)]=entry.squadRole||"base";});
+            await importLateJoinTxtRoster({tournamentId:R.id,profileId,teamId,teamName:String(options&&options.teamName||profile.name||"Novo time").trim()||profile.name,teamColor:profile.color||se[p.length%se.length],budget,playerIds:ids,squadRoles,metrics,benchmark,actorProfileId:te.id});
+            return {profile,teamId,budget,metrics,benchmark};
+          }
           function toggleFavoritePlayer(player) {
             if (!te || typeof te !== "object" || !te.id || !R || !R.id || !player || player.id == null) return;
             let db = Ee();
@@ -3039,7 +3057,7 @@
                           tournamentName: adminTournamentName, setTournamentName: setAdminTournamentName,
                           onCreateProfile: createAdminProfile, onCreateTournament: createAdminTournament,
                           onDeleteTournament: deleteAdminTournament, onSelectTournament: selectTournament,
-                          onUpdateBudget: updateAdminBudget, onToggleParticipant: toggleTournamentParticipant, onPrepareLateJoin: prepareLateJoinParticipant,
+                          onUpdateBudget: updateAdminBudget, onToggleParticipant: toggleTournamentParticipant, onPrepareLateJoin: prepareLateJoinParticipant, onImportLateJoinTxt: importLateJoinParticipantTxt,
                           onDeleteProfile: deleteGlobalProfile, onResetTournament: resetCurrentTournament, onRemoveOrphanParticipant: removeOrphanParticipant, onRestoreOrphanProfile: restoreOrphanProfile,
                           onUpdateMarketDepreciation: updateMarketDepreciation,
                           onUpdateInitialRosterDepreciation: (value) => updateMarketDepreciation(value, "initialRosterDepreciationPct"),
@@ -6620,6 +6638,52 @@
         }
 
 
+        function parseSingleRosterTxt(text, catalog, ownership) {
+          let rows=String(text||"").split(/\r?\n/),squadRole="",rawEntries=[];
+          for(let rawLine of rows){
+            let line=rawLine.trim();
+            if(/TIME TITULAR/i.test(line)){squadRole="starter";continue;}
+            if(/BANCO DE RESERVAS/i.test(line)){squadRole="bench";continue;}
+            if(!squadRole||!line.includes("|"))continue;
+            if(/^NOME\s*\|/i.test(line))continue;
+            let parts=line.split("|").map((part)=>part.trim());
+            if(parts.length<5||!parts[0]||!/^\d+$/.test(parts[3]))continue;
+            rawEntries.push({squadRole,txtName:parts[0],position:parts[1],club:parts[2],overall:Number(parts[3]),value:Number(parts[4])||0});
+          }
+          let entries=rawEntries.map((entry)=>{
+            let txtNames=importNameVariants(entry.txtName),txtClub=normalizeImportText(entry.club),txtPosition=normalizeImportPosition(entry.position);
+            let candidates=(catalog||[]).map((player)=>{
+              let playerNames=importNameVariants(player.name),nameExact=txtNames.some((name)=>playerNames.includes(name));
+              if(!nameExact)return null;
+              let score=100;
+              if(normalizeImportPosition(player.position)===txtPosition)score+=20;
+              if(normalizeImportText(player.club)===txtClub)score+=20;
+              if(Number(player.overall)===entry.overall)score+=15;
+              if(Number(player.value)===entry.value)score+=5;
+              return {player,score};
+            }).filter(Boolean).sort((a,b)=>b.score-a.score);
+            let best=candidates[0],tied=best?candidates.filter((candidate)=>candidate.score===best.score):[];
+            let status=!best?"not_found":tied.length>1?"ambiguous":"matched";
+            let playerId=status==="matched"?String(best.player.id):null;
+            if(playerId&&ownership&&ownership[playerId]&&ownership[playerId].teamId)status="owned";
+            return {...entry,status,candidates:candidates.slice(0,8),playerId};
+          });
+          let seen=new Map();
+          entries.forEach((entry)=>{
+            if(!entry.playerId)return;
+            if(seen.has(entry.playerId)){
+              entry.status="duplicate";
+              let previous=entries.find((candidate)=>candidate!==entry&&candidate.playerId===entry.playerId);
+              if(previous)previous.status="duplicate";
+            }else seen.set(entry.playerId,true);
+          });
+          let matchedPlayers=entries.filter((entry)=>entry.playerId&&entry.status==="matched").map((entry)=>(catalog||[]).find((player)=>String(player.id)===String(entry.playerId))).filter(Boolean);
+          let groupCounts={GOL:0,ZAG:0,LAT:0,MEI:0,ATK:0};
+          matchedPlayers.forEach((player)=>{let group=balancedRosterGroupFor(player);if(group)groupCounts[group.key]=(groupCounts[group.key]||0)+1;});
+          return {entries,total:entries.length,matchedPlayers,metrics:balancedRosterMetrics(matchedPlayers),groupCounts};
+        }
+
+
         function parseHistoricalCompetitionTxt(text) {
           let lines=String(text||"").replace(/\r/g,"").split("\n").map((line)=>line.trim()).filter(Boolean);
           let headers={}, sections={}, current="";
@@ -6737,7 +6801,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -6767,12 +6831,16 @@ Hyago 0 x 0 Lucas`;
           let [newParticipantDrafts, setNewParticipantDrafts] = b({});
           let [randomRosterEnabled, setRandomRosterEnabled] = b(false);
           let [randomRosterTargetOverall, setRandomRosterTargetOverall] = b(80);
-          let [lateJoinOpen,setLateJoinOpen]=b(false),[lateJoinProfileId,setLateJoinProfileId]=b(""),[lateJoinOverall,setLateJoinOverall]=b(80),[lateJoinBudget,setLateJoinBudget]=b(0),[lateJoinBusy,setLateJoinBusy]=b(false);
+          let [lateJoinOpen,setLateJoinOpen]=b(false),[lateJoinMode,setLateJoinMode]=b("balanced"),[lateJoinProfileId,setLateJoinProfileId]=b(""),[lateJoinOverall,setLateJoinOverall]=b(80),[lateJoinBudget,setLateJoinBudget]=b(0),[lateJoinBusy,setLateJoinBusy]=b(false),[lateJoinTxt,setLateJoinTxt]=b(""),[lateJoinTxtPreview,setLateJoinTxtPreview]=b(null);
           let lateJoinBenchmark=currentTournament?balancedTournamentBenchmark(currentTournament,teams,currentTournament.context&&currentTournament.context.ownership||{},catalog):null;
           let lateJoinPending=currentTournament&&currentTournament.randomRoster&&currentTournament.randomRoster.lateJoin&&currentTournament.randomRoster.lateJoin.members?currentTournament.randomRoster.lateJoin.members:{};
           let lateJoinEligible=globalProfiles.filter((profile)=>profile&&!(participants||[]).map(String).includes(String(profile.id))&&!(lateJoinPending[String(profile.id)]&&lateJoinPending[String(profile.id)].status==="selection"));
-          function openLateJoin(){let bench=lateJoinBenchmark||{};setLateJoinProfileId(lateJoinEligible[0]?String(lateJoinEligible[0].id):"");setLateJoinOverall(Math.max(60,Math.min(95,Math.round(Number(bench.suggestedOverall)||80))));setLateJoinBudget(Math.max(0,Math.round(Number(bench.suggestedBudget)||0)));setLateJoinOpen(true);}
+          function openLateJoin(){let bench=lateJoinBenchmark||{};setLateJoinProfileId(lateJoinEligible[0]?String(lateJoinEligible[0].id):"");setLateJoinOverall(Math.max(60,Math.min(95,Math.round(Number(bench.suggestedOverall)||80))));setLateJoinBudget(Math.max(0,Math.round(Number(bench.suggestedBudget)||0)));setLateJoinMode("balanced");setLateJoinTxt("");setLateJoinTxtPreview(null);setLateJoinOpen(true);}
           async function confirmLateJoin(){if(!lateJoinProfileId||lateJoinBusy)return;setLateJoinBusy(true);try{await onPrepareLateJoin({profileId:lateJoinProfileId,targetOverall:lateJoinOverall,budget:lateJoinBudget});setLateJoinOpen(false);}catch(error){console.error("late join prepare failed",error);window.alert(error&&error.message?error.message:"Não foi possível preparar a entrada deste participante.");}finally{setLateJoinBusy(false);}}
+          function buildLateJoinTxtPreview(){let ownership=currentTournament&&currentTournament.context&&currentTournament.context.ownership||{};let preview=parseSingleRosterTxt(lateJoinTxt,catalog,ownership);setLateJoinTxtPreview(preview);if(!preview.total)window.alert("Nenhum jogador foi identificado no TXT.");}
+          function readLateJoinTxtFile(event){let file=event.target.files&&event.target.files[0];if(!file)return;if(!/\.txt$/i.test(file.name)){window.alert("Selecione um arquivo .txt.");return;}let reader=new FileReader();reader.onload=()=>{setLateJoinTxt(String(reader.result||""));setLateJoinTxtPreview(null);};reader.readAsText(file,"UTF-8");}
+          function resolveLateJoinTxtEntry(index,playerId){setLateJoinTxtPreview((current)=>{if(!current)return current;let entries=current.entries.map((entry,i)=>i===index?{...entry,playerId:playerId||null,status:playerId?((currentTournament&&currentTournament.context&&currentTournament.context.ownership||{})[String(playerId)]?.teamId?"owned":"matched"):"not_found"}:{...entry});let seen={};entries.forEach((entry)=>{if(!entry.playerId)return;if(seen[entry.playerId])entry.status="duplicate";else seen[entry.playerId]=true;});let matchedPlayers=entries.filter((entry)=>entry.playerId&&entry.status==="matched").map((entry)=>(catalog||[]).find((player)=>String(player.id)===String(entry.playerId))).filter(Boolean),groupCounts={GOL:0,ZAG:0,LAT:0,MEI:0,ATK:0};matchedPlayers.forEach((player)=>{let group=balancedRosterGroupFor(player);if(group)groupCounts[group.key]=(groupCounts[group.key]||0)+1;});return {...current,entries,matchedPlayers,metrics:balancedRosterMetrics(matchedPlayers),groupCounts};});}
+          async function confirmLateJoinTxt(){if(!lateJoinProfileId||lateJoinBusy||!lateJoinTxtPreview)return;let errors=lateJoinTxtPreview.entries.filter((entry)=>entry.status!=="matched");if(lateJoinTxtPreview.total!==23||errors.length){window.alert("Resolva as pendências do TXT antes de confirmar.");return;}setLateJoinBusy(true);try{await onImportLateJoinTxt({profileId:lateJoinProfileId,budget:lateJoinBudget,entries:lateJoinTxtPreview.entries.map((entry)=>({playerId:entry.playerId,squadRole:entry.squadRole}))});setLateJoinOpen(false);setLateJoinTxt("");setLateJoinTxtPreview(null);window.alert("Participante adicionado com o elenco importado.");}catch(error){console.error("late join txt import failed",error);window.alert(error&&error.message?error.message:"Não foi possível adicionar o participante pelo TXT.");}finally{setLateJoinBusy(false);}}
           let activeLeagues = (tournaments || []).filter((item)=>item&&item.type!=="cup"&&item.status!=="finished");
           let [cupLeagueId, setCupLeagueId] = b(activeLeagues[0]?activeLeagues[0].id:"");
           let [groupLegs, setGroupLegs] = b(1);
@@ -7057,8 +7125,24 @@ Hyago 0 x 0 Lucas`;
               lateJoinOpen&&React.createElement("div",{style:{marginTop:16,paddingTop:16,borderTop:"1px solid var(--border)",display:"grid",gap:12}},
                 React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8}},[["OVR atual",Number(lateJoinBenchmark&&lateJoinBenchmark.averageOverall||0).toFixed(1)],["Melhores 11",Number(lateJoinBenchmark&&lateJoinBenchmark.startingElevenOverall||0).toFixed(1)],["Times usados",String(lateJoinBenchmark&&lateJoinBenchmark.teamCount||0)]].map(([label,value])=>React.createElement("div",{key:label,style:{padding:10,borderRadius:12,background:"var(--surface-soft)",textAlign:"center"}},React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},label),React.createElement("strong",{style:{display:"block",marginTop:3}},value)))),
                 React.createElement("div",null,React.createElement("label",{style:P},"Perfil"),React.createElement("select",{style:q,value:lateJoinProfileId,onChange:(event)=>setLateJoinProfileId(event.target.value)},lateJoinEligible.map((profile)=>React.createElement("option",{key:profile.id,value:profile.id},profile.name)))),
-                React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},React.createElement("div",null,React.createElement("label",{style:P},"Overall do elenco"),React.createElement("input",{style:q,type:"number",min:60,max:95,value:lateJoinOverall,onChange:(event)=>setLateJoinOverall(event.target.value)}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},`Sugestão: ${Math.round(Number(lateJoinBenchmark&&lateJoinBenchmark.suggestedOverall)||80)}`)),React.createElement("div",null,React.createElement("label",{style:P},"Saldo de entrada"),React.createElement("input",{style:q,type:"number",min:0,value:lateJoinBudget,onChange:(event)=>setLateJoinBudget(event.target.value)}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},lateJoinBenchmark&&lateJoinBenchmark.usedRecordedInitialBudget?`Base ${Math.round(lateJoinBenchmark.baseBudget)}M + compensação ${Math.round(lateJoinBenchmark.compensation)}M por ${lateJoinBenchmark.referenceGames} rodada(s)`:`Sugestão baseada na mediana atual: ${Math.round(Number(lateJoinBenchmark&&lateJoinBenchmark.suggestedBudget)||0)}M`))),
-                React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},React.createElement("button",{disabled:lateJoinBusy,onClick:()=>setLateJoinOpen(false),style:{...M,marginTop:0,background:"var(--surface-soft)",color:"var(--heading)",border:"1px solid var(--border)"}},"Cancelar"),React.createElement("button",{disabled:lateJoinBusy||!lateJoinProfileId,onClick:confirmLateJoin,style:{...M,...W,marginTop:0,opacity:lateJoinBusy||!lateJoinProfileId?.5:1}},lateJoinBusy?"Gerando…":"Gerar elenco"))
+                React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},React.createElement("button",{onClick:()=>{setLateJoinMode("balanced");setLateJoinTxtPreview(null);},style:{padding:11,borderRadius:10,border:lateJoinMode==="balanced"?"2px solid var(--heading)":"1px solid var(--border)",background:lateJoinMode==="balanced"?"var(--surface-soft)":"var(--surface)",color:"var(--heading)",fontWeight:800,cursor:"pointer"}},"Gerar balanceado"),React.createElement("button",{onClick:()=>setLateJoinMode("txt"),style:{padding:11,borderRadius:10,border:lateJoinMode==="txt"?"2px solid var(--heading)":"1px solid var(--border)",background:lateJoinMode==="txt"?"var(--surface-soft)":"var(--surface)",color:"var(--heading)",fontWeight:800,cursor:"pointer"}},"Importar TXT")),
+                lateJoinMode==="balanced"&&React.createElement(React.Fragment,null,
+                  React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},React.createElement("div",null,React.createElement("label",{style:P},"Overall do elenco"),React.createElement("input",{style:q,type:"number",min:60,max:95,value:lateJoinOverall,onChange:(event)=>setLateJoinOverall(event.target.value)}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},`Sugestão: ${Math.round(Number(lateJoinBenchmark&&lateJoinBenchmark.suggestedOverall)||80)}`)),React.createElement("div",null,React.createElement("label",{style:P},"Saldo de entrada"),React.createElement("input",{style:q,type:"number",min:0,value:lateJoinBudget,onChange:(event)=>setLateJoinBudget(event.target.value)}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},lateJoinBenchmark&&lateJoinBenchmark.usedRecordedInitialBudget?`Base ${Math.round(lateJoinBenchmark.baseBudget)}M + compensação ${Math.round(lateJoinBenchmark.compensation)}M por ${lateJoinBenchmark.referenceGames} rodada(s)`:`Sugestão baseada na mediana atual: ${Math.round(Number(lateJoinBenchmark&&lateJoinBenchmark.suggestedBudget)||0)}M`))),
+                  React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},React.createElement("button",{disabled:lateJoinBusy,onClick:()=>setLateJoinOpen(false),style:{...M,marginTop:0,background:"var(--surface-soft)",color:"var(--heading)",border:"1px solid var(--border)"}},"Cancelar"),React.createElement("button",{disabled:lateJoinBusy||!lateJoinProfileId,onClick:confirmLateJoin,style:{...M,...W,marginTop:0,opacity:lateJoinBusy||!lateJoinProfileId?.5:1}},lateJoinBusy?"Gerando…":"Gerar elenco"))
+                ),
+                lateJoinMode==="txt"&&React.createElement(React.Fragment,null,
+                  React.createElement("div",null,React.createElement("label",{style:P},"Saldo de entrada"),React.createElement("input",{style:q,type:"number",min:0,value:lateJoinBudget,onChange:(event)=>setLateJoinBudget(event.target.value)}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},lateJoinBenchmark&&lateJoinBenchmark.usedRecordedInitialBudget?`Sugestão: ${Math.round(Number(lateJoinBenchmark.suggestedBudget)||0)}M · compensação pelo estágio atual do campeonato`:`Sugestão baseada na mediana atual: ${Math.round(Number(lateJoinBenchmark&&lateJoinBenchmark.suggestedBudget)||0)}M`)),
+                  React.createElement("input",{type:"file",accept:".txt,text/plain",onChange:readLateJoinTxtFile,style:{...q,padding:10}}),
+                  React.createElement("textarea",{value:lateJoinTxt,onChange:(event)=>{setLateJoinTxt(event.target.value);setLateJoinTxtPreview(null);},placeholder:"Ou cole aqui o TXT com o elenco deste participante...",rows:7,style:{...q,resize:"vertical",minHeight:140,fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",fontSize:11.5}}),
+                  React.createElement("button",{disabled:!lateJoinTxt.trim(),onClick:buildLateJoinTxtPreview,style:{...M,...W,opacity:lateJoinTxt.trim()?1:.45}},"Gerar prévia"),
+                  lateJoinTxtPreview&&React.createElement("div",{style:{display:"grid",gap:10}},
+                    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8}},[["Jogadores",String(lateJoinTxtPreview.total||0)],["OVR médio",lateJoinTxtPreview.matchedPlayers.length?Number(lateJoinTxtPreview.metrics.averageOverall||0).toFixed(1):"—"],["Valor",lateJoinTxtPreview.matchedPlayers.length?`${Math.round(Number(lateJoinTxtPreview.metrics.marketValue)||0)}M`:"—"]].map(([label,value])=>React.createElement("div",{key:label,style:{padding:10,borderRadius:12,background:"var(--surface-soft)",textAlign:"center"}},React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},label),React.createElement("strong",{style:{display:"block",marginTop:3}},value)))),
+                    React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",lineHeight:1.5}},`Composição: ${Object.entries(lateJoinTxtPreview.groupCounts||{}).map(([key,value])=>`${key} ${value}`).join(" · ")}. Referência atual: OVR ${Number(lateJoinBenchmark&&lateJoinBenchmark.averageOverall||0).toFixed(1)}.`),
+                    lateJoinTxtPreview.matchedPlayers.length===23&&Math.abs(Number(lateJoinTxtPreview.metrics.averageOverall||0)-Number(lateJoinBenchmark&&lateJoinBenchmark.averageOverall||0))>1&&React.createElement("div",{style:{padding:10,borderRadius:10,background:"color-mix(in srgb,#ffbb26 12%,var(--surface))",border:"1px solid color-mix(in srgb,#ffbb26 35%,var(--border))",fontSize:11.5,lineHeight:1.45}},"Atenção: o overall médio deste elenco está mais de 1 ponto distante da referência atual do campeonato. O admin ainda pode confirmar manualmente."),
+                    React.createElement("div",{style:{maxHeight:300,overflow:"auto",borderTop:"1px solid var(--border)"}},lateJoinTxtPreview.entries.map((entry,index)=>{let matched=entry.playerId?(catalog||[]).find((player)=>String(player.id)===String(entry.playerId)):null;return React.createElement("div",{key:index,style:{padding:"9px 0",borderBottom:"1px solid var(--border)",display:"grid",gap:6}},React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:10}},React.createElement("div",null,React.createElement("strong",{style:{fontSize:12.5}},entry.txtName),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},entry.position," · OVR ",entry.overall," · ",entry.squadRole==="starter"?"Titular":"Reserva")),React.createElement("span",{style:{fontSize:10.5,fontWeight:800,color:entry.status==="matched"?"var(--green)":"var(--danger)"}},entry.status==="matched"?"Encontrado":entry.status==="owned"?"Já pertence a outro time":entry.status==="ambiguous"?"Ambíguo":entry.status==="duplicate"?"Duplicado":"Não encontrado")),(entry.status!=="matched")&&React.createElement("select",{value:entry.playerId||"",onChange:(event)=>resolveLateJoinTxtEntry(index,event.target.value),style:{...q,padding:"7px 9px",fontSize:11}},React.createElement("option",{value:""},"Selecionar jogador manualmente"),(entry.candidates&&entry.candidates.length?entry.candidates.map((candidate)=>candidate.player):(catalog||[]).filter((player)=>importNameVariants(player.name).some((name)=>name.includes(normalizeImportText(entry.txtName).split(" ")[0]))).slice(0,30)).map((player)=>React.createElement("option",{key:player.id,value:player.id},player.name," · ",player.position," · OVR ",player.overall," · ",player.club))),matched&&entry.status==="matched"&&React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},"Vinculado a ",matched.name," · ",matched.club));})),
+                    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},React.createElement("button",{disabled:lateJoinBusy,onClick:()=>setLateJoinOpen(false),style:{...M,marginTop:0,background:"var(--surface-soft)",color:"var(--heading)",border:"1px solid var(--border)"}},"Cancelar"),React.createElement("button",{disabled:lateJoinBusy||lateJoinTxtPreview.total!==23||lateJoinTxtPreview.entries.some((entry)=>entry.status!=="matched"),onClick:confirmLateJoinTxt,style:{...M,...W,marginTop:0,opacity:lateJoinBusy||lateJoinTxtPreview.total!==23||lateJoinTxtPreview.entries.some((entry)=>entry.status!=="matched")?.45:1}},lateJoinBusy?"Adicionando…":"Confirmar entrada"))
+                  )
+                )
               )
             ),
             adminSection === "participants" && currentTournament && React.createElement("div", { style: E },
