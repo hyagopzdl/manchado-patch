@@ -6640,34 +6640,67 @@
 
         function parseSingleRosterTxt(text, catalog, ownership) {
           let rows=String(text||"").split(/\r?\n/),squadRole="",rawEntries=[];
+          let ignoredHeadings=new Set(["gol","zag","lat","mei","atk","goleiros","zagueiros","laterais","meias","atacantes"]);
           for(let rawLine of rows){
-            let line=rawLine.trim();
+            let line=String(rawLine||"").replace(/^\uFEFF/,"").trim();
+            if(!line)continue;
+            let normalizedLine=normalizeImportText(line);
+            if(ignoredHeadings.has(normalizedLine)||/^\d+\s*\/\s*\d+$/.test(line))continue;
+            if(/^🎮\s*/u.test(line))continue;
             if(/TIME TITULAR/i.test(line)){squadRole="starter";continue;}
             if(/BANCO DE RESERVAS/i.test(line)){squadRole="bench";continue;}
-            if(!squadRole||!line.includes("|"))continue;
             if(/^NOME\s*\|/i.test(line))continue;
-            let parts=line.split("|").map((part)=>part.trim());
-            if(parts.length<5||!parts[0]||!/^\d+$/.test(parts[3]))continue;
-            rawEntries.push({squadRole,txtName:parts[0],position:parts[1],club:parts[2],overall:Number(parts[3]),value:Number(parts[4])||0});
+
+            let parts=line.includes("|")?line.split("|").map((part)=>part.trim()):[line];
+            let entry={squadRole:squadRole||"roster",txtName:"",position:"",club:"",overall:null,value:null,sourceFormat:"name"};
+            if(parts.length>=5&&parts[0]&&/^\d+$/.test(parts[3])){
+              entry={...entry,txtName:parts[0],position:parts[1]||"",club:parts[2]||"",overall:Number(parts[3]),value:Number(parts[4])||0,sourceFormat:"legacy"};
+            }else if(parts.length>=2&&parts[0]&&parts[1]){
+              entry={...entry,txtName:parts[0],club:parts[1],sourceFormat:"name_club"};
+            }else if(parts[0]){
+              entry={...entry,txtName:parts[0],sourceFormat:"name"};
+            }
+            if(entry.txtName)rawEntries.push(entry);
           }
+
           let entries=rawEntries.map((entry)=>{
             let txtNames=importNameVariants(entry.txtName),txtClub=normalizeImportText(entry.club),txtPosition=normalizeImportPosition(entry.position);
-            let candidates=(catalog||[]).map((player)=>{
-              let playerNames=importNameVariants(player.name),nameExact=txtNames.some((name)=>playerNames.includes(name));
-              if(!nameExact)return null;
-              let score=100;
-              if(normalizeImportPosition(player.position)===txtPosition)score+=20;
-              if(normalizeImportText(player.club)===txtClub)score+=20;
-              if(Number(player.overall)===entry.overall)score+=15;
-              if(Number(player.value)===entry.value)score+=5;
-              return {player,score};
-            }).filter(Boolean).sort((a,b)=>b.score-a.score);
-            let best=candidates[0],tied=best?candidates.filter((candidate)=>candidate.score===best.score):[];
-            let status=!best?"not_found":tied.length>1?"ambiguous":"matched";
-            let playerId=status==="matched"?String(best.player.id):null;
+            let nameMatches=(catalog||[]).filter((player)=>{
+              let playerNames=importNameVariants(player.name);
+              return txtNames.some((name)=>playerNames.includes(name));
+            });
+            let candidates=[];
+            let status="not_found",best=null;
+
+            if(entry.sourceFormat==="name_club"){
+              let clubMatches=nameMatches.filter((player)=>normalizeImportText(player.club)===txtClub);
+              candidates=(clubMatches.length?clubMatches:nameMatches).map((player)=>({player,score:clubMatches.includes(player)?150:100}));
+              if(clubMatches.length===1){best={player:clubMatches[0],score:150};status="matched";}
+              else if(clubMatches.length>1){status="ambiguous";}
+              else if(nameMatches.length){status="club_mismatch";}
+            }else if(entry.sourceFormat==="legacy"){
+              candidates=nameMatches.map((player)=>{
+                let score=100;
+                if(txtPosition&&normalizeImportPosition(player.position)===txtPosition)score+=20;
+                if(txtClub&&normalizeImportText(player.club)===txtClub)score+=20;
+                if(entry.overall!=null&&Number(player.overall)===entry.overall)score+=15;
+                if(entry.value!=null&&Number(player.value)===entry.value)score+=5;
+                return {player,score};
+              }).sort((a,b)=>b.score-a.score);
+              best=candidates[0]||null;
+              let tied=best?candidates.filter((candidate)=>candidate.score===best.score):[];
+              status=!best?"not_found":tied.length>1?"ambiguous":"matched";
+            }else{
+              candidates=nameMatches.map((player)=>({player,score:100}));
+              if(nameMatches.length===1){best={player:nameMatches[0],score:100};status="matched";}
+              else if(nameMatches.length>1){status="ambiguous";}
+            }
+
+            let playerId=status==="matched"&&best?String(best.player.id):null;
             if(playerId&&ownership&&ownership[playerId]&&ownership[playerId].teamId)status="owned";
-            return {...entry,status,candidates:candidates.slice(0,8),playerId};
+            return {...entry,status,candidates:candidates.slice(0,12),playerId};
           });
+
           let seen=new Map();
           entries.forEach((entry)=>{
             if(!entry.playerId)return;
@@ -6682,7 +6715,6 @@
           matchedPlayers.forEach((player)=>{let group=balancedRosterGroupFor(player);if(group)groupCounts[group.key]=(groupCounts[group.key]||0)+1;});
           return {entries,total:entries.length,matchedPlayers,metrics:balancedRosterMetrics(matchedPlayers),groupCounts};
         }
-
 
         function parseHistoricalCompetitionTxt(text) {
           let lines=String(text||"").replace(/\r/g,"").split("\n").map((line)=>line.trim()).filter(Boolean);
@@ -7132,14 +7164,14 @@ Hyago 0 x 0 Lucas`;
                 ),
                 lateJoinMode==="txt"&&React.createElement(React.Fragment,null,
                   React.createElement("div",null,React.createElement("label",{style:P},"Saldo de entrada"),React.createElement("input",{style:q,type:"number",min:0,value:lateJoinBudget,onChange:(event)=>setLateJoinBudget(event.target.value)}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},lateJoinBenchmark&&lateJoinBenchmark.usedRecordedInitialBudget?`Sugestão: ${Math.round(Number(lateJoinBenchmark.suggestedBudget)||0)}M · compensação pelo estágio atual do campeonato`:`Sugestão baseada na mediana atual: ${Math.round(Number(lateJoinBenchmark&&lateJoinBenchmark.suggestedBudget)||0)}M`)),
-                  React.createElement("input",{type:"file",accept:".txt,text/plain",onChange:readLateJoinTxtFile,style:{...q,padding:10}}),
-                  React.createElement("textarea",{value:lateJoinTxt,onChange:(event)=>{setLateJoinTxt(event.target.value);setLateJoinTxtPreview(null);},placeholder:"Ou cole aqui o TXT com o elenco deste participante...",rows:7,style:{...q,resize:"vertical",minHeight:140,fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",fontSize:11.5}}),
+                  React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",lineHeight:1.5}},"Formatos aceitos: Nome | Time (recomendado), apenas Nome, ou o formato completo da importação antiga."),React.createElement("input",{type:"file",accept:".txt,text/plain",onChange:readLateJoinTxtFile,style:{...q,padding:10}}),
+                  React.createElement("textarea",{value:lateJoinTxt,onChange:(event)=>{setLateJoinTxt(event.target.value);setLateJoinTxtPreview(null);},placeholder:"Cole 23 jogadores, um por linha. Recomendado: Nome | Time",rows:7,style:{...q,resize:"vertical",minHeight:140,fontFamily:"ui-monospace,SFMono-Regular,Menlo,monospace",fontSize:11.5}}),
                   React.createElement("button",{disabled:!lateJoinTxt.trim(),onClick:buildLateJoinTxtPreview,style:{...M,...W,opacity:lateJoinTxt.trim()?1:.45}},"Gerar prévia"),
                   lateJoinTxtPreview&&React.createElement("div",{style:{display:"grid",gap:10}},
                     React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8}},[["Jogadores",String(lateJoinTxtPreview.total||0)],["OVR médio",lateJoinTxtPreview.matchedPlayers.length?Number(lateJoinTxtPreview.metrics.averageOverall||0).toFixed(1):"—"],["Valor",lateJoinTxtPreview.matchedPlayers.length?`${Math.round(Number(lateJoinTxtPreview.metrics.marketValue)||0)}M`:"—"]].map(([label,value])=>React.createElement("div",{key:label,style:{padding:10,borderRadius:12,background:"var(--surface-soft)",textAlign:"center"}},React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},label),React.createElement("strong",{style:{display:"block",marginTop:3}},value)))),
                     React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",lineHeight:1.5}},`Composição: ${Object.entries(lateJoinTxtPreview.groupCounts||{}).map(([key,value])=>`${key} ${value}`).join(" · ")}. Referência atual: OVR ${Number(lateJoinBenchmark&&lateJoinBenchmark.averageOverall||0).toFixed(1)}.`),
                     lateJoinTxtPreview.matchedPlayers.length===23&&Math.abs(Number(lateJoinTxtPreview.metrics.averageOverall||0)-Number(lateJoinBenchmark&&lateJoinBenchmark.averageOverall||0))>1&&React.createElement("div",{style:{padding:10,borderRadius:10,background:"color-mix(in srgb,#ffbb26 12%,var(--surface))",border:"1px solid color-mix(in srgb,#ffbb26 35%,var(--border))",fontSize:11.5,lineHeight:1.45}},"Atenção: o overall médio deste elenco está mais de 1 ponto distante da referência atual do campeonato. O admin ainda pode confirmar manualmente."),
-                    React.createElement("div",{style:{maxHeight:300,overflow:"auto",borderTop:"1px solid var(--border)"}},lateJoinTxtPreview.entries.map((entry,index)=>{let matched=entry.playerId?(catalog||[]).find((player)=>String(player.id)===String(entry.playerId)):null;return React.createElement("div",{key:index,style:{padding:"9px 0",borderBottom:"1px solid var(--border)",display:"grid",gap:6}},React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:10}},React.createElement("div",null,React.createElement("strong",{style:{fontSize:12.5}},entry.txtName),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},entry.position," · OVR ",entry.overall," · ",entry.squadRole==="starter"?"Titular":"Reserva")),React.createElement("span",{style:{fontSize:10.5,fontWeight:800,color:entry.status==="matched"?"var(--green)":"var(--danger)"}},entry.status==="matched"?"Encontrado":entry.status==="owned"?"Já pertence a outro time":entry.status==="ambiguous"?"Ambíguo":entry.status==="duplicate"?"Duplicado":"Não encontrado")),(entry.status!=="matched")&&React.createElement("select",{value:entry.playerId||"",onChange:(event)=>resolveLateJoinTxtEntry(index,event.target.value),style:{...q,padding:"7px 9px",fontSize:11}},React.createElement("option",{value:""},"Selecionar jogador manualmente"),(entry.candidates&&entry.candidates.length?entry.candidates.map((candidate)=>candidate.player):(catalog||[]).filter((player)=>importNameVariants(player.name).some((name)=>name.includes(normalizeImportText(entry.txtName).split(" ")[0]))).slice(0,30)).map((player)=>React.createElement("option",{key:player.id,value:player.id},player.name," · ",player.position," · OVR ",player.overall," · ",player.club))),matched&&entry.status==="matched"&&React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},"Vinculado a ",matched.name," · ",matched.club));})),
+                    React.createElement("div",{style:{maxHeight:300,overflow:"auto",borderTop:"1px solid var(--border)"}},lateJoinTxtPreview.entries.map((entry,index)=>{let matched=entry.playerId?(catalog||[]).find((player)=>String(player.id)===String(entry.playerId)):null;return React.createElement("div",{key:index,style:{padding:"9px 0",borderBottom:"1px solid var(--border)",display:"grid",gap:6}},React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:10}},React.createElement("div",null,React.createElement("strong",{style:{fontSize:12.5}},entry.txtName,entry.club?` | ${entry.club}`:""),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},matched?`${matched.position} · OVR ${matched.overall} · ${matched.club||"Sem clube"}`:"Aguardando resolução")),React.createElement("span",{style:{fontSize:10.5,fontWeight:800,color:entry.status==="matched"?"var(--green)":entry.status==="ambiguous"||entry.status==="club_mismatch"?"#ffbb26":"var(--danger)"}},entry.status==="matched"?"Encontrado":entry.status==="owned"?"Já pertence a outro time":entry.status==="ambiguous"?"Ambíguo":entry.status==="club_mismatch"?"Time não confere":entry.status==="duplicate"?"Duplicado":"Não encontrado")),(entry.status!=="matched")&&React.createElement("select",{value:entry.playerId||"",onChange:(event)=>resolveLateJoinTxtEntry(index,event.target.value),style:{...q,padding:"7px 9px",fontSize:11}},React.createElement("option",{value:""},"Selecionar jogador manualmente"),(entry.candidates&&entry.candidates.length?entry.candidates.map((candidate)=>candidate.player):(catalog||[]).filter((player)=>importNameVariants(player.name).some((name)=>name.includes(normalizeImportText(entry.txtName).split(" ")[0]))).slice(0,30)).map((player)=>React.createElement("option",{key:player.id,value:player.id},player.name," · ",player.position," · OVR ",player.overall," · ",player.club))),matched&&entry.status==="matched"&&React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)"}},"Vinculado a ",matched.name," · ",matched.club));})),
                     React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},React.createElement("button",{disabled:lateJoinBusy,onClick:()=>setLateJoinOpen(false),style:{...M,marginTop:0,background:"var(--surface-soft)",color:"var(--heading)",border:"1px solid var(--border)"}},"Cancelar"),React.createElement("button",{disabled:lateJoinBusy||lateJoinTxtPreview.total!==23||lateJoinTxtPreview.entries.some((entry)=>entry.status!=="matched"),onClick:confirmLateJoinTxt,style:{...M,...W,marginTop:0,opacity:lateJoinBusy||lateJoinTxtPreview.total!==23||lateJoinTxtPreview.entries.some((entry)=>entry.status!=="matched")?.45:1}},lateJoinBusy?"Adicionando…":"Confirmar entrada"))
                   )
                 )
