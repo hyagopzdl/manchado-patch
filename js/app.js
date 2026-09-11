@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, startTournamentRealtimeSync, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, startTournamentRealtimeSync, loadFinancialTransactions, loadPlayerReviews, auditRewardIntegrity, repairRewardIntegrity, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -2579,8 +2579,16 @@
             [[left,right,leftBreakdown],[right,left,rightBreakdown]].forEach(([team,opponent,detail])=>{if(detail.total!==0){let result=leftScore===rightScore?(leftScore>0?"Empate com gols":"Empate sem gols"):(team.id===left.id?(leftScore>rightScore?"Vitória":"Derrota"):(rightScore>leftScore?"Vitória":"Derrota"));let gross=Math.round(Number(detail.total)||0), repayment=Math.round(Number(loanRepayments[team.id])||0), before=Number(team.budget)||0;transactions.unshift(financeEntry("match_reward",team.id,gross,`${result} contra ${opponent.name} · ${detail.eligibleGoals} gol(s) · ${detail.redCards} vermelho(s)`,matchId,before,now));if(repayment>0)transactions.unshift(financeEntry("balance_loan_repayment",team.id,-repayment,"Pagamento do empréstimo de equilíbrio",matchId,before+gross,now));}});
             setMatchWizard({ ...data, saving:true });
             let result = await ae(m.map((item)=>{if(item.id!==R.id)return item;let nextMatches=[...(Array.isArray(item.matches)?item.matches:[]),match];return {...item,matches:nextMatches,economySettings:{...((item.economySettings)||{}),balanceLoans:loans},context:{...(item.context||{}),matches:nextMatches,teams,playerStats:nextStats,financialTransactions:transactions}};}));
-            if (result && result.committed) setMatchWizard(null);
-            else setMatchWizard({ ...data, saving:false });
+            if (result && result.committed) {
+              setMatchWizard(null);
+              if(typeof auditRewardIntegrity==="function"){
+                try{
+                  let check=await auditRewardIntegrity({tournamentId:R.id,matchId});
+                  let issues=(check&&check.items||[]).filter(item=>item&&item.status!=="correct");
+                  if(issues.length){console.error("[Rewards] settlement integrity warning",issues);window.alert("A partida foi salva, mas detectamos uma inconsistência na recompensa. O admin pode revisar em Integridade financeira.");}
+                }catch(error){console.warn("[Rewards] não foi possível verificar a liquidação da partida",error);}
+              }
+            } else setMatchWizard({ ...data, saving:false });
           }
           async function importMissingHistoricalMatches(payload) {
             if (!R || !payload || !Array.isArray(payload.matches) || !payload.matches.length) return;
@@ -7104,6 +7112,10 @@ Hyago 0 x 0 Lucas`;
           let [historyMappings,setHistoryMappings]=b({});
           let [activityFilter,setActivityFilter]=b("all");
           let [activityRefreshing,setActivityRefreshing]=b(false);
+          let [activityFinancials,setActivityFinancials]=b([]);
+          let [rewardIntegrity,setRewardIntegrity]=b(null);
+          let [rewardIntegrityLoading,setRewardIntegrityLoading]=b(false);
+          let [rewardIntegrityRepairing,setRewardIntegrityRepairing]=b(null);
           function profileById(id){return globalProfiles.find((item)=>item&&String(item.id)===String(id))||null;}
           function teamByIdLocal(id){return (teams||[]).find((item)=>item&&String(item.id)===String(id))||null;}
           function actorForTeam(teamId){let team=teamByIdLocal(teamId);return team&&team.profileId?profileById(team.profileId):null;}
@@ -7123,7 +7135,7 @@ Hyago 0 x 0 Lucas`;
               else {actor=actorForTeam(tr.toTeamId)||actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||"Usuário"} concluiu uma transferência de ${tr.playerName||"jogador"}`;}
               if(actor&&actor.role==="admin")return;let detail=type==="market_sale"?`Venda ao mercado · ${L(Number(tr.price)||0)}`:from&&to?`${from.name} → ${to.name} · ${L(Number(tr.price)||0)}`:`${L(Number(tr.price)||0)}`;items.push({id:`transfer:${tr.id}`,type:"market",at:Number(tr.createdAt)||0,actorId:actor&&actor.id||null,actor:actor&&actor.name||"Usuário",title,detail});
             });
-            (Array.isArray(context.financialTransactions)?context.financialTransactions:[]).forEach((tx)=>{
+            (Array.isArray(activityFinancials)?activityFinancials:[]).forEach((tx)=>{
               if(!tx||String(tx.type||"")!=="match_reward")return;
               let team=teamByIdLocal(tx.teamId),actor=actorForTeam(tx.teamId);
               if(!actor||actor.role==="admin")return;
@@ -7133,7 +7145,37 @@ Hyago 0 x 0 Lucas`;
             Object.values(playerReviews&&typeof playerReviews==="object"?playerReviews:{}).forEach((review)=>{if(!review||!review.createdAt||!isRegularUser(review.createdByProfileId))return;items.push({id:`review:${review.id}`,type:"report",at:Number(review.createdAt)||0,actorId:review.createdByProfileId,actor:review.createdByNameSnapshot||actorName(review.createdByProfileId),title:`${review.createdByNameSnapshot||actorName(review.createdByProfileId)} reportou ${review.playerNameSnapshot||"um jogador"}`,detail:review.status==="approved"?"Revisão aprovada":review.status==="rejected"?"Revisão recusada":"Aguardando revisão"});});
             return items.filter((item)=>activityFilter==="all"||item.type===activityFilter).sort((a,b)=>b.at-a.at);
           }
-          async function refreshActivityLog(){if(activityRefreshing)return;setActivityRefreshing(true);try{if(typeof onRefreshPlayerReviews==="function")await onRefreshPlayerReviews();}finally{setActivityRefreshing(false);}}
+          async function refreshActivityLog(){
+            if(activityRefreshing)return;setActivityRefreshing(true);
+            try{
+              if(typeof onRefreshPlayerReviews==="function")await onRefreshPlayerReviews();
+              if(currentTournament&&typeof loadFinancialTransactions==="function"){
+                let all=[],cursor=null;
+                for(let pageIndex=0;pageIndex<2;pageIndex++){
+                  let page=await loadFinancialTransactions({tournamentId:currentTournament.id,limit:100,before:cursor,force:true});
+                  all.push(...(page.items||[]));
+                  if(!page.hasMore||!page.nextCursor)break;
+                  cursor=page.nextCursor;
+                }
+                setActivityFinancials(all);
+              }else setActivityFinancials([]);
+            }finally{setActivityRefreshing(false);}
+          }
+          async function refreshRewardIntegrity(){
+            if(rewardIntegrityLoading||!currentTournament||typeof auditRewardIntegrity!=="function")return;
+            setRewardIntegrityLoading(true);
+            try{setRewardIntegrity(await auditRewardIntegrity({tournamentId:currentTournament.id}));}
+            catch(error){console.error("Falha ao verificar integridade das recompensas",error);window.alert(error&&error.message?error.message:"Não foi possível verificar as recompensas.");}
+            finally{setRewardIntegrityLoading(false);}
+          }
+          async function repairRewardIssue(item){
+            if(!item||rewardIntegrityRepairing||typeof repairRewardIntegrity!=="function")return;
+            if(!window.confirm(`Corrigir a recompensa de ${item.teamName||"este time"} nesta partida?\n\nApenas a diferença comprovada pelo snapshot da partida será aplicada ao saldo.`))return;
+            let key=`${item.matchId}:${item.teamId}`;setRewardIntegrityRepairing(key);
+            try{await repairRewardIntegrity({tournamentId:currentTournament.id,matchId:item.matchId,teamId:item.teamId});await refreshRewardIntegrity();await refreshActivityLog();}
+            catch(error){console.error("Falha ao corrigir recompensa",error);window.alert(error&&error.message?error.message:"Não foi possível corrigir a recompensa.");}
+            finally{setRewardIntegrityRepairing(null);}
+          }
           let sourceCandidates = [...(tournaments || [])].sort((a, b) => (Number(b.finishedAt || b.createdAt) || 0) - (Number(a.finishedAt || a.createdAt) || 0));
           let [creationMode, setCreationMode] = b(sourceCandidates.length ? "continue" : "new");
           let [sourceTournamentId, setSourceTournamentId] = b(sourceCandidates[0] ? sourceCandidates[0].id : "");
@@ -7143,7 +7185,7 @@ Hyago 0 x 0 Lucas`;
           let [competitionWizardOpen, setCompetitionWizardOpen] = b(false);
           let [competitionWizardStep, setCompetitionWizardStep] = b(1);
           let [adminSection, setAdminSection] = b("home");
-          He(()=>{if(adminSection==="logs")refreshActivityLog();},[adminSection,currentTournament&&currentTournament.id]);
+          He(()=>{if(adminSection==="logs")refreshActivityLog();if(adminSection==="integrity")refreshRewardIntegrity();},[adminSection,currentTournament&&currentTournament.id]);
           let [newParticipantIds, setNewParticipantIds] = b([]);
           let [newParticipantDrafts, setNewParticipantDrafts] = b({});
           let [randomRosterEnabled, setRandomRosterEnabled] = b(false);
@@ -7377,6 +7419,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             rules: { title: "Regras e economia", description: "Configure mercado, elenco, recompensas e premiações." },
             tools: { title: "Dados e ferramentas", description: "Importe elencos e execute tarefas administrativas." },
             logs: { title: "Logs de atividade", description: "Acompanhe ações dos usuários que alteram partidas, mercado e catálogo." },
+            integrity: { title: "Integridade financeira", description: "Verifique se todas as recompensas de partidas foram registradas corretamente." },
             danger: { title: "Zona de perigo", description: "Ações destrutivas e irreversíveis da competição." }
           };
           function adminHubCard(section, icon, title, description, meta, danger=false) {
@@ -7408,6 +7451,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 adminHubCard("participants", React.createElement(TeamIcon,{size:22}), "Participantes e times", "Gerencie participantes, times e carteiras da competição selecionada.", currentTournament ? `${activeTeams} participantes em ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("rules", React.createElement(SettingsIcon,{size:22}), "Regras e economia", "Defina mercado, limites de elenco, recompensas e premiação.", currentTournament ? `Editando ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("logs", React.createElement(ActivityLogIcon,{size:22}), "Logs de atividade", "Veja ações que impactam outros usuários e ajudam na auditoria da liga.", currentTournament ? `Acompanhando ${currentTournament.name}` : "Selecione uma competição"),
+                adminHubCard("integrity", React.createElement(DatabaseIcon,{size:22}), "Integridade financeira", "Confira recompensas ausentes, divergentes ou duplicadas sem alterar saldos automaticamente.", currentTournament ? `Auditar ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("tools", React.createElement(DatabaseIcon,{size:22}), "Dados e ferramentas", "Importe elencos e execute tarefas de manutenção.", "Ferramentas administrativas"),
                 adminHubCard("danger", React.createElement(TrashIcon,{size:22}), "Zona de perigo", "Resete ou remova dados da competição com confirmação reforçada.", currentTournament ? currentTournament.name : "Nenhuma competição selecionada", true)
               )
@@ -7573,6 +7617,28 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 })),
                 React.createElement("button", { disabled: importErrors.length > 0, onClick: () => { if (!window.confirm(`Importar ${importPreview.entries.length} jogadores para ${currentTournament.name}?`)) return; onImportRosters({ entries: importPreview.entries.map((entry) => ({ playerId: entry.playerId, teamId: entry.teamId, squadRole: entry.squadRole })) }, importMode); }, style: { ...M, ...W, opacity: importErrors.length ? 0.45 : 1 } }, importErrors.length ? "Resolva as pendências" : "Confirmar importação")
               )
+            ),
+            adminSection === "integrity" && React.createElement("div", { style:{ ...E,padding:18 } },
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:16}},
+                React.createElement("div",null,React.createElement("div",{style:{fontSize:18,fontWeight:850}},"Integridade das recompensas"),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginTop:4}},currentTournament?`Compara o snapshot financeiro de cada partida de ${currentTournament.name} com o ledger persistido. A verificação é somente leitura.`:"Selecione uma competição para verificar.")),
+                React.createElement("button",{onClick:refreshRewardIntegrity,disabled:rewardIntegrityLoading||!currentTournament,style:{...M,width:"auto",margin:0,padding:"9px 12px",fontSize:12}},rewardIntegrityLoading?"Verificando...":"Verificar novamente")
+              ),
+              currentTournament&&rewardIntegrity&&React.createElement(React.Fragment,null,
+                React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:8,marginBottom:16}},
+                  [["Partidas",rewardIntegrity.summary&&rewardIntegrity.summary.matchesChecked||0],["Recompensas",rewardIntegrity.summary&&rewardIntegrity.summary.rewardsExpected||0],["Corretas",rewardIntegrity.summary&&rewardIntegrity.summary.correct||0],["Problemas",(rewardIntegrity.summary&&rewardIntegrity.summary.missing||0)+(rewardIntegrity.summary&&rewardIntegrity.summary.divergent||0)+(rewardIntegrity.summary&&rewardIntegrity.summary.duplicate||0)+(rewardIntegrity.summary&&rewardIntegrity.summary.repaymentIssues||0)]].map(([label,value])=>React.createElement("div",{key:label,style:{padding:12,border:"1px solid var(--border)",borderRadius:14,background:"var(--surface-soft)"}},React.createElement("div",{style:{fontSize:20,fontWeight:900}},value),React.createElement("div",{style:{fontSize:11,color:"var(--muted)",marginTop:3}},label)))
+                ),
+                rewardIntegrity.summary&&Number(rewardIntegrity.summary.withoutSnapshot||0)>0&&React.createElement("div",{style:{padding:"10px 12px",borderRadius:12,background:"color-mix(in srgb,#ffbb26 10%,var(--surface-soft))",border:"1px solid color-mix(in srgb,#ffbb26 25%,var(--border))",fontSize:12,lineHeight:1.45,marginBottom:12}},`${rewardIntegrity.summary.withoutSnapshot} partida(s) antiga(s) não possuem snapshot economyRewards e não podem ser validadas com segurança.`),
+                (rewardIntegrity.items||[]).filter(item=>item&&item.status!=="correct").length?React.createElement("div",{style:{display:"grid",gap:8}},(rewardIntegrity.items||[]).filter(item=>item&&item.status!=="correct").map(item=>{
+                  let repairable=item.status==="missing"||item.status==="repayment_missing", key=`${item.matchId}:${item.teamId}`, label=item.status==="missing"?"Recompensa ausente":item.status==="divergent"?"Valor divergente":item.status==="duplicate"?"Recompensa duplicada":"Repasse do empréstimo ausente";
+                  return React.createElement("div",{key,style:{padding:13,border:"1px solid color-mix(in srgb,var(--danger) 25%,var(--border))",borderRadius:14,background:"var(--surface-soft)"}},
+                    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start"}},React.createElement("div",{style:{minWidth:0}},React.createElement("div",{style:{fontSize:13.5,fontWeight:850}},item.teamName||item.teamId),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:3}},`${item.homeTeamName||"Time"} ${item.homeScore??"—"} × ${item.awayScore??"—"} ${item.awayTeamName||"Time"}`),React.createElement("div",{style:{fontSize:11.5,color:"var(--danger)",fontWeight:750,marginTop:6}},label)),React.createElement("div",{style:{textAlign:"right",flexShrink:0}},React.createElement("div",{style:{fontSize:13,fontWeight:850}},`Esperado ${L(Number(item.expectedAmount)||0)}`),React.createElement("div",{style:{fontSize:11,color:"var(--muted)",marginTop:3}},`Registrado ${L(Number(item.recordedAmount)||0)}`))),
+                    repairable&&React.createElement("button",{onClick:()=>repairRewardIssue(item),disabled:rewardIntegrityRepairing===key,style:{...M,...W,marginTop:10,padding:"9px 12px",fontSize:12}},rewardIntegrityRepairing===key?"Corrigindo...":"Corrigir"),
+                    !repairable&&React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:8,lineHeight:1.45}},"Este caso exige revisão manual para evitar alterar um saldo que possa ter sido compensado anteriormente.")
+                  );
+                })):React.createElement("div",{style:{padding:"24px 10px",textAlign:"center",fontSize:13,color:"var(--muted)"}},"✓ Nenhuma inconsistência encontrada nas recompensas auditáveis."),
+                React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",lineHeight:1.5,marginTop:14}},"A auditoria nunca altera saldo sozinha. Correções usam o valor salvo na própria partida e ficam registradas no histórico financeiro.")
+              ),
+              currentTournament&&!rewardIntegrity&&!rewardIntegrityLoading&&React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Clique em Verificar novamente para iniciar a auditoria.")
             ),
             adminSection === "logs" && React.createElement("div", { style:{ ...E,padding:18 } },
               React.createElement("div", { style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:14} },React.createElement("div",null,React.createElement("div",{style:{fontSize:18,fontWeight:850}},"Atividade dos usuários"),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginTop:4}},currentTournament?`Eventos relevantes de ${currentTournament.name}. Os dados são montados a partir dos registros já persistidos pelo app.`:"Selecione uma competição para visualizar os eventos.")),React.createElement("button",{onClick:refreshActivityLog,disabled:activityRefreshing,style:{...M,width:"auto",margin:0,padding:"9px 12px",fontSize:12}},activityRefreshing?"Atualizando...":"Atualizar")),

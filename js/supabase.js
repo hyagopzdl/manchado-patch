@@ -969,6 +969,25 @@
     return()=>{stopped=true;clearTimeout(timer);window.removeEventListener("focus",onFocus);document.removeEventListener("visibilitychange",onVisibility);realtimeChannels.delete(key);try{client.removeChannel(channel);}catch(_){try{channel.unsubscribe();}catch(__){}}};
   }
 
+
+  async function auditRewardIntegrity({tournamentId,matchId=null}={}){
+    await load();
+    if(!client||!tournamentId)return{summary:{matchesChecked:0,rewardsExpected:0,correct:0,missing:0,divergent:0,duplicate:0,repaymentIssues:0,withoutSnapshot:0},items:[]};
+    const {data,error}=await client.rpc("reward_integrity_report",{p_tournament_id:String(tournamentId),p_match_id:matchId?String(matchId):null});
+    if(error)throw error;
+    return data&&typeof data==="object"?data:{summary:{},items:[]};
+  }
+  async function repairRewardIntegrity({tournamentId,matchId,teamId}={}){
+    await load();
+    if(!client||!tournamentId||!matchId||!teamId)throw new Error("Dados insuficientes para corrigir a recompensa.");
+    const {data,error}=await client.rpc("repair_match_reward_integrity",{p_tournament_id:String(tournamentId),p_match_id:String(matchId),p_team_id:String(teamId),p_actor_profile_id:actorProfileId()});
+    if(error)throw error;
+    invalidateCache("financial:");
+    await refreshTournamentSlice(String(tournamentId));
+    await broadcastTournamentInvalidation(String(tournamentId),"reward_integrity_repair");
+    return data||{ok:true};
+  }
+
   function Ee(){return client?{ref,fetchPage,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial}:null;}
   function U(path,value){const db=Ee();return db?db.ref(`pes/${path}`).set(value===undefined?null:value):Promise.resolve();}
   function Q(path,callback){const db=Ee();if(!db){callback(null);return()=>{};}const reference=db.ref(`pes/${path}`),handler=snapshot=>callback(snapshot.val());reference.on("value",handler);return()=>reference.off("value",handler);}
@@ -977,5 +996,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();
