@@ -11,6 +11,10 @@
         const EraserIcon = SvgIcon(["m4 15 8-8a2.5 2.5 0 0 1 3.5 0l2.5 2.5a2.5 2.5 0 0 1 0 3.5L11 20H7l-3-3a1.4 1.4 0 0 1 0-2Z", "m9 10 6 6", "M11 20h9"]);
         const ComparePlayersIcon = SvgIcon(["M8.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M3.5 19a5 5 0 0 1 10 0", "M17 10a2.5 2.5 0 1 0 0-5", "M15 14.5a4.5 4.5 0 0 1 5.5 4.4"]);
         const HigherValueIcon = SvgIcon(["m8.5 13.5 3.5-3.5 3.5 3.5"]);
+        const MarketSearchIcon = SvgIcon(["M11 19a8 8 0 1 1 5.657-2.343L21 21", "M16.5 16.5 21 21"]);
+        const ClearSearchIcon = SvgIcon(["M7 7l10 10", "M17 7 7 17"]);
+        const ArrowUpIcon = SvgIcon(["M12 19V5", "m6 11 6-6 6 6"]);
+        const ActivityLogIcon = SvgIcon(["M5 5h14", "M5 12h14", "M5 19h14", "M8 3v4", "M8 10v4", "M8 17v4"]);
         const BALANCED_ROSTER_GROUPS = [
           { key:"GOL", label:"Goleiros", positions:["GK"], count:3, offsets:[-3,0,3] },
           { key:"ZAG", label:"Zagueiros", positions:["CB","CWB"], count:5, offsets:[-5,-2,0,2,5] },
@@ -3172,7 +3176,7 @@
                           onUpdateBalanceLoanSettings: updateBalanceLoanSettings,
                           onGrantBalanceLoan: grantBalanceLoan,
                           onFinishTournament: finishCurrentTournament,
-                          catalog: n, onImportRosters: importRosterPlan, onImportHistoricalCompetition: importHistoricalCompetition, onImportMissingMatches: importMissingHistoricalMatches,
+                          catalog: n, playerReviews, onRefreshPlayerReviews: refreshPlayerReviews, onImportRosters: importRosterPlan, onImportHistoricalCompetition: importHistoricalCompetition, onImportMissingMatches: importMissingHistoricalMatches,
                         }),
                       Y === "profile" &&
                         React.createElement(ProfileArea, {
@@ -4590,10 +4594,19 @@
             [overallMax, setOverallMax] = b(() => marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Number(marketRules.freePlayerOverallLimit.maxOverall || 99) : 99),
             [valueMin, setValueMin] = b(3),
             [valueMax, setValueMax] = b(catalogValueCeiling),
+            [showScrollTop, setShowScrollTop] = b(false),
             loadMoreSentinel = React.useRef(null);
           let defaultMarketOverallMin = marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Math.min(99, Math.max(1, Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1))) : 70;
           let defaultMarketOverallMax = marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Math.min(99, Math.max(defaultMarketOverallMin, Number(marketRules.freePlayerOverallLimit.maxOverall || 99))) : 99;
           He(() => { setOverallMin(defaultMarketOverallMin); setOverallMax(defaultMarketOverallMax); }, [defaultMarketOverallMin, defaultMarketOverallMax]);
+          He(() => {
+            let ticking=false;
+            const update=()=>{ ticking=false; setShowScrollTop((window.scrollY||document.documentElement.scrollTop||0)>900); };
+            const onScroll=()=>{ if(ticking)return; ticking=true; window.requestAnimationFrame(update); };
+            update();
+            window.addEventListener("scroll",onScroll,{passive:true});
+            return()=>window.removeEventListener("scroll",onScroll);
+          }, []);
 
           let favoriteSet = X(() => new Set((Array.isArray(favoritePlayerIds) ? favoritePlayerIds : []).map((id) => String(id))), [favoritePlayerIds]);
           let deferredClubQuery = React.useDeferredValue ? React.useDeferredValue(clubQuery) : clubQuery;
@@ -5016,8 +5029,9 @@
                       React.createElement(
                         "div",
                         { style: { position: "relative", flex: 1 } },
-                        React.createElement("input", { style: { ...q, paddingLeft: 34 }, placeholder: "Buscar jogador, clube ou time...", value: clubQuery, onChange: (event) => { setClubQuery(event.target.value); setVisibleCount(24); } }),
-                        React.createElement("span", { style: { position: "absolute", left: 10, top: 12 } }, React.createElement(Xt, { size: 15, color: "var(--muted)" })),
+                        React.createElement("span", { style: { position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",display:"grid",placeItems:"center",pointerEvents:"none" } }, React.createElement(MarketSearchIcon, { size:17, color:"var(--muted)" })),
+                        React.createElement("input", { style: { ...q, paddingLeft: 38, paddingRight: clubQuery ? 40 : 12 }, placeholder: "Buscar jogador, clube ou time...", value: clubQuery, onChange: (event) => { setClubQuery(event.target.value); setVisibleCount(24); } }),
+                        clubQuery && React.createElement("button", { type:"button", className:"tapbtn", title:"Limpar busca", "aria-label":"Limpar busca", onClick:()=>{setClubQuery("");setVisibleCount(24);}, style:{ position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:30,height:30,border:0,borderRadius:999,background:"transparent",color:"var(--muted)",display:"grid",placeItems:"center",cursor:"pointer",padding:0 } }, React.createElement(ClearSearchIcon,{size:17}))
                       ),
                       React.createElement(
                         "button",
@@ -5073,6 +5087,7 @@
                     filteredPlayers.length === 0 && React.createElement("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Nenhum jogador corresponde aos filtros selecionados."),
                     filteredPlayers.length > visibleCount && React.createElement("div", { ref:loadMoreSentinel, style:{ minHeight:72, display:"grid", placeItems:"center", color:"var(--muted)", fontSize:12, gap:8 } }, React.createElement("span", { className:"animate-spin", style:{ width:20,height:20,borderRadius:999,border:"2px solid var(--border)",borderTopColor:"var(--green)",display:"block" } }), React.createElement("span", null, "Carregando mais jogadores...")),
                   ),
+            showScrollTop && React.createElement("button", { className:"tapbtn", onClick:()=>window.scrollTo({top:0,behavior:"smooth"}), title:"Voltar ao topo", "aria-label":"Voltar ao topo", style:{ position:"fixed",right:"max(16px,env(safe-area-inset-right))",bottom:"calc(78px + env(safe-area-inset-bottom))",zIndex:80,width:46,height:46,borderRadius:999,border:"1px solid var(--border)",background:"var(--ink)",color:"var(--surface)",display:"grid",placeItems:"center",boxShadow:"0 10px 28px rgba(0,0,0,.28)",cursor:"pointer" } }, React.createElement(ArrowUpIcon,{size:20})),
           );
         }
         function attributeValueColor(value, max = 99) {
@@ -7060,7 +7075,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -7077,6 +7092,31 @@ Hyago 0 x 0 Lucas`;
           let [missingMatchesMappings,setMissingMatchesMappings]=b({});
           let [missingMatchesSaving,setMissingMatchesSaving]=b(false);
           let [historyMappings,setHistoryMappings]=b({});
+          let [activityFilter,setActivityFilter]=b("all");
+          let [activityRefreshing,setActivityRefreshing]=b(false);
+          function profileById(id){return globalProfiles.find((item)=>item&&String(item.id)===String(id))||null;}
+          function teamByIdLocal(id){return (teams||[]).find((item)=>item&&String(item.id)===String(id))||null;}
+          function actorForTeam(teamId){let team=teamByIdLocal(teamId);return team&&team.profileId?profileById(team.profileId):null;}
+          function actorName(profileId,fallback="Usuário"){let profile=profileById(profileId);return profile&&profile.name?profile.name:fallback;}
+          function activityLogItems(){
+            let items=[], tournament=currentTournament, context=tournament&&tournament.context||{};
+            let isRegularUser=(profileId)=>{let profile=profileById(profileId);return !profile||profile.role!=="admin";};
+            (Array.isArray(tournament&&tournament.matches)?tournament.matches:Array.isArray(context.matches)?context.matches:[]).forEach((match)=>{
+              if(!match)return;let home=teamByIdLocal(match.homeId||match.homeTeamId),away=teamByIdLocal(match.awayId||match.awayTeamId),actorId=match.createdByProfileId||null;
+              if(actorId&&isRegularUser(actorId))items.push({id:`match:${match.id}`,type:"match",at:Number(match.createdAt||match.playedAt)||0,actorId,actor:actorName(actorId),title:`${actorName(actorId)} adicionou uma partida`,detail:`${home&&home.name||match.homeTeamNameSnapshot||"Time"} ${Number(match.homeScore)||0} × ${Number(match.awayScore)||0} ${away&&away.name||match.awayTeamNameSnapshot||"Time"}`});
+              if(match.status==="voided"&&match.voidedAt&&match.voidedByProfileId&&isRegularUser(match.voidedByProfileId))items.push({id:`void:${match.id}`,type:"match",at:Number(match.voidedAt)||0,actorId:match.voidedByProfileId,actor:actorName(match.voidedByProfileId),title:`${actorName(match.voidedByProfileId)} anulou uma partida`,detail:`${home&&home.name||"Time"} × ${away&&away.name||"Time"}`});
+            });
+            (Array.isArray(context.transfers)?context.transfers:[]).forEach((tr)=>{if(!tr)return;let from=teamByIdLocal(tr.fromTeamId),to=teamByIdLocal(tr.toTeamId),type=String(tr.type||tr.transferType||"");let actor=null,title="Movimentação no mercado";
+              if(type==="market_sale"){actor=actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||from&&from.name||"Usuário"} vendeu ${tr.playerName||"um jogador"}`;}
+              else if(type==="market_purchase"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} comprou ${tr.playerName||"um jogador"}`;}
+              else if(type==="release_clause"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} pagou a multa de ${tr.playerName||"um jogador"}`;}
+              else {actor=actorForTeam(tr.toTeamId)||actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||"Usuário"} concluiu uma transferência de ${tr.playerName||"jogador"}`;}
+              if(actor&&actor.role==="admin")return;let detail=type==="market_sale"?`Venda ao mercado · ${L(Number(tr.price)||0)}`:from&&to?`${from.name} → ${to.name} · ${L(Number(tr.price)||0)}`:`${L(Number(tr.price)||0)}`;items.push({id:`transfer:${tr.id}`,type:"market",at:Number(tr.createdAt)||0,actorId:actor&&actor.id||null,actor:actor&&actor.name||"Usuário",title,detail});
+            });
+            Object.values(playerReviews&&typeof playerReviews==="object"?playerReviews:{}).forEach((review)=>{if(!review||!review.createdAt||!isRegularUser(review.createdByProfileId))return;items.push({id:`review:${review.id}`,type:"report",at:Number(review.createdAt)||0,actorId:review.createdByProfileId,actor:review.createdByNameSnapshot||actorName(review.createdByProfileId),title:`${review.createdByNameSnapshot||actorName(review.createdByProfileId)} reportou ${review.playerNameSnapshot||"um jogador"}`,detail:review.status==="approved"?"Revisão aprovada":review.status==="rejected"?"Revisão recusada":"Aguardando revisão"});});
+            return items.filter((item)=>activityFilter==="all"||item.type===activityFilter).sort((a,b)=>b.at-a.at);
+          }
+          async function refreshActivityLog(){if(activityRefreshing)return;setActivityRefreshing(true);try{if(typeof onRefreshPlayerReviews==="function")await onRefreshPlayerReviews();}finally{setActivityRefreshing(false);}}
           let sourceCandidates = [...(tournaments || [])].sort((a, b) => (Number(b.finishedAt || b.createdAt) || 0) - (Number(a.finishedAt || a.createdAt) || 0));
           let [creationMode, setCreationMode] = b(sourceCandidates.length ? "continue" : "new");
           let [sourceTournamentId, setSourceTournamentId] = b(sourceCandidates[0] ? sourceCandidates[0].id : "");
@@ -7086,6 +7126,7 @@ Hyago 0 x 0 Lucas`;
           let [competitionWizardOpen, setCompetitionWizardOpen] = b(false);
           let [competitionWizardStep, setCompetitionWizardStep] = b(1);
           let [adminSection, setAdminSection] = b("home");
+          He(()=>{if(adminSection==="logs")refreshActivityLog();},[adminSection,currentTournament&&currentTournament.id]);
           let [newParticipantIds, setNewParticipantIds] = b([]);
           let [newParticipantDrafts, setNewParticipantDrafts] = b({});
           let [randomRosterEnabled, setRandomRosterEnabled] = b(false);
@@ -7318,6 +7359,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             participants: { title: "Participantes e times", description: "Defina quem participa, nomes dos times e saldos." },
             rules: { title: "Regras e economia", description: "Configure mercado, elenco, recompensas e premiações." },
             tools: { title: "Dados e ferramentas", description: "Importe elencos e execute tarefas administrativas." },
+            logs: { title: "Logs de atividade", description: "Acompanhe ações dos usuários que alteram partidas, mercado e catálogo." },
             danger: { title: "Zona de perigo", description: "Ações destrutivas e irreversíveis da competição." }
           };
           function adminHubCard(section, icon, title, description, meta, danger=false) {
@@ -7348,6 +7390,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 adminHubCard("competitions", React.createElement(TrophyIcon,{size:22}), "Competições", "Crie ligas, copas e continue temporadas.", `${activeCompetitions} em andamento · ${finishedCompetitions} encerradas`),
                 adminHubCard("participants", React.createElement(TeamIcon,{size:22}), "Participantes e times", "Gerencie participantes, times e carteiras da competição selecionada.", currentTournament ? `${activeTeams} participantes em ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("rules", React.createElement(SettingsIcon,{size:22}), "Regras e economia", "Defina mercado, limites de elenco, recompensas e premiação.", currentTournament ? `Editando ${currentTournament.name}` : "Selecione uma competição"),
+                adminHubCard("logs", React.createElement(ActivityLogIcon,{size:22}), "Logs de atividade", "Veja ações que impactam outros usuários e ajudam na auditoria da liga.", currentTournament ? `Acompanhando ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("tools", React.createElement(DatabaseIcon,{size:22}), "Dados e ferramentas", "Importe elencos e execute tarefas de manutenção.", "Ferramentas administrativas"),
                 adminHubCard("danger", React.createElement(TrashIcon,{size:22}), "Zona de perigo", "Resete ou remova dados da competição com confirmação reforçada.", currentTournament ? currentTournament.name : "Nenhuma competição selecionada", true)
               )
@@ -7513,6 +7556,12 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 })),
                 React.createElement("button", { disabled: importErrors.length > 0, onClick: () => { if (!window.confirm(`Importar ${importPreview.entries.length} jogadores para ${currentTournament.name}?`)) return; onImportRosters({ entries: importPreview.entries.map((entry) => ({ playerId: entry.playerId, teamId: entry.teamId, squadRole: entry.squadRole })) }, importMode); }, style: { ...M, ...W, opacity: importErrors.length ? 0.45 : 1 } }, importErrors.length ? "Resolva as pendências" : "Confirmar importação")
               )
+            ),
+            adminSection === "logs" && React.createElement("div", { style:{ ...E,padding:18 } },
+              React.createElement("div", { style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:14} },React.createElement("div",null,React.createElement("div",{style:{fontSize:18,fontWeight:850}},"Atividade dos usuários"),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginTop:4}},currentTournament?`Eventos relevantes de ${currentTournament.name}. Os dados são montados a partir dos registros já persistidos pelo app.`:"Selecione uma competição para visualizar os eventos.")),React.createElement("button",{onClick:refreshActivityLog,disabled:activityRefreshing,style:{...M,width:"auto",margin:0,padding:"9px 12px",fontSize:12}},activityRefreshing?"Atualizando...":"Atualizar")),
+              React.createElement("div",{style:{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:14}},[["all","Todos"],["match","Partidas"],["market","Mercado"],["report","Reports"]].map(([key,label])=>React.createElement("button",{key,onClick:()=>setActivityFilter(key),style:{border:"1px solid var(--border)",background:activityFilter===key?"var(--ink)":"var(--surface-soft)",color:activityFilter===key?"var(--surface)":"var(--heading)",borderRadius:999,padding:"8px 11px",fontSize:11.5,fontWeight:750,whiteSpace:"nowrap",cursor:"pointer"}},label))),
+              currentTournament ? (activityLogItems().length ? React.createElement("div",{style:{display:"grid",gap:8}},activityLogItems().slice(0,200).map((item)=>React.createElement("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"40px minmax(0,1fr)",gap:11,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("div",{style:{width:40,height:40,borderRadius:13,display:"grid",placeItems:"center",background:item.type==="match"?"color-mix(in srgb,var(--green) 12%,var(--surface-soft))":item.type==="market"?"color-mix(in srgb,#ffbb26 12%,var(--surface-soft))":"color-mix(in srgb,var(--danger) 10%,var(--surface-soft))",fontSize:17}},item.type==="match"?"⚽":item.type==="market"?"↔":"⚑"),React.createElement("div",{style:{minWidth:0}},React.createElement("div",{style:{fontSize:13.5,fontWeight:800,color:"var(--heading)",lineHeight:1.35}},item.title),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:3,lineHeight:1.4}},item.detail),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},new Date(item.at).toLocaleString("pt-BR",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})))))) : React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Nenhuma ação encontrada neste filtro.")) : React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Selecione uma competição."),
+              React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",lineHeight:1.5,marginTop:14}},"Para manter o banco leve, esta tela reaproveita partidas, transferências e revisões que o app já grava. Não cria uma segunda cópia de cada ação nem adiciona polling.")
             ),
             adminSection === "tools" && React.createElement("div", { style:{ ...E,marginTop:18 } },
               React.createElement("div", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:4 } },React.createElement("div", { style:{ fontSize:18,fontWeight:700 } },"Importar competição encerrada"),React.createElement("span", { style:{ fontSize:11,fontWeight:700,color:"#ffbb26",background:"var(--surface-soft)",borderRadius:999,padding:"5px 8px" } },"Histórico")),
