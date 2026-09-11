@@ -7122,27 +7122,26 @@ Hyago 0 x 0 Lucas`;
           function actorName(profileId,fallback="Usuário"){let profile=profileById(profileId);return profile&&profile.name?profile.name:fallback;}
           function activityLogItems(){
             let items=[], tournament=currentTournament, context=tournament&&tournament.context||{};
-            let isRegularUser=(profileId)=>{let profile=profileById(profileId);return !profile||profile.role!=="admin";};
             (Array.isArray(tournament&&tournament.matches)?tournament.matches:Array.isArray(context.matches)?context.matches:[]).forEach((match)=>{
               if(!match)return;let home=teamByIdLocal(match.homeId||match.homeTeamId),away=teamByIdLocal(match.awayId||match.awayTeamId),actorId=match.createdByProfileId||null;
-              if(actorId&&isRegularUser(actorId))items.push({id:`match:${match.id}`,type:"match",at:Number(match.createdAt||match.playedAt)||0,actorId,actor:actorName(actorId),title:`${actorName(actorId)} adicionou uma partida`,detail:`${home&&home.name||match.homeTeamNameSnapshot||"Time"} ${Number(match.homeScore)||0} × ${Number(match.awayScore)||0} ${away&&away.name||match.awayTeamNameSnapshot||"Time"}`});
-              if(match.status==="voided"&&match.voidedAt&&match.voidedByProfileId&&isRegularUser(match.voidedByProfileId))items.push({id:`void:${match.id}`,type:"match",at:Number(match.voidedAt)||0,actorId:match.voidedByProfileId,actor:actorName(match.voidedByProfileId),title:`${actorName(match.voidedByProfileId)} anulou uma partida`,detail:`${home&&home.name||"Time"} × ${away&&away.name||"Time"}`});
+              if(actorId)items.push({id:`match:${match.id}`,type:"match",at:Number(match.createdAt||match.playedAt)||0,actorId,actor:actorName(actorId),title:`${actorName(actorId)} adicionou uma partida`,detail:`${home&&home.name||match.homeTeamNameSnapshot||"Time"} ${Number(match.homeScore)||0} × ${Number(match.awayScore)||0} ${away&&away.name||match.awayTeamNameSnapshot||"Time"}`});
+              if(match.status==="voided"&&match.voidedAt&&match.voidedByProfileId)items.push({id:`void:${match.id}`,type:"match",at:Number(match.voidedAt)||0,actorId:match.voidedByProfileId,actor:actorName(match.voidedByProfileId),title:`${actorName(match.voidedByProfileId)} anulou uma partida`,detail:`${home&&home.name||"Time"} × ${away&&away.name||"Time"}`});
             });
             (Array.isArray(context.transfers)?context.transfers:[]).forEach((tr)=>{if(!tr)return;let from=teamByIdLocal(tr.fromTeamId),to=teamByIdLocal(tr.toTeamId),type=String(tr.type||tr.transferType||"");let actor=null,title="Movimentação no mercado";
               if(type==="market_sale"){actor=actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||from&&from.name||"Usuário"} vendeu ${tr.playerName||"um jogador"}`;}
               else if(type==="market_purchase"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} comprou ${tr.playerName||"um jogador"}`;}
               else if(type==="release_clause"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} pagou a multa de ${tr.playerName||"um jogador"}`;}
               else {actor=actorForTeam(tr.toTeamId)||actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||"Usuário"} concluiu uma transferência de ${tr.playerName||"jogador"}`;}
-              if(actor&&actor.role==="admin")return;let detail=type==="market_sale"?`Venda ao mercado · ${L(Number(tr.price)||0)}`:from&&to?`${from.name} → ${to.name} · ${L(Number(tr.price)||0)}`:`${L(Number(tr.price)||0)}`;items.push({id:`transfer:${tr.id}`,type:"market",at:Number(tr.createdAt)||0,actorId:actor&&actor.id||null,actor:actor&&actor.name||"Usuário",title,detail});
+              let detail=type==="market_sale"?`Venda ao mercado · ${L(Number(tr.price)||0)}`:from&&to?`${from.name} → ${to.name} · ${L(Number(tr.price)||0)}`:`${L(Number(tr.price)||0)}`;items.push({id:`transfer:${tr.id}`,type:"market",at:Number(tr.createdAt)||0,actorId:actor&&actor.id||null,actor:actor&&actor.name||"Usuário",title,detail});
             });
             (Array.isArray(activityFinancials)?activityFinancials:[]).forEach((tx)=>{
               if(!tx||String(tx.type||"")!=="match_reward")return;
               let team=teamByIdLocal(tx.teamId),actor=actorForTeam(tx.teamId);
-              if(!actor||actor.role==="admin")return;
+              if(!actor)return;
               let amount=Number(tx.amount)||0, paid=amount>=0;
               items.push({id:`reward:${tx.id}`,type:"reward",at:Number(tx.createdAt||tx.at)||0,actorId:actor.id,actor:actor.name,title:paid?`${actor.name} recebeu ${L(Math.abs(amount))}`:`${actor.name} teve ${L(Math.abs(amount))} descontados`,detail:`Recompensa da partida${tx.label||tx.description?` · ${tx.label||tx.description}`:""}`});
             });
-            Object.values(playerReviews&&typeof playerReviews==="object"?playerReviews:{}).forEach((review)=>{if(!review||!review.createdAt||!isRegularUser(review.createdByProfileId))return;items.push({id:`review:${review.id}`,type:"report",at:Number(review.createdAt)||0,actorId:review.createdByProfileId,actor:review.createdByNameSnapshot||actorName(review.createdByProfileId),title:`${review.createdByNameSnapshot||actorName(review.createdByProfileId)} reportou ${review.playerNameSnapshot||"um jogador"}`,detail:review.status==="approved"?"Revisão aprovada":review.status==="rejected"?"Revisão recusada":"Aguardando revisão"});});
+            Object.values(playerReviews&&typeof playerReviews==="object"?playerReviews:{}).forEach((review)=>{if(!review||!review.createdAt)return;items.push({id:`review:${review.id}`,type:"report",at:Number(review.createdAt)||0,actorId:review.createdByProfileId,actor:review.createdByNameSnapshot||actorName(review.createdByProfileId),title:`${review.createdByNameSnapshot||actorName(review.createdByProfileId)} reportou ${review.playerNameSnapshot||"um jogador"}`,detail:review.status==="approved"?"Revisão aprovada":review.status==="rejected"?"Revisão recusada":"Aguardando revisão"});});
             return items.filter((item)=>activityFilter==="all"||item.type===activityFilter).sort((a,b)=>b.at-a.at);
           }
           async function refreshActivityLog(){
