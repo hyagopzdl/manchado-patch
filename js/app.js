@@ -4541,14 +4541,14 @@
           let span = Math.max(1, Number(max) - Number(min));
           let left = ((Number(minValue) - Number(min)) / span) * 100;
           let right = 100 - ((Number(maxValue) - Number(min)) / span) * 100;
-          let shared = { position:"absolute", inset:0, width:"100%", height:30, margin:0, background:"transparent", pointerEvents:"none", WebkitAppearance:"none", appearance:"none" };
+          let shared = { position:"absolute", left:8, right:8, top:0, width:"calc(100% - 16px)", maxWidth:"calc(100% - 16px)", boxSizing:"border-box", height:30, margin:0, padding:0, background:"transparent", pointerEvents:"none", WebkitAppearance:"none", appearance:"none" };
           return React.createElement("div", null,
             React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", gap:10, fontSize:10.5, color:"var(--muted)", marginBottom:9 } },
               React.createElement("span", null, formatValue(minValue)), React.createElement("strong", { style:{ color:"var(--heading)" } }, `${formatValue(minValue)} – ${formatValue(maxValue)}`), React.createElement("span", null, formatValue(maxValue))
             ),
-            React.createElement("div", { style:{ position:"relative", height:30 } },
-              React.createElement("div", { style:{ position:"absolute", left:0, right:0, top:13, height:4, borderRadius:999, background:"var(--surface-soft)", boxShadow:"inset 0 0 0 1px var(--border)" } }),
-              React.createElement("div", { style:{ position:"absolute", left:`${left}%`, right:`${right}%`, top:13, height:4, borderRadius:999, background:"var(--green)" } }),
+            React.createElement("div", { style:{ position:"relative", height:30, width:"100%", minWidth:0, overflow:"hidden", boxSizing:"border-box" } },
+              React.createElement("div", { style:{ position:"absolute", left:8, right:8, top:13, height:4, borderRadius:999, background:"var(--surface-soft)", boxShadow:"inset 0 0 0 1px var(--border)" } }),
+              React.createElement("div", { style:{ position:"absolute", left:`calc(8px + (100% - 16px) * ${left/100})`, right:`calc(8px + (100% - 16px) * ${right/100})`, top:13, height:4, borderRadius:999, background:"var(--green)" } }),
               React.createElement("input", { className:"dual-range-input dual-range-min", type:"range", min, max, step, value:minValue, onChange:(event)=>onChangeMin(Number(event.target.value)), style:{...shared,zIndex:Number(minValue)>=Number(maxValue)-Number(step)?5:3} }),
               React.createElement("input", { className:"dual-range-input dual-range-max", type:"range", min, max, step, value:maxValue, onChange:(event)=>onChangeMax(Number(event.target.value)), style:{...shared,zIndex:4} })
             )
@@ -4586,6 +4586,7 @@
           let [marketSection, setMarketSection] = b("all"),
             [clubQuery, setClubQuery] = b(""),
             [positionFilter, setPositionFilter] = b("all"),
+            [exactPositionFilter, setExactPositionFilter] = b("all"),
             [characteristicFilters, setCharacteristicFilters] = b([]),
             [sortBy, setSortBy] = b("overall"),
             [visibleCount, setVisibleCount] = b(24),
@@ -4651,7 +4652,7 @@
             { key: "ZAG", positions: ["CB", "CWB"] },
             { key: "LAT", positions: ["SB", "WB"] },
             { key: "MEI", positions: ["DMF", "CMF", "AMF", "SMF"] },
-            { key: "ATK", positions: ["WF", "SS", "CF"] },
+            { key: "ATQ", positions: ["WF", "SS", "CF"] },
           ];
           const marketPositionMap = Object.fromEntries(MARKET_POSITION_FILTERS.map((filter) => [filter.key, new Set(filter.positions)]));
           const MARKET_CHARACTERISTICS = [
@@ -4779,6 +4780,7 @@
                 let allowedPositions = marketPositionMap[positionFilter];
                 let playerPosition = String(player.position || "").toUpperCase();
                 if (!allowedPositions || !allowedPositions.has(playerPosition)) return false;
+                if (exactPositionFilter !== "all" && playerPosition !== exactPositionFilter) return false;
               }
               if (Number(player.overall || 0) < Number(overallMin || 0) || Number(player.overall || 0) > Number(overallMax || 99)) return false;
               if (Number(player.value || 0) < Number(valueMin || 0) || Number(player.value || 0) > Number(valueMax || 999)) return false;
@@ -4794,7 +4796,7 @@
             if (sortBy === "value") result.sort((left, right) => right.value - left.value);
             if (sortBy === "club") result.sort((left, right) => String(left.club || "").localeCompare(String(right.club || "")));
             return result;
-          }, [e, positionFilter, characteristicFilters, overallMin, overallMax, valueMin, valueMax, deferredClubQuery, sortBy, marketSearchIndex, activeTeam, t, characteristicScoreMap]);
+          }, [e, positionFilter, exactPositionFilter, characteristicFilters, overallMin, overallMax, valueMin, valueMax, deferredClubQuery, sortBy, marketSearchIndex, activeTeam, t, characteristicScoreMap]);
 
           let activeFilterCount =
             (positionFilter !== "all" ? 1 : 0) +
@@ -4819,11 +4821,12 @@
             }, { rootMargin:"500px 0px" });
             observer.observe(node);
             return () => observer.disconnect();
-          }, [visibleCount, filteredPlayers.length, marketSection, clubQuery, positionFilter, characteristicFilters, overallMin, overallMax, valueMin, valueMax]);
+          }, [visibleCount, filteredPlayers.length, marketSection, clubQuery, positionFilter, exactPositionFilter, characteristicFilters, overallMin, overallMax, valueMin, valueMax]);
 
           function resetFilters() {
             setClubQuery("");
             setPositionFilter("all");
+            setExactPositionFilter("all");
             setCharacteristicFilters([]);
             setSortBy("overall");
             setOverallMin(70);
@@ -5045,12 +5048,19 @@
                       { style: { ...E, padding: 16, marginBottom: 14 } },
                       React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 13 } }, React.createElement("div", { style: { fontSize: 14, fontWeight: 800 } }, "Refinar mercado"), React.createElement("button", { className: "tapbtn", onClick: resetFilters, style: { border: 0, background: "none", color: "var(--green)", fontSize: 11.5, fontWeight: 750, cursor: "pointer" } }, "Limpar")),
                       React.createElement("div", { style: { fontSize: 10.5, color: "var(--muted)", marginBottom: 7 } }, "Posição"),
-                      React.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: 12 } }, React.createElement("span", { onClick: () => { setPositionFilter("all"); setVisibleCount(24); }, style: V(positionFilter === "all") }, "Todas"), MARKET_POSITION_FILTERS.map((filter) => React.createElement("span", { key: filter.key, title: filter.positions.join(", "), onClick: () => { setPositionFilter(filter.key); setVisibleCount(24); }, style: V(positionFilter === filter.key) }, filter.key))),
+                      React.createElement("div", { style: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginBottom: positionFilter!=="all" && ((MARKET_POSITION_FILTERS.find((item)=>item.key===positionFilter)||{}).positions||[]).length>1 ? 7 : 12 } }, React.createElement("span", { onClick: () => { setPositionFilter("all"); setExactPositionFilter("all"); setVisibleCount(24); }, style: V(positionFilter === "all") }, "Todas"), MARKET_POSITION_FILTERS.map((filter) => React.createElement("span", { key: filter.key, title: filter.positions.join(", "), onClick: () => { setPositionFilter(filter.key); setExactPositionFilter("all"); setVisibleCount(24); }, style: V(positionFilter === filter.key) }, filter.key))),
+                      positionFilter!=="all" && ((MARKET_POSITION_FILTERS.find((item)=>item.key===positionFilter)||{}).positions||[]).length>1 && React.createElement(React.Fragment,null,
+                        React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginBottom:7 } }, "Posição específica"),
+                        React.createElement("div", { style:{ display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:12 } },
+                          React.createElement("span", { onClick:()=>{setExactPositionFilter("all");setVisibleCount(24);}, style:V(exactPositionFilter==="all") }, "Todas"),
+                          ((MARKET_POSITION_FILTERS.find((item)=>item.key===positionFilter)||{}).positions||[]).map((position)=>React.createElement("span",{key:position,onClick:()=>{setExactPositionFilter(position);setVisibleCount(24);},style:V(exactPositionFilter===position)},position))
+                        )
+                      ),
                       React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginBottom:7 } }, "Características"),
                       React.createElement("div", { style:{ display:"flex",gap:6,overflowX:"auto",paddingBottom:8 } }, MARKET_CHARACTERISTICS.map((filter)=>React.createElement("span", { key:filter.key,title:filter.description,onClick:()=>toggleCharacteristicFilter(filter.key),style:V(characteristicFilters.includes(filter.key)) }, filter.label))),
                       React.createElement(
                         "div",
-                        { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 } },
+                        { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(170px, 100%), 1fr))", gap: 12 } },
                         React.createElement("div", null,
                           React.createElement("div", { style:{ fontSize:10.5,color:"var(--muted)",marginBottom:7 } }, "Overall"),
                           React.createElement(DualRange, { min:70,max:99,step:1,minValue:overallMin,maxValue:overallMax,formatValue:(value)=>String(value),onChangeMin:(value)=>{setOverallMin(Math.min(value,overallMax));setVisibleCount(24);},onChangeMax:(value)=>{setOverallMax(Math.max(value,overallMin));setVisibleCount(24);} })
@@ -5087,7 +5097,7 @@
                     filteredPlayers.length === 0 && React.createElement("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Nenhum jogador corresponde aos filtros selecionados."),
                     filteredPlayers.length > visibleCount && React.createElement("div", { ref:loadMoreSentinel, style:{ minHeight:72, display:"grid", placeItems:"center", color:"var(--muted)", fontSize:12, gap:8 } }, React.createElement("span", { className:"animate-spin", style:{ width:20,height:20,borderRadius:999,border:"2px solid var(--border)",borderTopColor:"var(--green)",display:"block" } }), React.createElement("span", null, "Carregando mais jogadores...")),
                   ),
-            showScrollTop && React.createElement("button", { className:"tapbtn", onClick:()=>window.scrollTo({top:0,behavior:"smooth"}), title:"Voltar ao topo", "aria-label":"Voltar ao topo", style:{ position:"fixed",right:"max(16px,env(safe-area-inset-right))",bottom:"calc(78px + env(safe-area-inset-bottom))",zIndex:80,width:46,height:46,borderRadius:999,border:"1px solid var(--border)",background:"var(--ink)",color:"var(--surface)",display:"grid",placeItems:"center",boxShadow:"0 10px 28px rgba(0,0,0,.28)",cursor:"pointer" } }, React.createElement(ArrowUpIcon,{size:20})),
+            showScrollTop && ReactDOM.createPortal(React.createElement("button", { className:"tapbtn", onClick:()=>window.scrollTo({top:0,behavior:"smooth"}), title:"Voltar ao topo", "aria-label":"Voltar ao topo", style:{ position:"fixed",right:"max(16px,env(safe-area-inset-right))",bottom:"calc(82px + env(safe-area-inset-bottom))",zIndex:1400,width:46,height:46,borderRadius:999,border:"1px solid color-mix(in srgb,var(--muted) 24%,var(--border))",background:"color-mix(in srgb,var(--muted) 18%,var(--surface))",color:"var(--green)",display:"grid",placeItems:"center",boxShadow:"0 8px 24px rgba(0,0,0,.18)",backdropFilter:"blur(10px)",cursor:"pointer" } }, React.createElement(ArrowUpIcon,{size:20})),document.body),
           );
         }
         function attributeValueColor(value, max = 99) {
@@ -7113,6 +7123,13 @@ Hyago 0 x 0 Lucas`;
               else {actor=actorForTeam(tr.toTeamId)||actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||"Usuário"} concluiu uma transferência de ${tr.playerName||"jogador"}`;}
               if(actor&&actor.role==="admin")return;let detail=type==="market_sale"?`Venda ao mercado · ${L(Number(tr.price)||0)}`:from&&to?`${from.name} → ${to.name} · ${L(Number(tr.price)||0)}`:`${L(Number(tr.price)||0)}`;items.push({id:`transfer:${tr.id}`,type:"market",at:Number(tr.createdAt)||0,actorId:actor&&actor.id||null,actor:actor&&actor.name||"Usuário",title,detail});
             });
+            (Array.isArray(context.financialTransactions)?context.financialTransactions:[]).forEach((tx)=>{
+              if(!tx||String(tx.type||"")!=="match_reward")return;
+              let team=teamByIdLocal(tx.teamId),actor=actorForTeam(tx.teamId);
+              if(!actor||actor.role==="admin")return;
+              let amount=Number(tx.amount)||0, paid=amount>=0;
+              items.push({id:`reward:${tx.id}`,type:"reward",at:Number(tx.createdAt||tx.at)||0,actorId:actor.id,actor:actor.name,title:paid?`${actor.name} recebeu ${L(Math.abs(amount))}`:`${actor.name} teve ${L(Math.abs(amount))} descontados`,detail:`Recompensa da partida${tx.label||tx.description?` · ${tx.label||tx.description}`:""}`});
+            });
             Object.values(playerReviews&&typeof playerReviews==="object"?playerReviews:{}).forEach((review)=>{if(!review||!review.createdAt||!isRegularUser(review.createdByProfileId))return;items.push({id:`review:${review.id}`,type:"report",at:Number(review.createdAt)||0,actorId:review.createdByProfileId,actor:review.createdByNameSnapshot||actorName(review.createdByProfileId),title:`${review.createdByNameSnapshot||actorName(review.createdByProfileId)} reportou ${review.playerNameSnapshot||"um jogador"}`,detail:review.status==="approved"?"Revisão aprovada":review.status==="rejected"?"Revisão recusada":"Aguardando revisão"});});
             return items.filter((item)=>activityFilter==="all"||item.type===activityFilter).sort((a,b)=>b.at-a.at);
           }
@@ -7559,9 +7576,9 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             ),
             adminSection === "logs" && React.createElement("div", { style:{ ...E,padding:18 } },
               React.createElement("div", { style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:14} },React.createElement("div",null,React.createElement("div",{style:{fontSize:18,fontWeight:850}},"Atividade dos usuários"),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginTop:4}},currentTournament?`Eventos relevantes de ${currentTournament.name}. Os dados são montados a partir dos registros já persistidos pelo app.`:"Selecione uma competição para visualizar os eventos.")),React.createElement("button",{onClick:refreshActivityLog,disabled:activityRefreshing,style:{...M,width:"auto",margin:0,padding:"9px 12px",fontSize:12}},activityRefreshing?"Atualizando...":"Atualizar")),
-              React.createElement("div",{style:{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:14}},[["all","Todos"],["match","Partidas"],["market","Mercado"],["report","Reports"]].map(([key,label])=>React.createElement("button",{key,onClick:()=>setActivityFilter(key),style:{border:"1px solid var(--border)",background:activityFilter===key?"var(--ink)":"var(--surface-soft)",color:activityFilter===key?"var(--surface)":"var(--heading)",borderRadius:999,padding:"8px 11px",fontSize:11.5,fontWeight:750,whiteSpace:"nowrap",cursor:"pointer"}},label))),
-              currentTournament ? (activityLogItems().length ? React.createElement("div",{style:{display:"grid",gap:8}},activityLogItems().slice(0,200).map((item)=>React.createElement("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"40px minmax(0,1fr)",gap:11,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("div",{style:{width:40,height:40,borderRadius:13,display:"grid",placeItems:"center",background:item.type==="match"?"color-mix(in srgb,var(--green) 12%,var(--surface-soft))":item.type==="market"?"color-mix(in srgb,#ffbb26 12%,var(--surface-soft))":"color-mix(in srgb,var(--danger) 10%,var(--surface-soft))",fontSize:17}},item.type==="match"?"⚽":item.type==="market"?"↔":"⚑"),React.createElement("div",{style:{minWidth:0}},React.createElement("div",{style:{fontSize:13.5,fontWeight:800,color:"var(--heading)",lineHeight:1.35}},item.title),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:3,lineHeight:1.4}},item.detail),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},new Date(item.at).toLocaleString("pt-BR",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})))))) : React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Nenhuma ação encontrada neste filtro.")) : React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Selecione uma competição."),
-              React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",lineHeight:1.5,marginTop:14}},"Para manter o banco leve, esta tela reaproveita partidas, transferências e revisões que o app já grava. Não cria uma segunda cópia de cada ação nem adiciona polling.")
+              React.createElement("div",{style:{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:14}},[["all","Todos"],["match","Partidas"],["market","Mercado"],["reward","Recompensas"],["report","Reports"]].map(([key,label])=>React.createElement("button",{key,onClick:()=>setActivityFilter(key),style:{border:"1px solid var(--border)",background:activityFilter===key?"var(--ink)":"var(--surface-soft)",color:activityFilter===key?"var(--surface)":"var(--heading)",borderRadius:999,padding:"8px 11px",fontSize:11.5,fontWeight:750,whiteSpace:"nowrap",cursor:"pointer"}},label))),
+              currentTournament ? (activityLogItems().length ? React.createElement("div",{style:{display:"grid",gap:8}},activityLogItems().slice(0,200).map((item)=>React.createElement("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"40px minmax(0,1fr)",gap:11,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("div",{style:{width:40,height:40,borderRadius:13,display:"grid",placeItems:"center",background:item.type==="match"?"color-mix(in srgb,var(--green) 12%,var(--surface-soft))":item.type==="market"?"color-mix(in srgb,#ffbb26 12%,var(--surface-soft))":item.type==="reward"?"color-mix(in srgb,var(--green) 10%,var(--surface-soft))":"color-mix(in srgb,var(--danger) 10%,var(--surface-soft))",fontSize:17}},item.type==="match"?"⚽":item.type==="market"?"↔":item.type==="reward"?"$":"⚑"),React.createElement("div",{style:{minWidth:0}},React.createElement("div",{style:{fontSize:13.5,fontWeight:800,color:"var(--heading)",lineHeight:1.35}},item.title),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:3,lineHeight:1.4}},item.detail),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},new Date(item.at).toLocaleString("pt-BR",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})))))) : React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Nenhuma ação encontrada neste filtro.")) : React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Selecione uma competição."),
+              React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",lineHeight:1.5,marginTop:14}},"Para manter o banco leve, esta tela reaproveita partidas, transferências, recompensas financeiras e revisões que o app já grava. Não cria uma segunda cópia de cada ação nem adiciona polling.")
             ),
             adminSection === "tools" && React.createElement("div", { style:{ ...E,marginTop:18 } },
               React.createElement("div", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:4 } },React.createElement("div", { style:{ fontSize:18,fontWeight:700 } },"Importar competição encerrada"),React.createElement("span", { style:{ fontSize:11,fontWeight:700,color:"#ffbb26",background:"var(--surface-soft)",borderRadius:999,padding:"5px 8px" } },"Histórico")),
