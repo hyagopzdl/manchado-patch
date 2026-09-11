@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, startTournamentRealtimeSync, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -396,6 +396,10 @@
           }, [tournamentsLoaded, m, selectedTournamentId]);
           // Legacy migrations must never rewrite the full championship during page load.
           // Any remaining favorite migration will be handled by a dedicated, explicit action.
+          He(() => {
+            if (!R || !R.id || typeof startTournamentRealtimeSync !== "function") return;
+            return startTournamentRealtimeSync(R.id, { isBusy: () => !!marketActionRef.current });
+          }, [R && R.id]);
           He(() => {
             if (!R || !R.id || !te || !te.id) {
               setProfileChampionshipPreferences({});

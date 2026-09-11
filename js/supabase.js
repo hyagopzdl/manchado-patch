@@ -489,6 +489,7 @@
       invalidateCache();
       loaded=true;
       emitAll();
+      for(const tournamentId of tournamentIdsFromDelta(tournamentDelta)) broadcastTournamentInvalidation(tournamentId,eventType||"state_change");
     };
     writeQueue=writeQueue.then(operation,operation);
     return writeQueue;
@@ -748,6 +749,7 @@
     });
     if(error)throw error;
     await refreshNormalizedStateAfterRpc();
+    await broadcastTournamentInvalidation(tournamentId,"balanced_roster_reroll");
     return data||{ok:true};
   }
   async function acceptBalancedRoster({tournamentId,profileId}){
@@ -756,6 +758,7 @@
     const {data,error}=await client.rpc("accept_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId)});
     if(error)throw error;
     await refreshNormalizedStateAfterRpc();
+    await broadcastTournamentInvalidation(tournamentId,"balanced_roster_accept");
     return data||{ok:true};
   }
   async function startBalancedRosterTournament({tournamentId,profileId}){
@@ -764,18 +767,19 @@
     const {data,error}=await client.rpc("start_balanced_roster_tournament",{p_tournament_id:String(tournamentId),p_actor_profile_id:profileId?String(profileId):actorProfileId()});
     if(error)throw error;
     await refreshNormalizedStateAfterRpc();
+    await broadcastTournamentInvalidation(tournamentId,"balanced_roster_start");
     return data||{ok:true};
   }
 
   async function prepareLateJoinBalancedRoster({tournamentId,profileId,teamId,teamName,teamColor,budget,playerIds,targetOverall,metrics,benchmark,actorProfileId}){
-    await load();if(!client)throw new Error("Supabase não configurado");const {data,error}=await client.rpc("prepare_late_join_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId),p_team_id:String(teamId),p_team_name:String(teamName||"Novo time"),p_team_color:String(teamColor||"#888888"),p_budget:Math.max(0,Math.round(Number(budget)||0)),p_player_ids:(playerIds||[]).map(String),p_target_overall:Math.round(Number(targetOverall)||80),p_metrics:metrics&&typeof metrics==="object"?metrics:{},p_benchmark:benchmark&&typeof benchmark==="object"?benchmark:{},p_actor_profile_id:actorProfileId?String(actorProfileId):actorProfileId()});if(error)throw error;await refreshNormalizedStateAfterRpc();return data||{ok:true};
+    await load();if(!client)throw new Error("Supabase não configurado");const {data,error}=await client.rpc("prepare_late_join_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId),p_team_id:String(teamId),p_team_name:String(teamName||"Novo time"),p_team_color:String(teamColor||"#888888"),p_budget:Math.max(0,Math.round(Number(budget)||0)),p_player_ids:(playerIds||[]).map(String),p_target_overall:Math.round(Number(targetOverall)||80),p_metrics:metrics&&typeof metrics==="object"?metrics:{},p_benchmark:benchmark&&typeof benchmark==="object"?benchmark:{},p_actor_profile_id:actorProfileId?String(actorProfileId):actorProfileId()});if(error)throw error;await refreshNormalizedStateAfterRpc();await broadcastTournamentInvalidation(tournamentId,"late_join_prepare");return data||{ok:true};
   }
-  async function rerollLateJoinBalancedRoster({tournamentId,profileId,playerIds,expectedRoll,metrics}){await load();if(!client)throw new Error("Supabase não configurado");const {data,error}=await client.rpc("reroll_late_join_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId),p_player_ids:(playerIds||[]).map(String),p_expected_roll:Number(expectedRoll)||1,p_metrics:metrics&&typeof metrics==="object"?metrics:{}});if(error)throw error;await refreshNormalizedStateAfterRpc();return data||{ok:true};}
-  async function acceptLateJoinBalancedRoster({tournamentId,profileId}){await load();if(!client)throw new Error("Supabase não configurado");const {data,error}=await client.rpc("accept_late_join_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId)});if(error)throw error;await refreshNormalizedStateAfterRpc();return data||{ok:true};}
+  async function rerollLateJoinBalancedRoster({tournamentId,profileId,playerIds,expectedRoll,metrics}){await load();if(!client)throw new Error("Supabase não configurado");const {data,error}=await client.rpc("reroll_late_join_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId),p_player_ids:(playerIds||[]).map(String),p_expected_roll:Number(expectedRoll)||1,p_metrics:metrics&&typeof metrics==="object"?metrics:{}});if(error)throw error;await refreshNormalizedStateAfterRpc();await broadcastTournamentInvalidation(tournamentId,"late_join_reroll");return data||{ok:true};}
+  async function acceptLateJoinBalancedRoster({tournamentId,profileId}){await load();if(!client)throw new Error("Supabase não configurado");const {data,error}=await client.rpc("accept_late_join_balanced_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId)});if(error)throw error;await refreshNormalizedStateAfterRpc();await broadcastTournamentInvalidation(tournamentId,"late_join_accept");return data||{ok:true};}
   async function importLateJoinTxtRoster({tournamentId,profileId,teamId,teamName,teamColor,budget,playerIds,squadRoles,metrics,benchmark,actorProfileId}){
     await load();if(!client)throw new Error("Supabase não configurado");
     const {data,error}=await client.rpc("import_late_join_txt_roster",{p_tournament_id:String(tournamentId),p_profile_id:String(profileId),p_team_id:String(teamId),p_team_name:String(teamName||"Novo time"),p_team_color:String(teamColor||"#888888"),p_budget:Math.max(0,Math.round(Number(budget)||0)),p_player_ids:(playerIds||[]).map(String),p_squad_roles:squadRoles&&typeof squadRoles==="object"?squadRoles:{},p_metrics:metrics&&typeof metrics==="object"?metrics:{},p_benchmark:benchmark&&typeof benchmark==="object"?benchmark:{},p_actor_profile_id:actorProfileId?String(actorProfileId):null});
-    if(error)throw error;await refreshNormalizedStateAfterRpc();return data||{ok:true};
+    if(error)throw error;await refreshNormalizedStateAfterRpc();await broadcastTournamentInvalidation(tournamentId,"late_join_txt");return data||{ok:true};
   }
 
   async function payReleaseClause({tournamentId,playerId,playerName,buyerTeamId,sellerTeamId,marketValue,clauseAmount,actorProfileId:actorId}){
@@ -783,14 +787,14 @@
     const {data,error}=await client.rpc("pay_player_release_clause",{
       p_tournament_id:String(tournamentId),p_player_id:String(playerId),p_player_name:String(playerName||"Jogador"),p_buyer_team_id:String(buyerTeamId),p_expected_seller_team_id:String(sellerTeamId),p_expected_market_value:Number(marketValue)||0,p_expected_clause_amount:Number(clauseAmount)||0,p_actor_profile_id:actorId?String(actorId):actorProfileId()
     });
-    if(error) throw error; invalidateCache(); await refreshNormalizedStateAfterRpc(); return data||{ok:true};
+    if(error) throw error; invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"release_clause_paid"); return data||{ok:true};
   }
   async function increaseReleaseClauseShielding({tournamentId,playerId,teamId,marketValue,spendAmount,expectedCurrentShield,actorProfileId:actorId}){
     await load(); if(!client) throw new Error("Supabase não configurado");
     const {data,error}=await client.rpc("increase_release_clause_shielding",{
       p_tournament_id:String(tournamentId),p_player_id:String(playerId),p_team_id:String(teamId),p_expected_market_value:Number(marketValue)||0,p_spend_amount:Number(spendAmount)||0,p_expected_current_shield:Number(expectedCurrentShield)||0,p_actor_profile_id:actorId?String(actorId):actorProfileId()
     });
-    if(error) throw error; invalidateCache(); await refreshNormalizedStateAfterRpc(); return data||{ok:true};
+    if(error) throw error; invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"release_clause_shielded"); return data||{ok:true};
   }
 
   async function loadPlayerOverrideHistory(limit=200){
@@ -857,6 +861,114 @@
     });
   }
 
+
+  // v28: lightweight realtime invalidation for the active tournament.
+  const realtimeChannels = new Map();
+  const syncAudit = [];
+  function recordSyncAudit(type, detail = {}) {
+    const entry = { type, at: Date.now(), ...detail };
+    syncAudit.unshift(entry);
+    if (syncAudit.length > 100) syncAudit.length = 100;
+    window.__MANCHA_SYNC_AUDIT__ = syncAudit;
+    if (type === "SYNC_FAILED" || type === "REALTIME_DISCONNECTED") console.warn(`[Sync] ${type}`, detail);
+    else console.info(`[Sync] ${type}`, detail);
+  }
+  function tournamentIdsFromDelta(delta){
+    const ids=new Set();
+    if(!delta||typeof delta!=="object")return ids;
+    Object.values(delta).forEach(section=>{
+      if(!section||typeof section!=="object")return;
+      Object.values(section).forEach(list=>{
+        if(!Array.isArray(list))return;
+        list.forEach(item=>{
+          if(typeof item==="string") ids.add(String(item));
+          else if(item&&item.tournamentId) ids.add(String(item.tournamentId));
+          else if(item&&item.id&&section===delta.tournaments) ids.add(String(item.id));
+        });
+      });
+    });
+    return ids;
+  }
+  async function broadcastTournamentInvalidation(tournamentId,eventType="state_change"){
+    if(!client||!tournamentId)return;
+    const id=String(tournamentId);
+    const name=`tournament:${id}`;
+    let channel=realtimeChannels.get(`receiver:${name}`), temporary=false;
+    if(!channel){
+      temporary=true;
+      channel=client.channel(name,{config:{broadcast:{self:false,ack:false}}});
+      await new Promise(resolve=>{let done=false;channel.subscribe(status=>{if(done)return;if(status==="SUBSCRIBED"||status==="CHANNEL_ERROR"||status==="TIMED_OUT"){done=true;resolve();}});setTimeout(()=>{if(!done){done=true;resolve();}},1200);});
+    }
+    try{
+      await channel.send({type:"broadcast",event:"invalidate",payload:{tournamentId:id,eventType:String(eventType||"state_change"),at:Date.now()}});
+    }catch(error){
+      console.warn("[Realtime] Falha ao emitir invalidação",error);
+    }finally{
+      if(temporary){try{client.removeChannel(channel);}catch(_){try{channel.unsubscribe();}catch(__){}}}
+    }
+  }
+  async function refreshTournamentSlice(tournamentId){
+    await load();
+    if(!client||!tournamentId)return null;
+    const id=String(tournamentId), started=performance.now();
+    const currentList=asArray(getAt(state,"pes/tournaments")), current=currentList.find(t=>t&&String(t.id)===id);
+    const [tournamentRows,participants,teams,matches,ownership,stats,offers,transfers]=await Promise.all([
+      select("tournaments","id,name,format,type,status,champion,cup_stage,groups_data,cup_snapshot,final_standings,economy_settings,final_prize_settings,market_balance_settings,market_settings,created_at,finished_at,reset_at,reset_by_profile_id,source_order,raw_data",q=>q.eq("id",id).limit(1),null,0),
+      selectAll("tournament_participants","tournament_id,profile_id,position",q=>q.eq("tournament_id",id).order("position").order("profile_id"),null,0),
+      selectAll("teams","id,tournament_id,profile_id,name,color,budget,active,historical,lineup,source_order,raw_data",q=>q.eq("tournament_id",id).order("source_order").order("id"),null,0),
+      selectAll("matches","id,tournament_id,home_team_id,away_team_id,home_profile_id,away_profile_id,stage,round,leg,status,played,home_score,away_score,played_at,created_at,source_order,raw_data",q=>q.eq("tournament_id",id).order("source_order").order("id"),null,0),
+      selectAll("player_ownership","tournament_id,player_id,team_id,initial_team_id,squad_role,acquisition_source,acquired_at,for_sale,raw_data",q=>q.eq("tournament_id",id).order("player_id"),null,0),
+      selectAll("player_stats","tournament_id,player_id,team_id,player_name_snapshot,goals,red_cards,updated_at,raw_data",q=>q.eq("tournament_id",id).order("player_id"),null,0),
+      selectAll("trade_offers","id,tournament_id,player_id,player_name,buyer_team_id,seller_team_id,buyer_profile_id,seller_profile_id,current_amount,market_value_at_creation,last_actor_team_id,status,expires_at,created_at,updated_at,raw_data",q=>q.eq("tournament_id",id).order("created_at").order("id"),null,0),
+      selectAll("transfers","id,tournament_id,player_id,player_name,transfer_type,from_team_id,to_team_id,offer_id,price,market_value,depreciation_pct,transfer_date,created_at,raw_data",q=>q.eq("tournament_id",id).order("created_at").order("id"),null,0)
+    ]);
+    const row=tournamentRows&&tournamentRows[0];
+    if(!row){
+      setAt(state,"pes/tournaments",currentList.filter(t=>t&&String(t.id)!==id));
+      emitAll();
+      return null;
+    }
+    const tournamentRaw=asObject(row.raw_data), oldContext=asObject(current&&current.context), tournamentRawContext=asObject(tournamentRaw.context);
+    const mappedTeams=teams.map(x=>({...asObject(x.raw_data),id:x.id,profileId:x.profile_id,name:x.name,color:x.color,budget:Number(x.budget||0),active:x.active,historical:x.historical,lineup:x.lineup,sourceOrder:x.source_order}));
+    const mappedMatches=matches.map(x=>{const raw=asObject(x.raw_data);return{...raw,id:x.id,homeId:x.home_team_id,awayId:x.away_team_id,homeTeamId:x.home_team_id,awayTeamId:x.away_team_id,homeProfileId:x.home_profile_id,awayProfileId:x.away_profile_id,stage:x.stage,round:x.round,leg:x.leg,status:x.status,played:x.played,homeScore:x.home_score,awayScore:x.away_score,playedAt:ms(x.played_at),createdAt:ms(x.created_at),sourceOrder:x.source_order};});
+    const mappedOwnership={};ownership.forEach(x=>{mappedOwnership[x.player_id]={...asObject(x.raw_data),playerId:x.player_id,teamId:x.team_id,initialTeamId:x.initial_team_id,squadRole:x.squad_role,acquisitionSource:x.acquisition_source,acquiredAt:ms(x.acquired_at),forSale:x.for_sale};});
+    const mappedStats={};stats.forEach(x=>{mappedStats[x.player_id]={...asObject(x.raw_data),playerId:x.player_id,teamId:x.team_id,playerNameSnapshot:x.player_name_snapshot,goals:x.goals,redCards:x.red_cards,updatedAt:ms(x.updated_at)};});
+    const oldOffers=asObject(oldContext.tradeOffers), mappedOffers={};offers.forEach(x=>{mappedOffers[x.id]={...asObject(x.raw_data),id:x.id,playerId:x.player_id,playerName:x.player_name,buyerTeamId:x.buyer_team_id,sellerTeamId:x.seller_team_id,buyerProfileId:x.buyer_profile_id,sellerProfileId:x.seller_profile_id,currentAmount:Number(x.current_amount||0),marketValueAtCreation:x.market_value_at_creation==null?null:Number(x.market_value_at_creation),lastActorTeamId:x.last_actor_team_id,status:x.status,expiresAt:ms(x.expires_at),createdAt:ms(x.created_at),updatedAt:ms(x.updated_at),history:asArray(oldOffers[x.id]&&oldOffers[x.id].history)};});
+    const mappedTransfers=transfers.map(x=>({...asObject(x.raw_data),id:x.id,playerId:x.player_id,playerName:x.player_name,type:x.transfer_type,fromTeamId:x.from_team_id,toTeamId:x.to_team_id,offerId:x.offer_id,price:Number(x.price||0),marketValue:x.market_value==null?null:Number(x.market_value),depreciationPct:x.depreciation_pct==null?null:Number(x.depreciation_pct),date:x.transfer_date,createdAt:ms(x.created_at)}));
+    const next={...tournamentRaw,id:row.id,name:row.name,format:row.format,type:row.type,status:row.status,champion:row.champion,cupStage:row.cup_stage,groups:row.groups_data,cupSnapshot:row.cup_snapshot,finalStandings:row.final_standings,economySettings:row.economy_settings,finalPrizeSettings:row.final_prize_settings,marketBalanceSettings:row.market_balance_settings,marketSettings:row.market_settings,createdAt:ms(row.created_at),finishedAt:ms(row.finished_at),resetAt:ms(row.reset_at),resetByProfileId:row.reset_by_profile_id,sourceOrder:row.source_order,participants:participants.sort((a,b)=>(a.position||0)-(b.position||0)).map(x=>x.profile_id),teamIds:mappedTeams.map(x=>x.id),matches:mappedMatches,context:{...tournamentRawContext,teams:mappedTeams,matches:mappedMatches,ownership:mappedOwnership,playerStats:mappedStats,tradeOffers:mappedOffers,transfers:mappedTransfers,financialTransactions:asArray(oldContext.financialTransactions),adminImports:asArray(oldContext.adminImports),__financialLoaded:oldContext.__financialLoaded===true,__importsLoaded:oldContext.__importsLoaded===true}};
+    setAt(state,"pes/tournaments",currentList.map(t=>t&&String(t.id)===id?next:t));
+    state=syncLegacyMirrors(state);
+    emitAll();
+    recordSyncAudit("SYNC_COMPLETED",{tournamentId:id,durationMs:Math.round(performance.now()-started)});
+    return clone(next);
+  }
+  function startTournamentRealtimeSync(tournamentId,{isBusy}={}){
+    if(!client||!tournamentId)return()=>{};
+    const id=String(tournamentId), key=`receiver:tournament:${id}`;
+    let stopped=false,timer=null,inFlight=false,pending=false,lastSyncAt=0;
+    const run=async(reason)=>{
+      if(stopped)return;
+      if(typeof isBusy==="function"&&isBusy()){pending=true;recordSyncAudit("SYNC_SKIPPED",{tournamentId:id,reason:"busy"});return;}
+      if(inFlight){pending=true;recordSyncAudit("SYNC_SKIPPED",{tournamentId:id,reason:"in_flight"});return;}
+      inFlight=true;pending=false;recordSyncAudit("SYNC_STARTED",{tournamentId:id,reason});
+      try{await refreshTournamentSlice(id);lastSyncAt=Date.now();window.__MANCHA_REALTIME_STATUS__={connected:true,tournamentId:id,lastSyncAt};}
+      catch(error){recordSyncAudit("SYNC_FAILED",{tournamentId:id,reason,message:error&&error.message?error.message:String(error)});}
+      finally{inFlight=false;if(pending&&!stopped)schedule("pending",450);}
+    };
+    const schedule=(reason="realtime",delay=450)=>{if(stopped)return;clearTimeout(timer);timer=setTimeout(()=>run(reason),delay);};
+    const channel=client.channel(`tournament:${id}`,{config:{broadcast:{self:false,ack:false}}});
+    realtimeChannels.set(key,channel);
+    channel.on("broadcast",{event:"invalidate"},payload=>{recordSyncAudit("REALTIME_EVENT_RECEIVED",{tournamentId:id,eventType:payload&&payload.payload&&payload.payload.eventType||"state_change"});schedule("realtime",450);});
+    channel.subscribe(status=>{
+      if(status==="SUBSCRIBED"){window.__MANCHA_REALTIME_STATUS__={connected:true,tournamentId:id,lastSyncAt};recordSyncAudit("REALTIME_CONNECTED",{tournamentId:id});}
+      else if(status==="CLOSED"||status==="CHANNEL_ERROR"||status==="TIMED_OUT"){window.__MANCHA_REALTIME_STATUS__={connected:false,tournamentId:id,lastSyncAt,status};recordSyncAudit("REALTIME_DISCONNECTED",{tournamentId:id,status});}
+    });
+    const onFocus=()=>{if(Date.now()-lastSyncAt>15000)schedule("focus",100);};
+    const onVisibility=()=>{if(document.visibilityState==="visible"&&Date.now()-lastSyncAt>15000)schedule("visibility",100);};
+    window.addEventListener("focus",onFocus);document.addEventListener("visibilitychange",onVisibility);
+    return()=>{stopped=true;clearTimeout(timer);window.removeEventListener("focus",onFocus);document.removeEventListener("visibilitychange",onVisibility);realtimeChannels.delete(key);try{client.removeChannel(channel);}catch(_){try{channel.unsubscribe();}catch(__){}}};
+  }
+
   function Ee(){return client?{ref,fetchPage,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial}:null;}
   function U(path,value){const db=Ee();return db?db.ref(`pes/${path}`).set(value===undefined?null:value):Promise.resolve();}
   function Q(path,callback){const db=Ee();if(!db){callback(null);return()=>{};}const reference=db.ref(`pes/${path}`),handler=snapshot=>callback(snapshot.val());reference.on("value",handler);return()=>reference.off("value",handler);}
@@ -865,5 +977,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();
