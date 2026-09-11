@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, startTournamentRealtimeSync, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, loadFinancialTransactions, loadPlayerReviews, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -11,10 +11,6 @@
         const EraserIcon = SvgIcon(["m4 15 8-8a2.5 2.5 0 0 1 3.5 0l2.5 2.5a2.5 2.5 0 0 1 0 3.5L11 20H7l-3-3a1.4 1.4 0 0 1 0-2Z", "m9 10 6 6", "M11 20h9"]);
         const ComparePlayersIcon = SvgIcon(["M8.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M3.5 19a5 5 0 0 1 10 0", "M17 10a2.5 2.5 0 1 0 0-5", "M15 14.5a4.5 4.5 0 0 1 5.5 4.4"]);
         const HigherValueIcon = SvgIcon(["m8.5 13.5 3.5-3.5 3.5 3.5"]);
-        const MarketSearchIcon = SvgIcon(["M11 19a8 8 0 1 1 5.657-2.343L21 21", "M16.5 16.5 21 21"]);
-        const ClearSearchIcon = SvgIcon(["M7 7l10 10", "M17 7 7 17"]);
-        const ArrowUpIcon = SvgIcon(["M12 19V5", "m6 11 6-6 6 6"]);
-        const ActivityLogIcon = SvgIcon(["M5 5h14", "M5 12h14", "M5 19h14", "M8 3v4", "M8 10v4", "M8 17v4"]);
         const BALANCED_ROSTER_GROUPS = [
           { key:"GOL", label:"Goleiros", positions:["GK"], count:3, offsets:[-3,0,3] },
           { key:"ZAG", label:"Zagueiros", positions:["CB","CWB"], count:5, offsets:[-5,-2,0,2,5] },
@@ -400,10 +396,6 @@
           }, [tournamentsLoaded, m, selectedTournamentId]);
           // Legacy migrations must never rewrite the full championship during page load.
           // Any remaining favorite migration will be handled by a dedicated, explicit action.
-          He(() => {
-            if (!R || !R.id || typeof startTournamentRealtimeSync !== "function") return;
-            return startTournamentRealtimeSync(R.id, { isBusy: () => !!marketActionRef.current });
-          }, [R && R.id]);
           He(() => {
             if (!R || !R.id || !te || !te.id) {
               setProfileChampionshipPreferences({});
@@ -3176,7 +3168,7 @@
                           onUpdateBalanceLoanSettings: updateBalanceLoanSettings,
                           onGrantBalanceLoan: grantBalanceLoan,
                           onFinishTournament: finishCurrentTournament,
-                          catalog: n, playerReviews, onRefreshPlayerReviews: refreshPlayerReviews, onImportRosters: importRosterPlan, onImportHistoricalCompetition: importHistoricalCompetition, onImportMissingMatches: importMissingHistoricalMatches,
+                          catalog: n, onImportRosters: importRosterPlan, onImportHistoricalCompetition: importHistoricalCompetition, onImportMissingMatches: importMissingHistoricalMatches,
                         }),
                       Y === "profile" &&
                         React.createElement(ProfileArea, {
@@ -4594,19 +4586,10 @@
             [overallMax, setOverallMax] = b(() => marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Number(marketRules.freePlayerOverallLimit.maxOverall || 99) : 99),
             [valueMin, setValueMin] = b(3),
             [valueMax, setValueMax] = b(catalogValueCeiling),
-            [showScrollTop, setShowScrollTop] = b(false),
             loadMoreSentinel = React.useRef(null);
           let defaultMarketOverallMin = marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Math.min(99, Math.max(1, Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1))) : 70;
           let defaultMarketOverallMax = marketRules.freePlayerOverallLimit && marketRules.freePlayerOverallLimit.enabled ? Math.min(99, Math.max(defaultMarketOverallMin, Number(marketRules.freePlayerOverallLimit.maxOverall || 99))) : 99;
           He(() => { setOverallMin(defaultMarketOverallMin); setOverallMax(defaultMarketOverallMax); }, [defaultMarketOverallMin, defaultMarketOverallMax]);
-          He(() => {
-            let ticking=false;
-            const update=()=>{ ticking=false; setShowScrollTop((window.scrollY||document.documentElement.scrollTop||0)>900); };
-            const onScroll=()=>{ if(ticking)return; ticking=true; window.requestAnimationFrame(update); };
-            update();
-            window.addEventListener("scroll",onScroll,{passive:true});
-            return()=>window.removeEventListener("scroll",onScroll);
-          }, []);
 
           let favoriteSet = X(() => new Set((Array.isArray(favoritePlayerIds) ? favoritePlayerIds : []).map((id) => String(id))), [favoritePlayerIds]);
           let deferredClubQuery = React.useDeferredValue ? React.useDeferredValue(clubQuery) : clubQuery;
@@ -5029,9 +5012,8 @@
                       React.createElement(
                         "div",
                         { style: { position: "relative", flex: 1 } },
-                        React.createElement("span", { style: { position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",display:"grid",placeItems:"center",pointerEvents:"none" } }, React.createElement(MarketSearchIcon, { size:17, color:"var(--muted)" })),
-                        React.createElement("input", { style: { ...q, paddingLeft: 38, paddingRight: clubQuery ? 40 : 12 }, placeholder: "Buscar jogador, clube ou time...", value: clubQuery, onChange: (event) => { setClubQuery(event.target.value); setVisibleCount(24); } }),
-                        clubQuery && React.createElement("button", { type:"button", className:"tapbtn", title:"Limpar busca", "aria-label":"Limpar busca", onClick:()=>{setClubQuery("");setVisibleCount(24);}, style:{ position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",width:30,height:30,border:0,borderRadius:999,background:"transparent",color:"var(--muted)",display:"grid",placeItems:"center",cursor:"pointer",padding:0 } }, React.createElement(ClearSearchIcon,{size:17}))
+                        React.createElement("input", { style: { ...q, paddingLeft: 34 }, placeholder: "Buscar jogador, clube ou time...", value: clubQuery, onChange: (event) => { setClubQuery(event.target.value); setVisibleCount(24); } }),
+                        React.createElement("span", { style: { position: "absolute", left: 10, top: 12 } }, React.createElement(Xt, { size: 15, color: "var(--muted)" })),
                       ),
                       React.createElement(
                         "button",
@@ -5087,7 +5069,6 @@
                     filteredPlayers.length === 0 && React.createElement("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Nenhum jogador corresponde aos filtros selecionados."),
                     filteredPlayers.length > visibleCount && React.createElement("div", { ref:loadMoreSentinel, style:{ minHeight:72, display:"grid", placeItems:"center", color:"var(--muted)", fontSize:12, gap:8 } }, React.createElement("span", { className:"animate-spin", style:{ width:20,height:20,borderRadius:999,border:"2px solid var(--border)",borderTopColor:"var(--green)",display:"block" } }), React.createElement("span", null, "Carregando mais jogadores...")),
                   ),
-            showScrollTop && React.createElement("button", { className:"tapbtn", onClick:()=>window.scrollTo({top:0,behavior:"smooth"}), title:"Voltar ao topo", "aria-label":"Voltar ao topo", style:{ position:"fixed",right:"max(16px,env(safe-area-inset-right))",bottom:"calc(78px + env(safe-area-inset-bottom))",zIndex:80,width:46,height:46,borderRadius:999,border:"1px solid var(--border)",background:"var(--ink)",color:"var(--surface)",display:"grid",placeItems:"center",boxShadow:"0 10px 28px rgba(0,0,0,.28)",cursor:"pointer" } }, React.createElement(ArrowUpIcon,{size:20})),
           );
         }
         function attributeValueColor(value, max = 99) {
@@ -6719,22 +6700,6 @@
           let wins = 0, draws = 0, losses = 0, goalsFor = 0, goalsAgainst = 0;
           played.forEach((match) => { let home = match.homeId === team.id, gf = home ? match.homeScore : match.awayScore, ga = home ? match.awayScore : match.homeScore; goalsFor += Number(gf)||0; goalsAgainst += Number(ga)||0; if (gf > ga) wins++; else if (gf === ga) draws++; else losses++; });
           let goals = squad.reduce((total, player) => total + ((stats[player.id] && stats[player.id].goals) || 0), 0);
-          let allTournaments=Array.isArray(tournaments)?tournaments:[];
-          function tournamentTeamForProfile(comp){ let contextTeams=Array.isArray(comp&&comp.context&&comp.context.teams)?comp.context.teams:[]; return contextTeams.find((entry)=>entry&&entry.active!==false&&String(entry.profileId)===String(item.id))||null; }
-          let careerMatches=[];
-          allTournaments.forEach((comp)=>{ let compTeam=tournamentTeamForProfile(comp); if(!compTeam)return; let compMatches=Array.isArray(comp&&comp.matches)?comp.matches:Array.isArray(comp&&comp.context&&comp.context.matches)?comp.context.matches:[]; compMatches.forEach((match)=>{ if(!match||!match.played||match.bye||match.status==="voided")return; if(String(match.homeId)!==String(compTeam.id)&&String(match.awayId)!==String(compTeam.id))return; let home=String(match.homeId)===String(compTeam.id),gf=Number(home?match.homeScore:match.awayScore)||0,ga=Number(home?match.awayScore:match.homeScore)||0; careerMatches.push({match,comp,gf,ga,result:gf>ga?"V":gf<ga?"D":"E",timestamp:Number(match.playedAt||match.createdAt||comp.createdAt)||0}); }); });
-          if(tournament&&team){ let known=new Set(careerMatches.map((entry)=>`${entry.comp&&entry.comp.id}:${entry.match&&entry.match.id}`)); (Array.isArray(matches)?matches:[]).forEach((match)=>{ if(!match||!match.played||match.bye||match.status==="voided"||(String(match.homeId)!==String(team.id)&&String(match.awayId)!==String(team.id)))return; let key=`${tournament.id}:${match.id}`; if(known.has(key))return; let home=String(match.homeId)===String(team.id),gf=Number(home?match.homeScore:match.awayScore)||0,ga=Number(home?match.awayScore:match.homeScore)||0; careerMatches.push({match,comp:tournament,gf,ga,result:gf>ga?"V":gf<ga?"D":"E",timestamp:Number(match.playedAt||match.createdAt||tournament.createdAt)||0}); }); }
-          careerMatches.sort((a,b)=>a.timestamp-b.timestamp);
-          let careerWins=0,careerDraws=0,careerLosses=0,careerGoals=0,careerAgainst=0,longestWins=0,streak=0;
-          careerMatches.forEach((entry)=>{careerGoals+=entry.gf;careerAgainst+=entry.ga;if(entry.result==="V"){careerWins++;streak++;longestWins=Math.max(longestWins,streak)}else{streak=0;entry.result==="E"?careerDraws++:careerLosses++;}});
-          let careerGames=careerMatches.length,careerGpg=careerGames?careerGoals/careerGames:0,careerPct=careerGames?((careerWins*3+careerDraws)/(careerGames*3))*100:0;
-          let careerTransactions=0,careerSpent=0;
-          allTournaments.forEach((comp)=>{let compTeam=tournamentTeamForProfile(comp);if(!compTeam)return;let txs=Array.isArray(comp&&comp.context&&comp.context.transfers)?comp.context.transfers:[];txs.filter((tx)=>tx&&!tx.rolledBackAt&&(String(tx.fromTeamId||"")===String(compTeam.id)||String(tx.toTeamId||"")===String(compTeam.id))&&["market_purchase","market_sale","user_transfer","release_clause"].includes(String(tx.type||""))).forEach((tx)=>{careerTransactions++;if(String(tx.toTeamId||"")===String(compTeam.id))careerSpent+=Math.abs(Number(tx.price)||0);});});
-          let careerRecent=careerMatches.slice().sort((a,b)=>b.timestamp-a.timestamp).slice(0,6).reverse();
-          let careerTrophies=allTournaments.filter((comp)=>comp&&comp.status==="finished").map((comp)=>{let standings=Array.isArray(comp.finalStandings)?comp.finalStandings:[];let entry=standings.find((row)=>row&&String(row.profileId)===String(item.id)&&Number(row.position)===1);return entry?{tournament:comp,entry}:null;}).filter(Boolean).sort((a,b)=>(Number(b.tournament.finishedAt)||0)-(Number(a.tournament.finishedAt)||0));
-          function profileResultSegment(value,pct,label,kind){let bg=kind==="win"?"color-mix(in srgb,var(--green) 18%,var(--surface-soft))":kind==="loss"?"color-mix(in srgb,var(--danger) 14%,var(--surface-soft))":"var(--surface-soft)";let color=kind==="win"?"var(--green)":kind==="loss"?"var(--danger)":"var(--heading)";return React.createElement("div",{style:{flex:`${Math.max(pct,18)} 1 0`,minWidth:0,padding:"14px 8px",background:bg,textAlign:"center",borderRadius:12}},React.createElement("div",{style:{fontSize:20,fontWeight:900,fontVariantNumeric:"tabular-nums",lineHeight:1,color}},value),React.createElement("div",{style:{fontSize:10.5,fontWeight:800,marginTop:7,color}},label),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:3}},`${Math.round(pct)}%`));}
-          function profileStatRow(label,value,last=false){return React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:18,padding:"13px 0",borderBottom:last?0:"1px solid var(--border)"}},React.createElement("span",{style:{fontSize:12.5,color:"var(--muted)",fontWeight:700}},label),React.createElement("strong",{style:{fontSize:15,fontVariantNumeric:"tabular-nums",textAlign:"right"}},value));}
-          function profileResultBadge(entry,index,isLatest){let result=entry.result,badge=React.createElement("span",{style:{width:30,height:30,borderRadius:9,display:"grid",placeItems:"center",fontWeight:850,fontSize:12,background:result==="V"?"rgba(0,201,120,.18)":result==="D"?"rgba(255,43,58,.18)":"rgba(255,187,38,.18)",color:result==="V"?"#00c978":result==="D"?"#ff2b3a":"#ffbb26"}},result);return isLatest?React.createElement("span",{key:index,style:{display:"inline-grid",placeItems:"center",padding:1,border:"1px solid var(--heading)",borderRadius:11}},badge):React.createElement("span",{key:index},badge);}
           async function saveProfileModal(values) {
             await onUpdateProfile(item.id,{ name:values.name, avatar:values.avatar });
             if(team && values.teamName) await Promise.resolve(onUpdateTeamName(team.id,values.teamName));
@@ -6747,28 +6712,11 @@
               React.createElement("div", { style:{ color:"var(--muted)", marginTop:5, fontSize:15 } }, team ? team.name : "Administrador global"),
               tournament && React.createElement("div", { style:{ color:"var(--green)", fontSize:12, fontWeight:700, marginTop:8 } }, tournament.name)
             ),
-            team && React.createElement("section",{className:"family-card",style:{padding:"18px 20px",marginBottom:16}},
-              React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12}},
-                React.createElement("button",{type:"button",onClick:onOpenBalanceHistory,className:"tapbtn",style:{border:0,background:"var(--surface-soft)",borderRadius:14,padding:14,textAlign:"left",color:"inherit",cursor:"pointer"}},React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginBottom:5}},"Saldo"),React.createElement("strong",{style:{fontSize:18}},L(team.budget||0))),
-                React.createElement("div",{style:{background:"var(--surface-soft)",borderRadius:14,padding:14}},React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginBottom:5}},"Elenco atual"),React.createElement("strong",{style:{fontSize:18}},`${squad.length} jogadores`))
-              )
+            team && React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10, marginBottom: 16 } },
+              [["Saldo", L(team.budget || 0)], ["Elenco", `${squad.length} jogadores`], ["Partidas", played.length], ["Campanha", `${wins}V · ${draws}E · ${losses}D`], ["Gols marcados", goalsFor], ["Artilharia do elenco", goals]].map(([label,value]) => React.createElement("button", { key: label, onClick:label==="Saldo"?onOpenBalanceHistory:undefined, className: "family-card", style: { padding: 18, textAlign:"left", color:"inherit", cursor:label==="Saldo"?"pointer":"default", width:"100%" } }, React.createElement("div", { style: { fontSize: 12, color: "var(--muted)", marginBottom: 6 } }, label), React.createElement("strong", { style: { fontSize: 18, color: "var(--heading)" } }, value))),
+              React.createElement("div", { className:"family-card", style:{ padding:18, gridColumn:"1 / -1" } }, React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:10 } }, "Últimas partidas"), React.createElement("div", { style:{ display:"flex",gap:8,alignItems:"center" } }, played.slice().sort((a,b)=>(a.playedAt||a.createdAt||0)-(b.playedAt||b.createdAt||0)).slice(-6).map((match)=>{ let isHome=match.homeId===team.id, mine=isHome?Number(match.homeScore)||0:Number(match.awayScore)||0, other=isHome?Number(match.awayScore)||0:Number(match.homeScore)||0, result=mine>other?"V":mine<other?"D":"E"; return React.createElement("span", { key:match.id, style:{ width:30,height:30,borderRadius:9,display:"grid",placeItems:"center",fontWeight:850,background:result==="V"?"rgba(0,201,120,.18)":result==="D"?"rgba(255,43,58,.18)":"rgba(255,187,38,.18)",color:result==="V"?"#00c978":result==="D"?"#ff2b3a":"#ffbb26" } }, result); })))
             ),
-            React.createElement("section",{className:"family-card",style:{padding:"18px 20px",marginBottom:16}},
-              React.createElement("div",{style:{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:12,marginBottom:14}},React.createElement("div",{style:{fontSize:17,fontWeight:850}},"Estatísticas gerais"),React.createElement("div",{style:{fontSize:11,color:"var(--muted)"}},"Todos os campeonatos")),
-              careerGames?React.createElement(React.Fragment,null,
-                React.createElement("div",{style:{fontSize:12,color:"var(--muted)",textAlign:"center",marginBottom:10}},`${careerGames} ${careerGames===1?"partida":"partidas"}`),
-                React.createElement("div",{style:{display:"flex",gap:5,alignItems:"stretch",marginBottom:14}},profileResultSegment(careerWins,(careerWins/careerGames)*100,"Vitórias","win"),profileResultSegment(careerDraws,(careerDraws/careerGames)*100,"Empates","draw"),profileResultSegment(careerLosses,(careerLosses/careerGames)*100,"Derrotas","loss")),
-                profileStatRow("Gols",careerGoals),profileStatRow("Gols por jogo",careerGpg.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})),profileStatRow("Aproveitamento",`${Math.round(careerPct)}%`),profileStatRow("Maior sequência de vitórias",longestWins),profileStatRow("Transações",careerTransactions),profileStatRow("Valor gasto",L(careerSpent),true)
-              ):React.createElement("div",{style:{padding:"18px 0 4px",textAlign:"center",fontSize:13,color:"var(--muted)"}},"As estatísticas aparecem após a primeira partida.")
-            ),
-            React.createElement("section",{className:"family-card",style:{padding:"18px 20px",marginBottom:16}},
-              React.createElement("div",{style:{fontSize:14,fontWeight:850,marginBottom:12}},"Últimas partidas"),
-              careerRecent.length?React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}},careerRecent.map((entry,index)=>profileResultBadge(entry,index,index===careerRecent.length-1))):React.createElement("div",{style:{fontSize:12.5,color:"var(--muted)"}},"Nenhuma partida disputada ainda.")
-            ),
-            React.createElement("section",{className:"family-card",style:{padding:"18px 20px",marginBottom:18}},
-              React.createElement("div",{style:{fontSize:17,fontWeight:850,marginBottom:14}},"Troféus conquistados"),
-              careerTrophies.length?React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}},careerTrophies.map(({tournament:comp})=>React.createElement("button",{key:comp.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(comp),className:"tapbtn",style:{padding:16,borderRadius:16,border:"1px solid var(--border)",background:"var(--surface-soft)",textAlign:"center",cursor:"pointer",color:"inherit"}},React.createElement(TrophyAsset,{tournament:comp,size:74,style:{marginBottom:8}}),React.createElement("div",{style:{fontWeight:800,fontSize:13}},comp.name),React.createElement("div",{style:{color:"var(--muted)",fontSize:11.5,marginTop:4}},comp.type==="cup"?"Campeão da Copa":"Campeão")))):React.createElement("div",{style:{padding:"18px 4px",textAlign:"center",color:"var(--muted)",fontSize:12.5,lineHeight:1.5}},"Nenhum troféu conquistado ainda.")
-            ),
+            (()=>{ let trophies=(tournaments||[]).filter((item)=>item&&item.status==="finished").map((item)=>{ let standings=Array.isArray(item.finalStandings)?item.finalStandings:[]; let entry=profile&&profile.id?standings.find((row)=>row&&String(row.profileId)===String(profile.id)):null; return entry&&Number(entry.position)===1?{ tournament:item, entry }:null; }).filter(Boolean).sort((a,b)=>(Number(b.tournament.finishedAt)||0)-(Number(a.tournament.finishedAt)||0)); return trophies.length ? React.createElement("section", { style:{ marginBottom:18 } }, React.createElement("div", { style:{ fontSize:19,fontWeight:800,marginBottom:12 } }, "Sala de troféus"), React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10 } }, trophies.map(({tournament:item,entry})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:18,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } }, React.createElement(TrophyAsset,{tournament:item,size:62,style:{marginBottom:8}}), React.createElement("div", { style:{ fontWeight:800,fontSize:14 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)",fontSize:12,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão"))))) : null; })(),
             editing && React.createElement(ProfileEditModal,{ profile:item,team,onClose:()=>setEditing(false),onOpenPin:()=>{setEditing(false);setPinSetupOpen(true);},onSave:saveProfileModal }),
             pinSetupOpen && React.createElement(ProfilePinSetup, { profile:item, onClose:()=>setPinSetupOpen(false), onSave:(pinHash)=>onUpdateProfile(item.id,{ pinHash, pinUpdatedAt:Date.now() }) }),
             React.createElement("button", { onClick: onSwitchProfile, style: { ...M, width: "100%", marginTop: 16 } }, "Trocar perfil ou campeonato")
@@ -7075,7 +7023,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -7092,31 +7040,6 @@ Hyago 0 x 0 Lucas`;
           let [missingMatchesMappings,setMissingMatchesMappings]=b({});
           let [missingMatchesSaving,setMissingMatchesSaving]=b(false);
           let [historyMappings,setHistoryMappings]=b({});
-          let [activityFilter,setActivityFilter]=b("all");
-          let [activityRefreshing,setActivityRefreshing]=b(false);
-          function profileById(id){return globalProfiles.find((item)=>item&&String(item.id)===String(id))||null;}
-          function teamByIdLocal(id){return (teams||[]).find((item)=>item&&String(item.id)===String(id))||null;}
-          function actorForTeam(teamId){let team=teamByIdLocal(teamId);return team&&team.profileId?profileById(team.profileId):null;}
-          function actorName(profileId,fallback="Usuário"){let profile=profileById(profileId);return profile&&profile.name?profile.name:fallback;}
-          function activityLogItems(){
-            let items=[], tournament=currentTournament, context=tournament&&tournament.context||{};
-            let isRegularUser=(profileId)=>{let profile=profileById(profileId);return !profile||profile.role!=="admin";};
-            (Array.isArray(tournament&&tournament.matches)?tournament.matches:Array.isArray(context.matches)?context.matches:[]).forEach((match)=>{
-              if(!match)return;let home=teamByIdLocal(match.homeId||match.homeTeamId),away=teamByIdLocal(match.awayId||match.awayTeamId),actorId=match.createdByProfileId||null;
-              if(actorId&&isRegularUser(actorId))items.push({id:`match:${match.id}`,type:"match",at:Number(match.createdAt||match.playedAt)||0,actorId,actor:actorName(actorId),title:`${actorName(actorId)} adicionou uma partida`,detail:`${home&&home.name||match.homeTeamNameSnapshot||"Time"} ${Number(match.homeScore)||0} × ${Number(match.awayScore)||0} ${away&&away.name||match.awayTeamNameSnapshot||"Time"}`});
-              if(match.status==="voided"&&match.voidedAt&&match.voidedByProfileId&&isRegularUser(match.voidedByProfileId))items.push({id:`void:${match.id}`,type:"match",at:Number(match.voidedAt)||0,actorId:match.voidedByProfileId,actor:actorName(match.voidedByProfileId),title:`${actorName(match.voidedByProfileId)} anulou uma partida`,detail:`${home&&home.name||"Time"} × ${away&&away.name||"Time"}`});
-            });
-            (Array.isArray(context.transfers)?context.transfers:[]).forEach((tr)=>{if(!tr)return;let from=teamByIdLocal(tr.fromTeamId),to=teamByIdLocal(tr.toTeamId),type=String(tr.type||tr.transferType||"");let actor=null,title="Movimentação no mercado";
-              if(type==="market_sale"){actor=actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||from&&from.name||"Usuário"} vendeu ${tr.playerName||"um jogador"}`;}
-              else if(type==="market_purchase"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} comprou ${tr.playerName||"um jogador"}`;}
-              else if(type==="release_clause"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} pagou a multa de ${tr.playerName||"um jogador"}`;}
-              else {actor=actorForTeam(tr.toTeamId)||actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||"Usuário"} concluiu uma transferência de ${tr.playerName||"jogador"}`;}
-              if(actor&&actor.role==="admin")return;let detail=type==="market_sale"?`Venda ao mercado · ${L(Number(tr.price)||0)}`:from&&to?`${from.name} → ${to.name} · ${L(Number(tr.price)||0)}`:`${L(Number(tr.price)||0)}`;items.push({id:`transfer:${tr.id}`,type:"market",at:Number(tr.createdAt)||0,actorId:actor&&actor.id||null,actor:actor&&actor.name||"Usuário",title,detail});
-            });
-            Object.values(playerReviews&&typeof playerReviews==="object"?playerReviews:{}).forEach((review)=>{if(!review||!review.createdAt||!isRegularUser(review.createdByProfileId))return;items.push({id:`review:${review.id}`,type:"report",at:Number(review.createdAt)||0,actorId:review.createdByProfileId,actor:review.createdByNameSnapshot||actorName(review.createdByProfileId),title:`${review.createdByNameSnapshot||actorName(review.createdByProfileId)} reportou ${review.playerNameSnapshot||"um jogador"}`,detail:review.status==="approved"?"Revisão aprovada":review.status==="rejected"?"Revisão recusada":"Aguardando revisão"});});
-            return items.filter((item)=>activityFilter==="all"||item.type===activityFilter).sort((a,b)=>b.at-a.at);
-          }
-          async function refreshActivityLog(){if(activityRefreshing)return;setActivityRefreshing(true);try{if(typeof onRefreshPlayerReviews==="function")await onRefreshPlayerReviews();}finally{setActivityRefreshing(false);}}
           let sourceCandidates = [...(tournaments || [])].sort((a, b) => (Number(b.finishedAt || b.createdAt) || 0) - (Number(a.finishedAt || a.createdAt) || 0));
           let [creationMode, setCreationMode] = b(sourceCandidates.length ? "continue" : "new");
           let [sourceTournamentId, setSourceTournamentId] = b(sourceCandidates[0] ? sourceCandidates[0].id : "");
@@ -7126,7 +7049,6 @@ Hyago 0 x 0 Lucas`;
           let [competitionWizardOpen, setCompetitionWizardOpen] = b(false);
           let [competitionWizardStep, setCompetitionWizardStep] = b(1);
           let [adminSection, setAdminSection] = b("home");
-          He(()=>{if(adminSection==="logs")refreshActivityLog();},[adminSection,currentTournament&&currentTournament.id]);
           let [newParticipantIds, setNewParticipantIds] = b([]);
           let [newParticipantDrafts, setNewParticipantDrafts] = b({});
           let [randomRosterEnabled, setRandomRosterEnabled] = b(false);
@@ -7359,7 +7281,6 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             participants: { title: "Participantes e times", description: "Defina quem participa, nomes dos times e saldos." },
             rules: { title: "Regras e economia", description: "Configure mercado, elenco, recompensas e premiações." },
             tools: { title: "Dados e ferramentas", description: "Importe elencos e execute tarefas administrativas." },
-            logs: { title: "Logs de atividade", description: "Acompanhe ações dos usuários que alteram partidas, mercado e catálogo." },
             danger: { title: "Zona de perigo", description: "Ações destrutivas e irreversíveis da competição." }
           };
           function adminHubCard(section, icon, title, description, meta, danger=false) {
@@ -7390,7 +7311,6 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 adminHubCard("competitions", React.createElement(TrophyIcon,{size:22}), "Competições", "Crie ligas, copas e continue temporadas.", `${activeCompetitions} em andamento · ${finishedCompetitions} encerradas`),
                 adminHubCard("participants", React.createElement(TeamIcon,{size:22}), "Participantes e times", "Gerencie participantes, times e carteiras da competição selecionada.", currentTournament ? `${activeTeams} participantes em ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("rules", React.createElement(SettingsIcon,{size:22}), "Regras e economia", "Defina mercado, limites de elenco, recompensas e premiação.", currentTournament ? `Editando ${currentTournament.name}` : "Selecione uma competição"),
-                adminHubCard("logs", React.createElement(ActivityLogIcon,{size:22}), "Logs de atividade", "Veja ações que impactam outros usuários e ajudam na auditoria da liga.", currentTournament ? `Acompanhando ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("tools", React.createElement(DatabaseIcon,{size:22}), "Dados e ferramentas", "Importe elencos e execute tarefas de manutenção.", "Ferramentas administrativas"),
                 adminHubCard("danger", React.createElement(TrashIcon,{size:22}), "Zona de perigo", "Resete ou remova dados da competição com confirmação reforçada.", currentTournament ? currentTournament.name : "Nenhuma competição selecionada", true)
               )
@@ -7556,12 +7476,6 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 })),
                 React.createElement("button", { disabled: importErrors.length > 0, onClick: () => { if (!window.confirm(`Importar ${importPreview.entries.length} jogadores para ${currentTournament.name}?`)) return; onImportRosters({ entries: importPreview.entries.map((entry) => ({ playerId: entry.playerId, teamId: entry.teamId, squadRole: entry.squadRole })) }, importMode); }, style: { ...M, ...W, opacity: importErrors.length ? 0.45 : 1 } }, importErrors.length ? "Resolva as pendências" : "Confirmar importação")
               )
-            ),
-            adminSection === "logs" && React.createElement("div", { style:{ ...E,padding:18 } },
-              React.createElement("div", { style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,marginBottom:14} },React.createElement("div",null,React.createElement("div",{style:{fontSize:18,fontWeight:850}},"Atividade dos usuários"),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginTop:4}},currentTournament?`Eventos relevantes de ${currentTournament.name}. Os dados são montados a partir dos registros já persistidos pelo app.`:"Selecione uma competição para visualizar os eventos.")),React.createElement("button",{onClick:refreshActivityLog,disabled:activityRefreshing,style:{...M,width:"auto",margin:0,padding:"9px 12px",fontSize:12}},activityRefreshing?"Atualizando...":"Atualizar")),
-              React.createElement("div",{style:{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:14}},[["all","Todos"],["match","Partidas"],["market","Mercado"],["report","Reports"]].map(([key,label])=>React.createElement("button",{key,onClick:()=>setActivityFilter(key),style:{border:"1px solid var(--border)",background:activityFilter===key?"var(--ink)":"var(--surface-soft)",color:activityFilter===key?"var(--surface)":"var(--heading)",borderRadius:999,padding:"8px 11px",fontSize:11.5,fontWeight:750,whiteSpace:"nowrap",cursor:"pointer"}},label))),
-              currentTournament ? (activityLogItems().length ? React.createElement("div",{style:{display:"grid",gap:8}},activityLogItems().slice(0,200).map((item)=>React.createElement("div",{key:item.id,style:{display:"grid",gridTemplateColumns:"40px minmax(0,1fr)",gap:11,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("div",{style:{width:40,height:40,borderRadius:13,display:"grid",placeItems:"center",background:item.type==="match"?"color-mix(in srgb,var(--green) 12%,var(--surface-soft))":item.type==="market"?"color-mix(in srgb,#ffbb26 12%,var(--surface-soft))":"color-mix(in srgb,var(--danger) 10%,var(--surface-soft))",fontSize:17}},item.type==="match"?"⚽":item.type==="market"?"↔":"⚑"),React.createElement("div",{style:{minWidth:0}},React.createElement("div",{style:{fontSize:13.5,fontWeight:800,color:"var(--heading)",lineHeight:1.35}},item.title),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:3,lineHeight:1.4}},item.detail),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},new Date(item.at).toLocaleString("pt-BR",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})))))) : React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Nenhuma ação encontrada neste filtro.")) : React.createElement("div",{style:{padding:"28px 10px",textAlign:"center",color:"var(--muted)",fontSize:13}},"Selecione uma competição."),
-              React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",lineHeight:1.5,marginTop:14}},"Para manter o banco leve, esta tela reaproveita partidas, transferências e revisões que o app já grava. Não cria uma segunda cópia de cada ação nem adiciona polling.")
             ),
             adminSection === "tools" && React.createElement("div", { style:{ ...E,marginTop:18 } },
               React.createElement("div", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:4 } },React.createElement("div", { style:{ fontSize:18,fontWeight:700 } },"Importar competição encerrada"),React.createElement("span", { style:{ fontSize:11,fontWeight:700,color:"#ffbb26",background:"var(--surface-soft)",borderRadius:999,padding:"5px 8px" } },"Histórico")),
@@ -7801,7 +7715,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
           let mine=aggregate(currentTeam), other=aggregate(opponentTeam), currentProfile=profileForTeam(currentTeam), opponentProfile=profileForTeam(opponentTeam);
           let lastFive=recent.slice(0,5).reverse().map((match)=>resultFor(match,currentTeam).result);
           let mineMarket=marketStats(currentTeam),otherMarket=marketStats(opponentTeam),mineTrophies=trophiesForProfile(currentTeam.profileId),otherTrophies=trophiesForProfile(opponentTeam.profileId),carrasco=topScorer();
-          function compareRow(label,left,right,format=(value)=>String(value)) { let l=Number(left)||0,r=Number(right)||0,total=l+r,leftPct=total?Math.max(0,Math.min(100,(l/total)*100)):50; let valueNode=(value,side,winning)=>React.createElement("span",{style:{display:"inline-grid",placeItems:"center",minWidth:30,height:30,padding:"0 8px",borderRadius:999,background:winning?(side==="left"?"var(--green)":"color-mix(in srgb, var(--heading) 28%, var(--surface-soft))"):"transparent",color:winning?(side==="left"?"#111513":"#ffffff"):"var(--heading)",WebkitTextFillColor:winning?(side==="left"?"#111513":"#ffffff"):"currentColor",textShadow:"none",fontSize:14,fontWeight:850,fontVariantNumeric:"tabular-nums"}},format(value)); return React.createElement("div",{style:{padding:"12px 0"}},React.createElement("div",{style:{display:"grid",gridTemplateColumns:"84px minmax(0,1fr) 84px",alignItems:"center",gap:10}},React.createElement("div",{style:{textAlign:"left"}},valueNode(left,"left",l>r)),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",textAlign:"center",fontWeight:700}},label),React.createElement("div",{style:{textAlign:"right"}},valueNode(right,"right",r>l))),React.createElement("div",{style:{height:5,borderRadius:99,overflow:"hidden",display:"flex",marginTop:8,background:"var(--surface-soft)"}},React.createElement("div",{style:{width:`${leftPct}%`,background:"var(--green)",transition:"width .25s ease"}}),React.createElement("div",{style:{width:`${100-leftPct}%`,background:"color-mix(in srgb, var(--heading) 28%, var(--surface-soft))",transition:"width .25s ease"}}))); }
+          function compareRow(label,left,right,format=(value)=>String(value)) { let l=Number(left)||0,r=Number(right)||0,total=l+r,leftPct=total?Math.max(0,Math.min(100,(l/total)*100)):50; let valueNode=(value,side,winning)=>React.createElement("span",{style:{display:"inline-grid",placeItems:"center",minWidth:30,height:30,padding:"0 8px",borderRadius:999,background:winning?(side==="left"?"var(--green)":"#f4f7f5"):"transparent",color:winning?"#111513":"var(--heading)",WebkitTextFillColor:winning?"#111513":"currentColor",textShadow:"none",fontSize:14,fontWeight:850,fontVariantNumeric:"tabular-nums"}},format(value)); return React.createElement("div",{style:{padding:"12px 0"}},React.createElement("div",{style:{display:"grid",gridTemplateColumns:"84px minmax(0,1fr) 84px",alignItems:"center",gap:10}},React.createElement("div",{style:{textAlign:"left"}},valueNode(left,"left",l>r)),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",textAlign:"center",fontWeight:700}},label),React.createElement("div",{style:{textAlign:"right"}},valueNode(right,"right",r>l))),React.createElement("div",{style:{height:5,borderRadius:99,overflow:"hidden",display:"flex",marginTop:8,background:"var(--surface-soft)"}},React.createElement("div",{style:{width:`${leftPct}%`,background:"var(--green)",transition:"width .25s ease"}}),React.createElement("div",{style:{width:`${100-leftPct}%`,background:"color-mix(in srgb, var(--heading) 28%, var(--surface-soft))",transition:"width .25s ease"}}))); }
           function trophySide(label, profile, trophies, align) { return React.createElement("div",{style:{minWidth:0,textAlign:align}},React.createElement("div",{style:{fontSize:11,color:"var(--muted)",marginBottom:10}},label),trophies.length?React.createElement("div",{style:{display:"flex",gap:9,justifyContent:align==="right"?"flex-end":"flex-start",flexWrap:"wrap"}},trophies.slice(0,6).map(({tournament:item})=>React.createElement("button",{key:item.id,title:item.name,onClick:(event)=>{event.stopPropagation();onOpenChampionshipSummary&&onOpenChampionshipSummary(item)},style:{width:60,height:60,borderRadius:14,border:"1px solid var(--border)",background:"var(--surface-soft)",display:"grid",placeItems:"center",padding:5,cursor:onOpenChampionshipSummary?"pointer":"default"}},React.createElement(TrophyAsset,{tournament:item,size:46})))):React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.4}},"Nenhum troféu conquistado")); }
           if (!matches.length) return React.createElement("div",null,
             React.createElement("section",{className:"family-card",style:{padding:"34px 20px",textAlign:"center",marginBottom:16}},React.createElement("div",{style:{fontSize:15,fontWeight:850,marginBottom:7}},"Ainda sem confrontos"),React.createElement("div",{style:{fontSize:13,color:"var(--muted)",lineHeight:1.5}},"Vocês ainda não se enfrentaram neste campeonato.")),
