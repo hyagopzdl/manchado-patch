@@ -778,6 +778,21 @@
     if(error)throw error;await refreshNormalizedStateAfterRpc();return data||{ok:true};
   }
 
+  async function payReleaseClause({tournamentId,playerId,playerName,buyerTeamId,sellerTeamId,marketValue,clauseAmount,actorProfileId:actorId}){
+    await load(); if(!client) throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("pay_player_release_clause",{
+      p_tournament_id:String(tournamentId),p_player_id:String(playerId),p_player_name:String(playerName||"Jogador"),p_buyer_team_id:String(buyerTeamId),p_expected_seller_team_id:String(sellerTeamId),p_expected_market_value:Number(marketValue)||0,p_expected_clause_amount:Number(clauseAmount)||0,p_actor_profile_id:actorId?String(actorId):actorProfileId()
+    });
+    if(error) throw error; invalidateCache(); await refreshNormalizedStateAfterRpc(); return data||{ok:true};
+  }
+  async function increaseReleaseClauseShielding({tournamentId,playerId,teamId,marketValue,spendAmount,expectedCurrentShield,actorProfileId:actorId}){
+    await load(); if(!client) throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("increase_release_clause_shielding",{
+      p_tournament_id:String(tournamentId),p_player_id:String(playerId),p_team_id:String(teamId),p_expected_market_value:Number(marketValue)||0,p_spend_amount:Number(spendAmount)||0,p_expected_current_shield:Number(expectedCurrentShield)||0,p_actor_profile_id:actorId?String(actorId):actorProfileId()
+    });
+    if(error) throw error; invalidateCache(); await refreshNormalizedStateAfterRpc(); return data||{ok:true};
+  }
+
   async function loadPlayerOverrideHistory(limit=200){
     await load();
     if(!client)throw new Error("Supabase não configurado");
@@ -850,5 +865,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();

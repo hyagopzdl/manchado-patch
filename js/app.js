@@ -630,7 +630,7 @@
                   participants: [],
                   teamIds: [],
                   createdAt: Date.now(),
-                  marketSettings: { depreciationPct: 10, initialRosterDepreciationPct: 50, isOpen: true, freePlayerOverallLimit: { enabled:false, minOverall:1, maxOverall:99 }, playerTradeLock:{ enabled:false, gamesRequired:50 }, playerReportsEnabled:true, playerOverridesEnabled:true },
+                  marketSettings: { depreciationPct: 10, initialRosterDepreciationPct: 50, isOpen: true, freePlayerOverallLimit: { enabled:false, minOverall:1, maxOverall:99 }, playerTradeLock:{ enabled:false, gamesRequired:50 }, minimumGamesForMarket:{ enabled:false, gamesRequired:0 }, releaseClause:{ enabled:false, multiplier:2, revalueMultiplier:1.5, protectedGames:50, maxSufferedPerTeam:2, blockDirectRepurchase:true, shieldingEnabled:true, shieldingConversion:1, shieldingMaxPct:100 }, playerReportsEnabled:true, playerOverridesEnabled:true },
                   rosterSettings: { minPlayers: 23, maxPlayers: 30, minBaseRosterPlayers: 0 },
                   economySettings: { version: 2, winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
                   finalPrizeSettings: { firstPlacePrize: 20, lastPlacePercentage: 50 },
@@ -1141,9 +1141,73 @@
           }
           function fullSquadOverall(teamId, ownershipValue = c, catalogValue = n) { return window.ManchaApp.MarketFeature.fullSquadOverall(teamId, ownershipValue, catalogValue); }
           function playerTradeLockSettings(tournament = R) { return window.ManchaApp.MarketFeature.playerTradeLockSettings(tournament); }
-          function playerTradeLockStatus(playerId, teamId, tournament = R, ownershipValue = c, transfersValue = k, matchesValue = null) { let sourceMatches = matchesValue || (tournament && tournament.context && Array.isArray(tournament.context.matches) ? tournament.context.matches : (Array.isArray(tournament && tournament.matches) ? tournament.matches : [])); return window.ManchaApp.MarketFeature.playerTradeLockStatus(playerId, teamId, tournament, ownershipValue, transfersValue, sourceMatches); }
+          function playerTradeLockStatus(playerId, teamId, tournament = R, ownershipValue = c, transfersValue = k, matchesValue = null) {
+            let sourceMatches = matchesValue || (tournament && tournament.context && Array.isArray(tournament.context.matches) ? tournament.context.matches : (Array.isArray(tournament && tournament.matches) ? tournament.matches : []));
+            let clauseLock = releaseClauseContractStatus(playerId, teamId, tournament, sourceMatches);
+            if (clauseLock.locked) return clauseLock;
+            return window.ManchaApp.MarketFeature.playerTradeLockStatus(playerId, teamId, tournament, ownershipValue, transfersValue, sourceMatches);
+          }
           function marketBalanceSettings(tournament = R) { return window.ManchaApp.MarketFeature.marketBalanceSettings(tournament); }
           function marketAccessSettings(tournament = R) { return window.ManchaApp.MarketFeature.marketAccessSettings(tournament); }
+          function marketMinimumGamesSettings(tournament = R) {
+            let settings = tournament && tournament.marketSettings && tournament.marketSettings.minimumGamesForMarket && typeof tournament.marketSettings.minimumGamesForMarket === "object" ? tournament.marketSettings.minimumGamesForMarket : {};
+            return { enabled: settings.enabled === true, gamesRequired: Math.max(0, Math.round(Number(settings.gamesRequired) || 0)) };
+          }
+          function teamPlayedGames(teamId, tournament = R) {
+            if (!teamId || !tournament) return 0;
+            let matches = tournament.context && Array.isArray(tournament.context.matches) ? tournament.context.matches : (Array.isArray(tournament.matches) ? tournament.matches : []);
+            return matches.filter((match) => match && match.played === true && !match.bye && (String(match.homeId) === String(teamId) || String(match.awayId) === String(teamId))).length;
+          }
+          function marketMinimumGamesStatus(teamId, tournament = R) {
+            let settings = marketMinimumGamesSettings(tournament);
+            let played = teamPlayedGames(teamId, tournament);
+            let remaining = Math.max(0, settings.gamesRequired - played);
+            return { enabled:settings.enabled, gamesRequired:settings.gamesRequired, played, remaining, blocked:settings.enabled && remaining > 0 };
+          }
+          function marketMinimumGamesMessage(status) {
+            if (!status || !status.blocked) return "";
+            return `Você precisa disputar pelo menos ${status.gamesRequired} jogos neste campeonato antes de comprar ou vender no mercado. Faltam ${status.remaining} jogo${status.remaining === 1 ? "" : "s"}.`;
+          }
+          function releaseClauseSettings(tournament = R) {
+            let raw=tournament&&tournament.marketSettings&&tournament.marketSettings.releaseClause&&typeof tournament.marketSettings.releaseClause==="object"?tournament.marketSettings.releaseClause:{};
+            return { enabled:raw.enabled===true, multiplier:Math.max(1,Number(raw.multiplier)||2), revalueMultiplier:Math.max(1,Number(raw.revalueMultiplier)||1.5), protectedGames:Math.max(0,Math.round(Number(raw.protectedGames)||0)), maxSufferedPerTeam:Math.max(0,Math.round(Number(raw.maxSufferedPerTeam)||0)), blockDirectRepurchase:raw.blockDirectRepurchase!==false, shieldingEnabled:raw.shieldingEnabled!==false, shieldingConversion:Math.max(.01,Number(raw.shieldingConversion)||1), shieldingMaxPct:Math.max(0,Number(raw.shieldingMaxPct)||0) };
+          }
+          function releaseClauseState(tournament = R) { return tournament&&tournament.releaseClauseState&&typeof tournament.releaseClauseState==="object"?tournament.releaseClauseState:{}; }
+          function releaseClauseContractStatus(playerId, teamId, tournament = R, matchesValue = null) {
+            let state=releaseClauseState(tournament), contracts=state.contracts&&typeof state.contracts==="object"?state.contracts:{}, contract=contracts[String(playerId)]||null;
+            if(!contract||String(contract.teamId||"")!==String(teamId||"")) return {locked:false,gamesRemaining:0,reason:null};
+            let played=teamPlayedGames(teamId,tournament), start=Math.max(0,Number(contract.startGames)||0), required=Math.max(0,Number(contract.gamesRequired)||0), completed=Math.max(0,played-start), remaining=Math.max(0,required-completed);
+            return {locked:remaining>0,gamesRemaining:remaining,gamesCompleted:completed,gamesRequired:required,reason:"release_clause_contract",contract};
+          }
+          function releaseClauseInfo(player, tournament = R) {
+            let settings=releaseClauseSettings(tournament), owner=player&&c?c[String(player.id)]:null, ownerTeamId=owner&&owner.teamId, ownerTeam=ownerTeamId?p.find(team=>team&&String(team.id)===String(ownerTeamId)):null;
+            let state=releaseClauseState(tournament), shieldingMap=state.shielding&&typeof state.shielding==="object"?state.shielding:{}, shieldEntry=shieldingMap[String(player&&player.id)]||null;
+            let base=Math.ceil((Number(player&&player.value)||0)*settings.multiplier), shielding=shieldEntry&&String(shieldEntry.teamId||"")===String(ownerTeamId||"")?Math.max(0,Number(shieldEntry.amount)||0):0;
+            let total=Math.ceil(base+shielding), newValue=Math.ceil((Number(player&&player.value)||0)*settings.revalueMultiplier), sufferedMap=state.sufferedByTeam&&typeof state.sufferedByTeam==="object"?state.sufferedByTeam:{}, suffered=Math.max(0,Number(sufferedMap[String(ownerTeamId)]||0));
+            let contract=ownerTeamId?releaseClauseContractStatus(player&&player.id,ownerTeamId,tournament):{locked:false,gamesRemaining:0};
+            let own=!!(ProfileTeam&&ownerTeamId&&String(ProfileTeam.id)===String(ownerTeamId)), other=!!(ProfileTeam&&ownerTeamId&&String(ProfileTeam.id)!==String(ownerTeamId));
+            let buyerAccess=ProfileTeam?marketMinimumGamesStatus(ProfileTeam.id,tournament):{blocked:true}, sellerAccess=ownerTeamId?marketMinimumGamesStatus(ownerTeamId,tournament):{blocked:true};
+            let sellerSize=ownerTeamId?Object.values(c||{}).filter(item=>item&&String(item.teamId)===String(ownerTeamId)).length:0, buyerSize=ProfileTeam?Object.values(c||{}).filter(item=>item&&String(item.teamId)===String(ProfileTeam.id)).length:0;
+            let minPlayers=Math.max(0,Number(tournament&&tournament.rosterSettings&&tournament.rosterSettings.minPlayers!=null?tournament.rosterSettings.minPlayers:23)||0), maxPlayers=Math.max(1,Number(tournament&&tournament.rosterSettings&&tournament.rosterSettings.maxPlayers!=null?tournament.rosterSettings.maxPlayers:30)||30);
+            let blockedReason=null;
+            if(!settings.enabled) blockedReason="Mecânica desabilitada"; else if(!(tournament&&tournament.marketSettings&&tournament.marketSettings.isOpen!==false)) blockedReason="Mercado fechado"; else if(!other) blockedReason="Disponível apenas para jogadores de outro time"; else if(contract.locked) blockedReason=`Contrato protegido · ${contract.gamesRemaining} jogos restantes`; else if(settings.maxSufferedPerTeam>0&&suffered>=settings.maxSufferedPerTeam) blockedReason="Time protegido contra novas multas"; else if(buyerAccess.blocked) blockedReason=marketMinimumGamesMessage(buyerAccess); else if(sellerAccess.blocked) blockedReason="O vendedor ainda não atingiu o mínimo de jogos para negociar."; else if(sellerSize<=minPlayers) blockedReason=`O time precisa manter pelo menos ${minPlayers} jogadores.`; else if(buyerSize>=maxPlayers) blockedReason=`Seu elenco atingiu o limite de ${maxPlayers} jogadores.`; else if(ProfileTeam&&Number(ProfileTeam.budget||0)<total) blockedReason="Saldo insuficiente";
+            return {settings,owner,ownerTeamId,ownerTeam,own,other,base,shielding,total,newValue,suffered,contract,blocked:!!blockedReason,blockedReason};
+          }
+          async function payReleaseClause(player) {
+            if(!player||!R||!ProfileTeam||!te)return;
+            let info=releaseClauseInfo(player,R); if(info.blocked){window.alert(info.blockedReason||"Não é possível pagar a multa deste jogador.");return;}
+            let sellerName=info.ownerTeam&&info.ownerTeam.name||"outro time";
+            if(!window.confirm(`Pagar a multa rescisória de ${player.name}?\n\nValor atual: ${L(player.value||0)}\nMulta: ${L(info.total)}\nNovo valor: ${L(info.newValue)}\nContrato protegido: ${info.settings.protectedGames} jogos\n\n${sellerName} receberá ${L(info.total)} imediatamente.`))return;
+            try{let fn=window.ManchaApp&&window.ManchaApp.payReleaseClause;if(typeof fn!=="function")throw new Error("Execute o SQL da Multa rescisória e atualize js/supabase.js.");await fn({tournamentId:R.id,playerId:player.id,playerName:player.name,buyerTeamId:ProfileTeam.id,sellerTeamId:info.ownerTeamId,marketValue:Number(player.value)||0,clauseAmount:info.total,actorProfileId:te.id});be(null);window.alert(`${player.name} foi contratado por ${L(info.total)} pagando a multa rescisória.`);}catch(error){console.error("release clause failed",error);window.alert(`Não foi possível pagar a multa. ${error&&error.message?error.message:"Tente novamente."}`);}
+          }
+          async function increaseReleaseClauseShielding(player) {
+            if(!player||!R||!ProfileTeam||!te)return; let info=releaseClauseInfo(player,R), settings=info.settings;
+            if(!settings.enabled||!settings.shieldingEnabled){window.alert("A blindagem da multa está desabilitada.");return;} if(!info.own){window.alert("Você só pode aumentar a multa de jogadores do seu próprio elenco.");return;}
+            let maxShield=info.base*(settings.shieldingMaxPct/100), remaining=Math.max(0,maxShield-info.shielding); if(remaining<=0){window.alert("Este jogador já atingiu a blindagem máxima configurada.");return;}
+            let raw=window.prompt(`Quanto deseja investir na multa de ${player.name}?\n\nMulta atual: ${L(info.total)}\nBlindagem atual: +${L(info.shielding)}\nSaldo: ${L(ProfileTeam.budget||0)}\n\nCada 1M gasto adiciona ${settings.shieldingConversion}M à multa.`); if(raw==null)return; let spend=Number(String(raw).replace(",",".")); if(!Number.isFinite(spend)||spend<=0){window.alert("Informe um valor válido.");return;}
+            if(spend>Number(ProfileTeam.budget||0)){window.alert("Saldo insuficiente para essa blindagem.");return;} if(spend*settings.shieldingConversion>remaining+.0001){window.alert(`A blindagem máxima restante é ${L(remaining)}. Reduza o investimento.`);return;}
+            try{let fn=window.ManchaApp&&window.ManchaApp.increaseReleaseClauseShielding;if(typeof fn!=="function")throw new Error("Execute o SQL da Multa rescisória e atualize js/supabase.js.");await fn({tournamentId:R.id,playerId:player.id,teamId:ProfileTeam.id,marketValue:Number(player.value)||0,spendAmount:spend,expectedCurrentShield:info.shielding,actorProfileId:te.id});be(null);window.alert(`Multa de ${player.name} aumentada com sucesso.`);}catch(error){console.error("release clause shielding failed",error);window.alert(`Não foi possível aumentar a multa. ${error&&error.message?error.message:"Tente novamente."}`);}
+          }
           function inferPlayerAcquisition(playerId, ownershipItem, transfersValue = k) { return window.ManchaApp.MarketFeature.inferPlayerAcquisition(playerId, ownershipItem, transfersValue); }
           function isInitialRosterPlayer(playerId, teamId, ownershipValue = c, transfersValue = k) { return window.ManchaApp.MarketFeature.isInitialRosterPlayer(playerId, teamId, ownershipValue, transfersValue); }
           function baseRosterSaleStatus(playerId, teamId, tournament = R, ownershipValue = c, transfersValue = k) { return window.ManchaApp.MarketFeature.baseRosterSaleStatus(playerId, teamId, tournament, ownershipValue, transfersValue); }
@@ -1154,6 +1218,8 @@
           function kt(o) {
             let status = Pe(o);
             if (!ProfileTeam) return;
+            let accessStatus = marketMinimumGamesStatus(ProfileTeam.id);
+            if (accessStatus.blocked) { window.alert(marketMinimumGamesMessage(accessStatus)); return; }
             let operationBlock = marketOperationBlock(o, status);
             if (operationBlock.blocked) { window.alert(operationBlock.message); return; }
             let maxPlayers = Math.max(1, Number(R && R.rosterSettings && R.rosterSettings.maxPlayers != null ? R.rosterSettings.maxPlayers : 30) || 30);
@@ -1213,7 +1279,11 @@
           }
           async function sendTradeOffer(player, amount) {
             if (!R || !ProfileTeam || !marketTournamentId) return;
+            let buyerAccess = marketMinimumGamesStatus(ProfileTeam.id, marketTournament || R);
+            if (buyerAccess.blocked) { window.alert(marketMinimumGamesMessage(buyerAccess)); return; }
             let status = Pe(player), sellerTeamId = status.teamId;
+            let sellerMarketAccess = sellerTeamId ? marketMinimumGamesStatus(sellerTeamId, marketTournament || R) : null;
+            if (sellerMarketAccess && sellerMarketAccess.blocked) { window.alert("O vendedor ainda não atingiu o número mínimo de jogos para negociar no mercado."); return; }
             let sellerTradeLock = sellerTeamId ? playerTradeLockStatus(player.id, sellerTeamId, marketTournament || R) : null;
             if (sellerTradeLock && sellerTradeLock.locked) { window.alert(`Este jogador ainda precisa completar mais ${sellerTradeLock.gamesRemaining} jogos no time atual antes de poder ser negociado.`); return; }
             let operationBlock = marketOperationBlock(player, status, marketTournament || R);
@@ -1245,6 +1315,9 @@
               let owner = tournament.context && tournament.context.ownership && tournament.context.ownership[player.id];
               let actualSellerId = owner && owner.teamId != null ? owner.teamId : sellerTeamId;
               if (!actualSellerId || String(actualSellerId) === String(ProfileTeam.id)) { fail("owner_changed"); return null; }
+              let buyerAccessAtomic = marketMinimumGamesStatus(ProfileTeam.id, tournament);
+              let sellerAccessAtomic = marketMinimumGamesStatus(actualSellerId, tournament);
+              if (buyerAccessAtomic.blocked || sellerAccessAtomic.blocked) { fail("minimum_games_market"); return null; }
               let lock = playerTradeLockStatus(player.id, actualSellerId, tournament, tournament.context && tournament.context.ownership || {}, tournament.context && tournament.context.transfers || [], tournament.context && tournament.context.matches || []);
               if (lock.locked) { fail("player_trade_locked"); return null; }
               return { ...offers, [id]:{ ...offer, sellerTeamId:actualSellerId } };
@@ -1257,6 +1330,7 @@
               duplicate:"Você já possui uma negociação em andamento por este jogador.",
               owner_changed:"O jogador não pertence mais ao time selecionado.",
               player_trade_locked:"Este jogador ainda não cumpriu o número mínimo de jogos no time atual.",
+              minimum_games_market:"Você ainda não atingiu o número mínimo de jogos para negociar no mercado.",
               championship_not_found:"O campeonato da negociação não foi encontrado.",
               database_unavailable:"Não foi possível acessar o Supabase."
             };
@@ -1265,11 +1339,16 @@
           async function updateTradeOffer(offerId, action, amount) {
             if (!ProfileTeam || !marketTournamentId) return;
             if (!marketAccessSettings(marketTournament || R).isOpen) { window.alert("O mercado está fechado pela administração."); return; }
+            if (action === "counter") { let accessStatus = marketMinimumGamesStatus(ProfileTeam.id, marketTournament || R); if (accessStatus.blocked) { window.alert(marketMinimumGamesMessage(accessStatus)); return; } }
             let result = await mutateTradeOffersAtomic(`offer-update:${marketTournamentId}:${offerId}`, (offers, tournament, fail) => {
               let offer = offers[offerId];
               if (!offer || !isOfferOpen(offer)) { fail("unavailable"); return null; }
               let isBuyer = String(offer.buyerTeamId) === String(ProfileTeam.id), isSeller = String(offer.sellerTeamId) === String(ProfileTeam.id);
               if (!isBuyer && !isSeller) { fail("forbidden"); return null; }
+              if (action === "counter") {
+                let accessStatus = marketMinimumGamesStatus(ProfileTeam.id, tournament);
+                if (accessStatus.blocked) { fail("minimum_games_market"); return null; }
+              }
               if (isSeller && action === "counter") {
                 let lock = playerTradeLockStatus(offer.playerId, offer.sellerTeamId, tournament, tournament.context && tournament.context.ownership || {}, tournament.context && tournament.context.transfers || [], tournament.context && tournament.context.matches || []);
                 if (lock.locked) { fail("player_trade_locked"); return null; }
@@ -1292,7 +1371,7 @@
               return { ...offers, [offerId]:next };
             }, "trade_offer_updated");
             if (!result.committed && result.reason !== "busy") {
-              let messages = { unavailable:"A proposta não está mais disponível.", forbidden:"Você não pode alterar esta proposta.", not_your_turn:"Aguarde a resposta do outro usuário.", player_trade_locked:"Este jogador ainda não cumpriu o número mínimo de jogos no time atual." };
+              let messages = { unavailable:"A proposta não está mais disponível.", forbidden:"Você não pode alterar esta proposta.", not_your_turn:"Aguarde a resposta do outro usuário.", player_trade_locked:"Este jogador ainda não cumpriu o número mínimo de jogos no time atual.", minimum_games_market:"Você ainda não atingiu o número mínimo de jogos para negociar no mercado." };
               window.alert(messages[result.reason] || "Não foi possível atualizar a proposta.");
             }
           }
@@ -1313,6 +1392,13 @@
             let localSellerSize = Object.values(localOwnership).filter((item) => item && String(item.teamId) === String(localOffer.sellerTeamId)).length;
             if (!localBuyer || !localSeller) {
               window.alert("Não foi possível localizar os times desta negociação no campeonato atual.");
+              return;
+            }
+            let localBuyerAccess = marketMinimumGamesStatus(localBuyer.id, R);
+            let localSellerAccess = marketMinimumGamesStatus(localSeller.id, R);
+            if (localBuyerAccess.blocked || localSellerAccess.blocked) {
+              let blockedStatus = String(ProfileTeam.id) === String(localBuyer.id) ? localBuyerAccess : localSellerAccess;
+              window.alert(marketMinimumGamesMessage(blockedStatus.blocked ? blockedStatus : (localBuyerAccess.blocked ? localBuyerAccess : localSellerAccess)));
               return;
             }
             if (localBuyerSize >= maxPlayers) {
@@ -1372,6 +1458,7 @@
               let buyer = teams.find((team) => team && String(team.id) === String(offer.buyerTeamId));
               let seller = teams.find((team) => team && String(team.id) === String(offer.sellerTeamId));
               if (!buyer || !seller) { failureReason = "team_not_found"; return; }
+              if (marketMinimumGamesStatus(buyer.id, tournament).blocked || marketMinimumGamesStatus(seller.id, tournament).blocked) { failureReason = "minimum_games_market"; return; }
 
               let minPlayers = Math.max(0, Number(tournament.rosterSettings && tournament.rosterSettings.minPlayers != null ? tournament.rosterSettings.minPlayers : 23) || 0);
               let maxPlayers = Math.max(minPlayers, Number(tournament.rosterSettings && tournament.rosterSettings.maxPlayers != null ? tournament.rosterSettings.maxPlayers : 30) || 30);
@@ -1428,7 +1515,8 @@
                 market_balance_lock: "A transferência está bloqueada pela regra de equilíbrio do mercado. A proposta continua aberta.",
                 market_closed: "O mercado está fechado. A proposta continuará aberta até a reabertura.",
                 player_trade_locked: "Este jogador ainda não cumpriu o número mínimo de jogos no time atual. A proposta continuará aberta.",
-                base_roster_minimum: "O vendedor precisa manter o número mínimo de jogadores do elenco-base. A proposta continuará aberta."
+                base_roster_minimum: "O vendedor precisa manter o número mínimo de jogadores do elenco-base. A proposta continuará aberta.",
+                minimum_games_market: "Um dos participantes ainda não atingiu o número mínimo de jogos para negociar. A proposta continuará aberta."
               };
               window.alert(messages[failureReason] || "A transferência não pôde ser concluída.");
             }, false);
@@ -1437,6 +1525,8 @@
             if (!R || !o || !y) return;
             let buyerLocal = $(y);
             if (!buyerLocal) return;
+            let buyerAccess = marketMinimumGamesStatus(y, R);
+            if (buyerAccess.blocked) { window.alert(marketMinimumGamesMessage(buyerAccess)); return; }
             let operationBlock = marketOperationBlock(o, i);
             if (operationBlock.blocked) { window.alert(operationBlock.message); return; }
             let maxPlayers = Math.max(1, Number(R.rosterSettings && R.rosterSettings.maxPlayers != null ? R.rosterSettings.maxPlayers : 30) || 30);
@@ -1455,9 +1545,11 @@
               let teams = Array.isArray(context.teams) ? context.teams.map((team)=>({...team})) : [];
               let buyer = teams.find((team)=>team && String(team.id)===String(y));
               if (!buyer) { failureReason="team_not_found"; return null; }
+              if (marketMinimumGamesStatus(buyer.id, tournament).blocked) { failureReason="minimum_games_market"; return null; }
               let playerKey = Object.keys(ownership).find((key)=>String(key)===String(o.id)) || String(o.id);
               let currentOwner = ownership[playerKey];
               if (i.kind === "free" && currentOwner && currentOwner.teamId) { failureReason="player_unavailable"; return null; }
+              if (currentOwner && currentOwner.teamId && String(currentOwner.teamId) !== String(buyer.id) && marketMinimumGamesStatus(currentOwner.teamId, tournament).blocked) { failureReason="minimum_games_market"; return null; }
               if ((Number(buyer.budget)||0) < price) { failureReason="insufficient_funds"; return null; }
               let rosterSize = Object.values(ownership).filter((item)=>item && String(item.teamId)===String(buyer.id)).length;
               let localMax = Math.max(1, Number(tournament.rosterSettings && tournament.rosterSettings.maxPlayers != null ? tournament.rosterSettings.maxPlayers : 30)||30);
@@ -1500,7 +1592,7 @@
                 signalImportantUpdate("player_purchase", tournamentId);
                 return;
               }
-              let messages={market_closed:"O mercado está fechado pela administração.",overall_min_limit:"Este jogador está abaixo do overall mínimo permitido para jogadores livres.",overall_max_limit:"Este jogador está acima do overall máximo permitido para jogadores livres.",overall_limit:"Este jogador está fora do intervalo de overall permitido para jogadores livres.",market_balance_lock:"Esta compra está bloqueada pela regra de equilíbrio do mercado.",insufficient_funds:"Saldo insuficiente para esta compra.",buyer_roster_full:"Seu elenco atingiu o limite máximo de jogadores.",player_unavailable:"Este jogador não está mais livre no mercado.",team_not_found:"Seu time não foi encontrado.",championship_not_found:"O campeonato não foi encontrado."};
+              let messages={market_closed:"O mercado está fechado pela administração.",overall_min_limit:"Este jogador está abaixo do overall mínimo permitido para jogadores livres.",overall_max_limit:"Este jogador está acima do overall máximo permitido para jogadores livres.",overall_limit:"Este jogador está fora do intervalo de overall permitido para jogadores livres.",market_balance_lock:"Esta compra está bloqueada pela regra de equilíbrio do mercado.",insufficient_funds:"Saldo insuficiente para esta compra.",buyer_roster_full:"Seu elenco atingiu o limite máximo de jogadores.",player_unavailable:"Este jogador não está mais livre no mercado.",team_not_found:"Seu time não foi encontrado.",minimum_games_market:"Um dos participantes ainda não atingiu o número mínimo de jogos para negociar no mercado.",championship_not_found:"O campeonato não foi encontrado."};
               window.alert(messages[failureReason]||"A compra não pôde ser concluída.");
             }, false);
           }
@@ -1509,6 +1601,8 @@
           }
           function wt(o, i, y) {
             if (!marketAccessSettings(R).isOpen) { window.alert("O mercado está fechado pela administração."); return; }
+            let accessStatus = marketMinimumGamesStatus(i, R);
+            if (accessStatus.blocked) { window.alert(marketMinimumGamesMessage(accessStatus)); return; }
             let tradeLock = playerTradeLockStatus(o.id, i);
             if (tradeLock.locked) { window.alert(`Este jogador ainda precisa completar mais ${tradeLock.gamesRemaining} jogos no seu time antes de ser negociado.`); return; }
             let baseRosterCheck = baseRosterSaleStatus(o.id, i);
@@ -1524,6 +1618,8 @@
           function It(o) {
             if (!R || !ProfileTeam || !o) return;
             if (!marketAccessSettings(R).isOpen) { window.alert("O mercado está fechado pela administração."); return; }
+            let accessStatus = marketMinimumGamesStatus(ProfileTeam.id, R);
+            if (accessStatus.blocked) { window.alert(marketMinimumGamesMessage(accessStatus)); return; }
             let tradeLock = playerTradeLockStatus(o.id, ProfileTeam.id);
             if (tradeLock.locked) { window.alert(`Este jogador ainda precisa completar mais ${tradeLock.gamesRemaining} jogos no seu time antes de ser negociado.`); return; }
             let baseRosterCheck = baseRosterSaleStatus(o.id, ProfileTeam.id);
@@ -1540,6 +1636,8 @@
           function confirmMarketSale(o) {
             if (!R || !ProfileTeam || !o) return;
             if (!marketAccessSettings(R).isOpen) { window.alert("O mercado está fechado pela administração."); return; }
+            let accessStatus = marketMinimumGamesStatus(ProfileTeam.id, R);
+            if (accessStatus.blocked) { window.alert(marketMinimumGamesMessage(accessStatus)); return; }
             let localSaleRule = marketSaleDepreciation(R, o.id, ProfileTeam.id);
             let amount = Math.ceil((Number(o.value) || 0) * (1 - localSaleRule.depreciationPct / 100));
             let depreciationPct = localSaleRule.depreciationPct;
@@ -1549,6 +1647,7 @@
               let ownership = { ...(context.ownership || {}) };
               let current = ownership[o.id];
               if (!current || current.teamId !== teamId) return null;
+              if (marketMinimumGamesStatus(teamId, tournament).blocked) { failureReason = "minimum_games_market"; return null; }
               let serverTradeLock = playerTradeLockStatus(o.id, teamId, tournament, ownership, context.transfers || [], context.matches || tournament.matches || []);
               if (serverTradeLock.locked) { failureReason = "player_trade_locked"; return null; }
               let serverBaseRosterCheck = baseRosterSaleStatus(o.id, teamId, tournament, ownership, context.transfers || []);
@@ -1598,7 +1697,7 @@
             }, (error, committed, snapshot) => {
               endMarketAction(actionKey);
               if (error) window.alert("Não foi possível concluir a venda. Tente novamente.");
-              else if (!committed) window.alert(failureReason === "player_trade_locked" ? "Este jogador ainda não cumpriu o número mínimo de jogos no seu time." : failureReason === "base_roster_minimum" ? "A venda foi bloqueada porque o time precisa manter o mínimo de jogadores do elenco-base." : "A venda foi cancelada porque o jogador não pertence mais ao seu elenco.");
+              else if (!committed) window.alert(failureReason === "minimum_games_market" ? "Você ainda não atingiu o número mínimo de jogos para negociar no mercado." : failureReason === "player_trade_locked" ? "Este jogador ainda não cumpriu o número mínimo de jogos no seu time." : failureReason === "base_roster_minimum" ? "A venda foi bloqueada porque o time precisa manter o mínimo de jogadores do elenco-base." : "A venda foi cancelada porque o jogador não pertence mais ao seu elenco.");
               else {
                 applyConfirmedTournamentSnapshot(snapshot);
                 setSaleModal(null);
@@ -2407,12 +2506,12 @@
             let safeField = field === "initialRosterDepreciationPct" ? "initialRosterDepreciationPct" : "depreciationPct";
             ae(m.map((item) => item.id === R.id ? { ...item, marketSettings: { ...(item.marketSettings || {}), [safeField]: pct } } : item));
           }
-          function updateMarketAccessRules(isOpen, limitEnabled, minOverall, maxOverall, tradeLockEnabled, tradeLockGames, playerReportsEnabled, playerOverridesEnabled) {
+          function updateMarketAccessRules(isOpen, limitEnabled, minOverall, maxOverall, tradeLockEnabled, tradeLockGames, playerReportsEnabled, playerOverridesEnabled, minimumGamesEnabled, minimumGamesRequired, releaseClauseConfig) {
             if (!R) return;
             let normalizedMin = Math.min(99, Math.max(1, Math.round(Number(minOverall) || 1)));
             let normalizedMax = Math.min(99, Math.max(1, Math.round(Number(maxOverall) || 99)));
             if (normalizedMin > normalizedMax) { window.alert("O overall mínimo não pode ser maior que o overall máximo."); return; }
-            let nextSettings = { ...(R.marketSettings || {}), isOpen: isOpen === true, playerReportsEnabled: playerReportsEnabled !== false, playerOverridesEnabled: playerOverridesEnabled !== false, freePlayerOverallLimit: { enabled: limitEnabled === true, minOverall: normalizedMin, maxOverall: normalizedMax }, playerTradeLock:{ enabled:tradeLockEnabled === true, gamesRequired:Math.max(0,Math.round(Number(tradeLockGames)||0)) } };
+            let rc=releaseClauseConfig&&typeof releaseClauseConfig==="object"?releaseClauseConfig:{}; let nextSettings = { ...(R.marketSettings || {}), isOpen: isOpen === true, playerReportsEnabled: playerReportsEnabled !== false, playerOverridesEnabled: playerOverridesEnabled !== false, freePlayerOverallLimit: { enabled: limitEnabled === true, minOverall: normalizedMin, maxOverall: normalizedMax }, playerTradeLock:{ enabled:tradeLockEnabled === true, gamesRequired:Math.max(0,Math.round(Number(tradeLockGames)||0)) }, minimumGamesForMarket:{ enabled:minimumGamesEnabled === true, gamesRequired:Math.max(0,Math.round(Number(minimumGamesRequired)||0)) }, releaseClause:{ enabled:rc.enabled===true, multiplier:Math.max(1,Number(rc.multiplier)||2), revalueMultiplier:Math.max(1,Number(rc.revalueMultiplier)||1.5), protectedGames:Math.max(0,Math.round(Number(rc.protectedGames)||0)), maxSufferedPerTeam:Math.max(0,Math.round(Number(rc.maxSufferedPerTeam)||0)), blockDirectRepurchase:rc.blockDirectRepurchase!==false, shieldingEnabled:rc.shieldingEnabled!==false, shieldingConversion:Math.max(.01,Number(rc.shieldingConversion)||1), shieldingMaxPct:Math.max(0,Number(rc.shieldingMaxPct)||0) } };
             ae(m.map((item) => item.id === R.id ? { ...item, marketSettings: nextSettings } : item));
           }
           function updateMarketBalanceRules(enabled, maxDifference) {
@@ -3219,6 +3318,9 @@
                         onOffer: (player) => { be(null); kt(player); },
                         onBuy: (player) => { be(null); kt(player); },
                         activeTeam: ProfileTeam,
+                        releaseClauseOf: (player) => releaseClauseInfo(player,R),
+                        onPayReleaseClause: payReleaseClause,
+                        onIncreaseReleaseClause: increaseReleaseClauseShielding,
                         playerReportsEnabled: !(R && R.marketSettings && R.marketSettings.playerReportsEnabled === false),
                         onReport: (player) => {
                           if (R && R.marketSettings && R.marketSettings.playerReportsEnabled === false) return;
@@ -5222,7 +5324,7 @@
             value(rightNumber,hasRight,"right")
           );
         }
-        function ro({ player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport, playerReportsEnabled = true }) {
+        function ro({ player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport, playerReportsEnabled = true, releaseClauseOf, onPayReleaseClause, onIncreaseReleaseClause }) {
           let detailContext = e && e.player ? e : { player:e, fromOtherTeam:false };
           e = detailContext.player;
           let [comparePlayer,setComparePlayer] = b(null), [pickerOpen,setPickerOpen] = b(false), [compareQuery,setCompareQuery] = b("");
@@ -5253,11 +5355,19 @@
           let sideValue = String(e.favouredSide || "").trim().toLowerCase();
           let sideLabel = sideValue === "right" ? "Direito" : sideValue === "left" ? "Esquerdo" : sideValue === "both" ? "Ambos" : (e.favouredSide || "—");
           let detailBalanceBlocked = detailContext.balanceCheck && detailContext.balanceCheck.allowed === false;
-          let footerAction = !comparePlayer && (detailContext.canBuy
+          let clauseInfo = releaseClauseOf && e ? releaseClauseOf(e) : null;
+          let normalAction = (detailContext.canBuy
             ? React.createElement("button", { className:"tapbtn", disabled: !activeTeam || Number(activeTeam.budget || 0) < Number(e.value || 0) || detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>onBuy&&onBuy(e), style:{ ...M, ...W, width:"100%", margin:0, opacity: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) && !detailBalanceBlocked ? 1 : .45, cursor: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) && !detailBalanceBlocked ? "pointer" : "not-allowed" } }, detailBalanceBlocked ? "Bloqueado pelo equilíbrio" : activeTeam && Number(activeTeam.budget || 0) < Number(e.value || 0) ? "Saldo insuficiente" : `Comprar · ${L(e.value)}`)
             : detailContext.fromOtherTeam && onOffer
               ? React.createElement("button", { className:"tapbtn", disabled:detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>!detailBalanceBlocked&&onOffer(e), style:{ ...M, ...W, width:"100%", margin:0, opacity:detailBalanceBlocked?.45:1, cursor:detailBalanceBlocked?"not-allowed":"pointer" } }, detailBalanceBlocked?"Bloqueado pelo equilíbrio":"Fazer proposta")
               : null);
+          let clauseAction = !comparePlayer && clauseInfo && clauseInfo.settings && clauseInfo.settings.enabled && (clauseInfo.other || clauseInfo.own) ? React.createElement("div",{style:{...E,padding:14,marginTop:10}},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start"}},React.createElement("div",null,React.createElement("strong",{style:{fontSize:13}},"Multa rescisória"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},`Base ${L(clauseInfo.base)}${clauseInfo.shielding>0?` · Blindagem +${L(clauseInfo.shielding)}`:""}`)),React.createElement("strong",{style:{fontSize:18,color:"var(--heading)"}},L(clauseInfo.total))),
+            clauseInfo.contract&&clauseInfo.contract.locked&&React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:9}},`🛡 Contrato protegido · ${clauseInfo.contract.gamesRemaining} jogos restantes`),
+            clauseInfo.other&&React.createElement("button",{className:"tapbtn",disabled:clauseInfo.blocked,onClick:()=>!clauseInfo.blocked&&onPayReleaseClause&&onPayReleaseClause(e),style:{...M,...W,width:"100%",marginTop:12,opacity:clauseInfo.blocked?.45:1}},clauseInfo.blocked?clauseInfo.blockedReason:"Pagar multa"),
+            clauseInfo.own&&clauseInfo.settings.shieldingEnabled&&React.createElement("button",{className:"tapbtn",onClick:()=>onIncreaseReleaseClause&&onIncreaseReleaseClause(e),style:{...M,width:"100%",marginTop:12}},"Aumentar multa")
+          ):null;
+          let footerAction = !comparePlayer ? React.createElement("div",{style:{width:"100%"}},normalAction,clauseAction) : null;
           let compactPlayerHeader = (player, isRight, opponent) => {
             let playerOverall=Number(player&&player.overall), opponentOverall=Number(opponent&&opponent.overall);
             let playerValue=Number(player&&player.value), opponentValue=Number(opponent&&opponent.value);
@@ -5599,8 +5709,10 @@
           let settings=tournament&&tournament.marketSettings&&typeof tournament.marketSettings==="object"?tournament.marketSettings:{};
           let limit=settings.freePlayerOverallLimit&&typeof settings.freePlayerOverallLimit==="object"?settings.freePlayerOverallLimit:{};
           let tradeLock=settings.playerTradeLock&&typeof settings.playerTradeLock==="object"?settings.playerTradeLock:{};
-          let [isOpen,setIsOpen]=b(settings.isOpen!==false),[reportsEnabled,setReportsEnabled]=b(settings.playerReportsEnabled!==false),[overridesEnabled,setOverridesEnabled]=b(settings.playerOverridesEnabled!==false),[limitEnabled,setLimitEnabled]=b(limit.enabled===true),[minOverall,setMinOverall]=b(limit.minOverall!=null?limit.minOverall:1),[maxOverall,setMaxOverall]=b(limit.maxOverall!=null?limit.maxOverall:99),[tradeLockEnabled,setTradeLockEnabled]=b(tradeLock.enabled===true),[tradeLockGames,setTradeLockGames]=b(tradeLock.gamesRequired!=null?tradeLock.gamesRequired:50);
-          He(()=>{setIsOpen(settings.isOpen!==false);setReportsEnabled(settings.playerReportsEnabled!==false);setOverridesEnabled(settings.playerOverridesEnabled!==false);setLimitEnabled(limit.enabled===true);setMinOverall(limit.minOverall!=null?limit.minOverall:1);setMaxOverall(limit.maxOverall!=null?limit.maxOverall:99);setTradeLockEnabled(tradeLock.enabled===true);setTradeLockGames(tradeLock.gamesRequired!=null?tradeLock.gamesRequired:50)},[tournament&&tournament.id,settings.isOpen,settings.playerReportsEnabled,settings.playerOverridesEnabled,limit.enabled,limit.minOverall,limit.maxOverall,tradeLock.enabled,tradeLock.gamesRequired]);
+          let minimumGames=settings.minimumGamesForMarket&&typeof settings.minimumGamesForMarket==="object"?settings.minimumGamesForMarket:{};
+          let releaseClause=settings.releaseClause&&typeof settings.releaseClause==="object"?settings.releaseClause:{};
+          let [isOpen,setIsOpen]=b(settings.isOpen!==false),[reportsEnabled,setReportsEnabled]=b(settings.playerReportsEnabled!==false),[overridesEnabled,setOverridesEnabled]=b(settings.playerOverridesEnabled!==false),[limitEnabled,setLimitEnabled]=b(limit.enabled===true),[minOverall,setMinOverall]=b(limit.minOverall!=null?limit.minOverall:1),[maxOverall,setMaxOverall]=b(limit.maxOverall!=null?limit.maxOverall:99),[tradeLockEnabled,setTradeLockEnabled]=b(tradeLock.enabled===true),[tradeLockGames,setTradeLockGames]=b(tradeLock.gamesRequired!=null?tradeLock.gamesRequired:50),[minimumGamesEnabled,setMinimumGamesEnabled]=b(minimumGames.enabled===true),[minimumGamesRequired,setMinimumGamesRequired]=b(minimumGames.gamesRequired!=null?minimumGames.gamesRequired:0),[rcEnabled,setRcEnabled]=b(releaseClause.enabled===true),[rcMultiplier,setRcMultiplier]=b(releaseClause.multiplier!=null?releaseClause.multiplier:2),[rcRevalue,setRcRevalue]=b(releaseClause.revalueMultiplier!=null?releaseClause.revalueMultiplier:1.5),[rcProtectedGames,setRcProtectedGames]=b(releaseClause.protectedGames!=null?releaseClause.protectedGames:50),[rcMaxSuffered,setRcMaxSuffered]=b(releaseClause.maxSufferedPerTeam!=null?releaseClause.maxSufferedPerTeam:2),[rcRepurchase,setRcRepurchase]=b(releaseClause.blockDirectRepurchase!==false),[rcShielding,setRcShielding]=b(releaseClause.shieldingEnabled!==false),[rcShieldConversion,setRcShieldConversion]=b(releaseClause.shieldingConversion!=null?releaseClause.shieldingConversion:1),[rcShieldMax,setRcShieldMax]=b(releaseClause.shieldingMaxPct!=null?releaseClause.shieldingMaxPct:100);
+          He(()=>{setIsOpen(settings.isOpen!==false);setReportsEnabled(settings.playerReportsEnabled!==false);setOverridesEnabled(settings.playerOverridesEnabled!==false);setLimitEnabled(limit.enabled===true);setMinOverall(limit.minOverall!=null?limit.minOverall:1);setMaxOverall(limit.maxOverall!=null?limit.maxOverall:99);setTradeLockEnabled(tradeLock.enabled===true);setTradeLockGames(tradeLock.gamesRequired!=null?tradeLock.gamesRequired:50);setMinimumGamesEnabled(minimumGames.enabled===true);setMinimumGamesRequired(minimumGames.gamesRequired!=null?minimumGames.gamesRequired:0);setRcEnabled(releaseClause.enabled===true);setRcMultiplier(releaseClause.multiplier!=null?releaseClause.multiplier:2);setRcRevalue(releaseClause.revalueMultiplier!=null?releaseClause.revalueMultiplier:1.5);setRcProtectedGames(releaseClause.protectedGames!=null?releaseClause.protectedGames:50);setRcMaxSuffered(releaseClause.maxSufferedPerTeam!=null?releaseClause.maxSufferedPerTeam:2);setRcRepurchase(releaseClause.blockDirectRepurchase!==false);setRcShielding(releaseClause.shieldingEnabled!==false);setRcShieldConversion(releaseClause.shieldingConversion!=null?releaseClause.shieldingConversion:1);setRcShieldMax(releaseClause.shieldingMaxPct!=null?releaseClause.shieldingMaxPct:100)},[tournament&&tournament.id,settings.isOpen,settings.playerReportsEnabled,settings.playerOverridesEnabled,limit.enabled,limit.minOverall,limit.maxOverall,tradeLock.enabled,tradeLock.gamesRequired,minimumGames.enabled,minimumGames.gamesRequired,releaseClause.enabled,releaseClause.multiplier,releaseClause.revalueMultiplier,releaseClause.protectedGames,releaseClause.maxSufferedPerTeam,releaseClause.blockDirectRepurchase,releaseClause.shieldingEnabled,releaseClause.shieldingConversion,releaseClause.shieldingMaxPct]);
           return React.createElement("div",{style:{marginTop:18,paddingTop:18,borderTop:"1px solid var(--border)"}},
             React.createElement("h3",{style:{margin:"0 0 6px"}},"Mercado"),
             React.createElement("div",{style:{fontSize:12,color:"var(--muted)",lineHeight:1.5,marginBottom:14}},"Controle quando as negociações podem acontecer e o intervalo de overall permitido para compras diretas de jogadores livres."),
@@ -5616,9 +5728,30 @@
               Number(minOverall)>Number(maxOverall)&&React.createElement("div",{style:{fontSize:11.5,color:"var(--danger)",marginTop:8}},"O overall mínimo não pode ser maior que o máximo.")
             ),
             React.createElement("div",{style:{height:1,background:"var(--border)",margin:"18px 0"}}),
+            React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Exigir jogos para negociar"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3,lineHeight:1.4}},"Bloqueia compras, vendas, ofertas, contrapropostas e aceitações até o time atingir o mínimo de partidas jogadas no campeonato.")),React.createElement("input",{type:"checkbox",checked:minimumGamesEnabled,onChange:(event)=>setMinimumGamesEnabled(event.target.checked)})),
+            minimumGamesEnabled&&React.createElement("div",null,React.createElement("label",{style:P},"Mínimo de jogos do usuário"),React.createElement("input",{type:"number",min:1,max:999,step:1,value:minimumGamesRequired,onChange:(event)=>setMinimumGamesRequired(event.target.value),style:q}),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:7,lineHeight:1.4}},"O usuário continua podendo visualizar o mercado, mas só negocia depois que seu time disputar essa quantidade de partidas.")),
+            React.createElement("div",{style:{height:1,background:"var(--border)",margin:"18px 0"}}),
             React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"12px 0"}},React.createElement("span",null,React.createElement("strong",null,"Travar revenda após contratação"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3,lineHeight:1.4}},"Jogadores comprados do mercado ou de outro usuário precisam cumprir jogos no novo time antes de serem negociados novamente. A regra também vale para compras antigas que possam ser identificadas.")),React.createElement("input",{type:"checkbox",checked:tradeLockEnabled,onChange:(event)=>setTradeLockEnabled(event.target.checked)})),
             tradeLockEnabled&&React.createElement("div",null,React.createElement("label",{style:P},"Jogos necessários no novo time"),React.createElement("input",{type:"number",min:1,max:999,step:1,value:tradeLockGames,onChange:(event)=>setTradeLockGames(event.target.value),style:q}),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:7,lineHeight:1.4}},"O cálculo usa as partidas do time depois da data da aquisição. Não gera consultas adicionais por jogador.")),
-            React.createElement("button",{onClick:()=>onSave(isOpen,limitEnabled,minOverall,maxOverall,tradeLockEnabled,tradeLockGames,reportsEnabled,overridesEnabled),disabled:limitEnabled&&Number(minOverall)>Number(maxOverall),style:{...M,...W,marginTop:12,opacity:limitEnabled&&Number(minOverall)>Number(maxOverall)?.55:1}},"Salvar regras do mercado")
+            React.createElement("div",{style:{height:1,background:"var(--border)",margin:"18px 0"}}),
+            React.createElement("h4",{style:{margin:"0 0 4px",fontSize:14}},"Multa rescisória"),
+            React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",lineHeight:1.45,marginBottom:8}},"Permite contratar jogadores de outros times pagando uma multa maior que o valor de mercado. O dono pode gastar saldo para blindar a multa."),
+            React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"10px 0"}},React.createElement("strong",null,"Ativar multa rescisória"),React.createElement("input",{type:"checkbox",checked:rcEnabled,onChange:e=>setRcEnabled(e.target.checked)})),
+            rcEnabled&&React.createElement(React.Fragment,null,
+              React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}},
+                React.createElement("div",null,React.createElement("label",{style:P},"Preço da multa (× valor)"),React.createElement("input",{type:"number",min:1,step:.1,value:rcMultiplier,onChange:e=>setRcMultiplier(e.target.value),style:q})),
+                React.createElement("div",null,React.createElement("label",{style:P},"Novo valor (× valor anterior)"),React.createElement("input",{type:"number",min:1,step:.1,value:rcRevalue,onChange:e=>setRcRevalue(e.target.value),style:q})),
+                React.createElement("div",null,React.createElement("label",{style:P},"Contrato protegido (jogos)"),React.createElement("input",{type:"number",min:0,step:1,value:rcProtectedGames,onChange:e=>setRcProtectedGames(e.target.value),style:q})),
+                React.createElement("div",null,React.createElement("label",{style:P},"Máximo sofrido por time"),React.createElement("input",{type:"number",min:0,step:1,value:rcMaxSuffered,onChange:e=>setRcMaxSuffered(e.target.value),style:q}))
+              ),
+              React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"10px 0"}},React.createElement("span",null,React.createElement("strong",null,"Bloquear recompra direta"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},"O antigo dono não pode recomprar diretamente do time que levou o jogador.")),React.createElement("input",{type:"checkbox",checked:rcRepurchase,onChange:e=>setRcRepurchase(e.target.checked)})),
+              React.createElement("label",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:12,padding:"10px 0"}},React.createElement("span",null,React.createElement("strong",null,"Permitir blindagem"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},"O dono pode gastar saldo para aumentar a multa de um jogador.")),React.createElement("input",{type:"checkbox",checked:rcShielding,onChange:e=>setRcShielding(e.target.checked)})),
+              rcShielding&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}},
+                React.createElement("div",null,React.createElement("label",{style:P},"Conversão da blindagem"),React.createElement("input",{type:"number",min:.01,step:.1,value:rcShieldConversion,onChange:e=>setRcShieldConversion(e.target.value),style:q}),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:5}},"1M gasto adiciona este valor à multa")),
+                React.createElement("div",null,React.createElement("label",{style:P},"Blindagem máxima (% da base)"),React.createElement("input",{type:"number",min:0,step:5,value:rcShieldMax,onChange:e=>setRcShieldMax(e.target.value),style:q}))
+              )
+            ),
+            React.createElement("button",{onClick:()=>onSave(isOpen,limitEnabled,minOverall,maxOverall,tradeLockEnabled,tradeLockGames,reportsEnabled,overridesEnabled,minimumGamesEnabled,minimumGamesRequired,{enabled:rcEnabled,multiplier:rcMultiplier,revalueMultiplier:rcRevalue,protectedGames:rcProtectedGames,maxSufferedPerTeam:rcMaxSuffered,blockDirectRepurchase:rcRepurchase,shieldingEnabled:rcShielding,shieldingConversion:rcShieldConversion,shieldingMaxPct:rcShieldMax}),disabled:(limitEnabled&&Number(minOverall)>Number(maxOverall))||(minimumGamesEnabled&&Number(minimumGamesRequired)<1),style:{...M,...W,marginTop:12,opacity:(limitEnabled&&Number(minOverall)>Number(maxOverall))||(minimumGamesEnabled&&Number(minimumGamesRequired)<1)?.55:1}},"Salvar regras do mercado")
           );
         }
         function MarketBalanceAdminForm({ tournament, teams, catalog, onSave }) {
@@ -5816,7 +5949,7 @@
               React.createElement("div", { className:"transfer-arrow", "aria-hidden":"true" }, "→"),
               React.createElement("div", { className:"transfer-card-side transfer-card-right" },
                 React.createElement("div", { className:"transfer-party transfer-destination" }, avatar(destination), React.createElement("div", null, React.createElement("strong", null, destination.name), React.createElement("small", null, destination.profileName))),
-                React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : transfer.type === "market_sale" ? "venda ao mercado" : transfer.fromTeamId ? "transferência" : "compra"))
+                React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : transfer.type === "market_sale" ? "venda ao mercado" : transfer.type === "release_clause" ? "multa rescisória" : transfer.fromTeamId ? "transferência" : "compra"))
               ),
               isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:"Reverter movimentação", disabled:!!transfer.rolledBackAt, onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
             );
