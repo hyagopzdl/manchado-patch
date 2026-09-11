@@ -3210,6 +3210,8 @@
                       profiles: x,
                       tournament: R,
                       tournaments: m,
+                      teams: p,
+                      currentProfile: te,
                       onOpenChampionshipSummary: (item) => setChampionshipSummary(item),
                       onOfferPlayer: (player) => { setViewedTeamId(null); kt(player); },
                       onClose: () => setViewedTeamId(null),
@@ -4048,6 +4050,8 @@
           baseRosterPlayerIds = [],
           tradeLockStatusFor = null,
           onSaveLineup = null,
+          extraViewLabel = null,
+          renderExtraView = null,
         }) {
           let s = e.find((h) => h.id === t);
           if (!s) return React.createElement("div", { style: E }, "Nenhum time selecionado.");
@@ -4363,14 +4367,26 @@
               onAction:()=>{ if(readOnly){ if(onReadOnlyAction) onReadOnlyAction(player); } else if(!cannotSell&&!tradeLocked) p(player); }
             });
           }
+          if (squadView === "statistics" && renderExtraView) {
+            return React.createElement("div", null,
+              onBack && React.createElement("button", { onClick:onBack, className:"tapbtn", style:{ marginBottom:16, border:"1px solid var(--border)", background:"var(--surface)", color:"var(--heading)", borderRadius:999, padding:"9px 14px", fontWeight:750, cursor:"pointer" } }, "← Voltar para a tabela"),
+              React.createElement("div", { className:"squad-segmented", style:{gridTemplateColumns:extraViewLabel?"repeat(3,minmax(0,1fr))":"repeat(2,minmax(0,1fr))"} },
+                React.createElement("button", { onClick:()=>setSquadView("roster") }, "Elenco"),
+                React.createElement("button", { onClick:()=>setSquadView("formation") }, "Formação"),
+                extraViewLabel && React.createElement("button", { className:"is-active", onClick:()=>setSquadView("statistics") }, extraViewLabel)
+              ),
+              renderExtraView()
+            );
+          }
           if (squadView === "formation") {
             let selectedSlot = lineupPicker ? lineupSlots.find((slot)=>slot.id===lineupPicker.slotId) : null;
             let recommended = selectedSlot && window.PESLineups ? squad.slice().sort((a,b)=>window.PESLineups.score(b,selectedSlot.position)-window.PESLineups.score(a,selectedSlot.position)) : squad;
             return React.createElement("div", null,
               onBack && React.createElement("button", { onClick:onBack, className:"tapbtn", style:{ marginBottom:16, border:"1px solid var(--border)", background:"var(--surface)", color:"var(--heading)", borderRadius:999, padding:"9px 14px", fontWeight:750, cursor:"pointer" } }, "← Voltar para a tabela"),
-              React.createElement("div", { className:"squad-segmented" },
+              React.createElement("div", { className:"squad-segmented", style:{gridTemplateColumns:extraViewLabel?"repeat(3,minmax(0,1fr))":"repeat(2,minmax(0,1fr))"} },
                 React.createElement("button", { onClick:()=>setSquadView("roster") }, "Elenco"),
-                React.createElement("button", { className:"is-active", onClick:()=>setSquadView("formation") }, "Formação")
+                React.createElement("button", { className:"is-active", onClick:()=>setSquadView("formation") }, "Formação"),
+                extraViewLabel && React.createElement("button", { onClick:()=>setSquadView("statistics") }, extraViewLabel)
               ),
               React.createElement("section", { style:{ ...E, padding:"clamp(16px,3vw,26px)" } },
                 React.createElement("div", { className:"lineup-toolbar" },
@@ -4481,9 +4497,10 @@
           }
           return React.createElement("div", null,
             onBack && React.createElement("button", { onClick:onBack, className:"tapbtn", style:{ marginBottom:16, border:"1px solid var(--border)", background:"var(--surface)", color:"var(--heading)", borderRadius:999, padding:"9px 14px", fontWeight:750, cursor:"pointer" } }, "← Voltar para a tabela"),
-            React.createElement("div", { className:"squad-segmented" },
+            React.createElement("div", { className:"squad-segmented", style:{gridTemplateColumns:extraViewLabel?"repeat(3,minmax(0,1fr))":"repeat(2,minmax(0,1fr))"} },
               React.createElement("button", { className:"is-active", onClick:()=>setSquadView("roster") }, "Elenco"),
-              React.createElement("button", { onClick:()=>setSquadView("formation") }, "Formação")
+              React.createElement("button", { onClick:()=>setSquadView("formation") }, "Formação"),
+              extraViewLabel && React.createElement("button", { onClick:()=>setSquadView("statistics") }, extraViewLabel)
             ),
             React.createElement("section", { style:{ ...E, padding:"clamp(18px,3vw,28px)", marginBottom:24, background:"linear-gradient(145deg, color-mix(in srgb, var(--green) 7%, var(--surface)), var(--surface) 44%, color-mix(in srgb, var(--accent) 5%, var(--surface)))" } },
               React.createElement("div", { style:{ textAlign:"center", padding:"4px 0 22px" } },
@@ -7673,8 +7690,51 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             ) : React.createElement("div", { style:{ color:"var(--muted)",textAlign:"center",padding:24 } }, "O snapshot final deste campeonato ainda não está disponível."));
         }
 
-        function TeamViewer({ team, squadOf, ownership, onOpenDetail, profiles, tournament, tournaments, onOpenChampionshipSummary, onOfferPlayer, onClose }) {
+        function HeadToHeadStats({ tournament, currentTeam, opponentTeam, profiles, teams }) {
+          let allTeams = Array.isArray(teams) ? teams : [];
+          let allProfiles = Array.isArray(profiles) ? profiles : [];
+          let matches = (Array.isArray(tournament && tournament.matches) ? tournament.matches : []).filter((match) => {
+            if (!match || !match.played || match.bye || match.status === "voided") return false;
+            let ids = [String(match.homeId || ""), String(match.awayId || "")];
+            return ids.includes(String(currentTeam && currentTeam.id)) && ids.includes(String(opponentTeam && opponentTeam.id));
+          });
+          let chronological = [...matches].sort((a,b)=>(Number(a.playedAt||a.createdAt)||0)-(Number(b.playedAt||b.createdAt)||0));
+          let recent = [...matches].sort((a,b)=>(Number(b.playedAt||b.createdAt)||0)-(Number(a.playedAt||a.createdAt)||0));
+          function profileForTeam(team) { return allProfiles.find((profile)=>profile&&team&&String(profile.id)===String(team.profileId)) || {}; }
+          function profileNameForTeam(team) { let profile=profileForTeam(team); return profile.name || (team&&team.name) || "Perfil removido"; }
+          function avatarForTeam(team,size=44) { let profile=profileForTeam(team), name=profile.name||(team&&team.name)||"?"; return React.createElement("span",{style:{width:size,height:size,borderRadius:999,display:"inline-grid",placeItems:"center",overflow:"hidden",background:profile.color||(team&&team.color)||"var(--surface-soft)",color:"white",fontWeight:850,border:profile.avatar?0:"1px solid var(--border)",flexShrink:0}},profile.avatar?React.createElement("img",{src:profile.avatar,alt:"",style:{width:"100%",height:"100%",objectFit:"cover"}}):String(name).charAt(0).toUpperCase()); }
+          function teamById(id) { return allTeams.find((item)=>item&&String(item.id)===String(id)) || (String(currentTeam&&currentTeam.id)===String(id)?currentTeam:null) || (String(opponentTeam&&opponentTeam.id)===String(id)?opponentTeam:null); }
+          function resultFor(match, team) { let home=String(match.homeId)===String(team.id), gf=Number(home?match.homeScore:match.awayScore)||0, ga=Number(home?match.awayScore:match.homeScore)||0; return { gf,ga,result:gf>ga?"V":gf<ga?"D":"E" }; }
+          function aggregate(team) { let wins=0,draws=0,losses=0,gf=0,ga=0,longest=0,current=0; chronological.forEach((match)=>{let r=resultFor(match,team);gf+=r.gf;ga+=r.ga;if(r.result==="V"){wins++;current++;longest=Math.max(longest,current)}else{current=0;r.result==="E"?draws++:losses++;}}); return {wins,draws,losses,gf,ga,longest,gpg:matches.length?gf/matches.length:0,pointsPct:matches.length?((wins*3+draws)/(matches.length*3))*100:0}; }
+          function biggestWin(team) { let best=null; matches.forEach((match)=>{let r=resultFor(match,team);if(r.gf<=r.ga)return;let diff=r.gf-r.ga;if(!best||diff>best.diff||(diff===best.diff&&r.gf>best.gf))best={diff,gf:r.gf,ga:r.ga};});return best?`${best.gf} × ${best.ga}`:"—"; }
+          function dayLabel(timestamp) { let date=new Date(timestamp||Date.now()),now=new Date(),yesterday=new Date();yesterday.setDate(now.getDate()-1);if(date.toDateString()===now.toDateString())return"Hoje";if(date.toDateString()===yesterday.toDateString())return"Ontem";return date.toLocaleDateString("pt-BR",{day:"2-digit",month:"long",...(date.getFullYear()!==now.getFullYear()?{year:"numeric"}:{})}); }
+          if (!matches.length) return React.createElement("section",{className:"family-card",style:{padding:"34px 20px",textAlign:"center"}},React.createElement("div",{style:{fontSize:15,fontWeight:850,marginBottom:7}},"Ainda sem confrontos"),React.createElement("div",{style:{fontSize:13,color:"var(--muted)",lineHeight:1.5}},"Vocês ainda não se enfrentaram neste campeonato."));
+          let mine=aggregate(currentTeam), other=aggregate(opponentTeam), currentProfile=profileForTeam(currentTeam), opponentProfile=profileForTeam(opponentTeam);
+          let lastFive=recent.slice(0,5).reverse().map((match)=>resultFor(match,currentTeam).result);
+          function compareRow(label,left,right,format=(value)=>String(value)) { let l=Number(left)||0,r=Number(right)||0,total=l+r,leftPct=total?Math.max(0,Math.min(100,(l/total)*100)):50;return React.createElement("div",{style:{padding:"12px 0"}},React.createElement("div",{style:{display:"grid",gridTemplateColumns:"72px minmax(0,1fr) 72px",alignItems:"center",gap:10}},React.createElement("strong",{style:{fontSize:14,textAlign:"left",fontVariantNumeric:"tabular-nums"}},format(left)),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",textAlign:"center",fontWeight:700}},label),React.createElement("strong",{style:{fontSize:14,textAlign:"right",fontVariantNumeric:"tabular-nums"}},format(right))),React.createElement("div",{style:{height:5,borderRadius:99,overflow:"hidden",display:"flex",marginTop:8,background:"var(--surface-soft)"}},React.createElement("div",{style:{width:`${leftPct}%`,background:"var(--green)",transition:"width .25s ease"}}),React.createElement("div",{style:{width:`${100-leftPct}%`,background:"color-mix(in srgb, var(--heading) 28%, var(--surface-soft))",transition:"width .25s ease"}}))); }
+          let topGame=matches.reduce((best,match)=>{let total=(Number(match.homeScore)||0)+(Number(match.awayScore)||0);return !best||total>best.total?{match,total}:best},null);
+          let grouped={};recent.forEach((match)=>{let label=dayLabel(match.playedAt||match.createdAt);(grouped[label] ||= []).push(match);});
+          return React.createElement("div",null,
+            React.createElement("section",{className:"family-card",style:{padding:"clamp(20px,4vw,30px)",marginBottom:16}},
+              React.createElement("div",{style:{textAlign:"center",fontSize:11.5,color:"var(--muted)",fontWeight:750,textTransform:"uppercase",letterSpacing:".08em",marginBottom:18}},`${matches.length} ${matches.length===1?"confronto":"confrontos"}`),
+              React.createElement("div",{style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto minmax(0,1fr)",alignItems:"center",gap:16}},
+                React.createElement("div",{style:{display:"grid",justifyItems:"start",gap:8,minWidth:0}},avatarForTeam(currentTeam,54),React.createElement("strong",{style:{fontSize:15,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},currentProfile.name||currentTeam.name)),
+                React.createElement("div",{style:{textAlign:"center"}},React.createElement("div",{style:{display:"flex",alignItems:"baseline",gap:9,justifyContent:"center"}},React.createElement("strong",{style:{fontSize:28}},mine.wins),React.createElement("span",{style:{fontSize:12,color:"var(--muted)"}},mine.draws),React.createElement("strong",{style:{fontSize:28}},other.wins)),React.createElement("div",{style:{fontSize:10.5,color:"var(--muted)",marginTop:3}},"VITÓRIAS · EMPATES · VITÓRIAS"),React.createElement("div",{style:{fontSize:16,fontWeight:850,marginTop:12}},`${mine.gf} × ${other.gf}`,React.createElement("span",{style:{display:"block",fontSize:10.5,color:"var(--muted)",fontWeight:650,marginTop:3}},"GOLS"))),
+                React.createElement("div",{style:{display:"grid",justifyItems:"end",gap:8,minWidth:0}},avatarForTeam(opponentTeam,54),React.createElement("strong",{style:{fontSize:15,maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",textAlign:"right"}},opponentProfile.name||opponentTeam.name))
+              )
+            ),
+            React.createElement("section",{className:"family-card",style:{padding:"18px 20px",marginBottom:16}},React.createElement("div",{style:{fontSize:12,fontWeight:800,marginBottom:12}},"Seus últimos confrontos"),React.createElement("div",{style:{display:"flex",gap:8,flexWrap:"wrap"}},lastFive.map((result,index)=>React.createElement("span",{key:index,title:result==="V"?"Vitória":result==="D"?"Derrota":"Empate",style:{width:30,height:30,borderRadius:9,display:"grid",placeItems:"center",fontSize:12,fontWeight:900,background:result==="V"?"color-mix(in srgb,var(--green) 16%,var(--surface-soft))":result==="D"?"color-mix(in srgb,var(--danger) 15%,var(--surface-soft))":"var(--surface-soft)",color:result==="V"?"var(--green)":result==="D"?"var(--danger)":"var(--muted)",border:"1px solid var(--border)"}},result)))),
+            React.createElement("section",{className:"family-card",style:{padding:"16px 20px",marginBottom:16}},React.createElement("div",{style:{fontSize:16,fontWeight:850,marginBottom:4}},"Comparativo"),compareRow("Vitórias",mine.wins,other.wins),compareRow("Gols",mine.gf,other.gf),compareRow("Gols por jogo",mine.gpg,other.gpg,(value)=>Number(value).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})),compareRow("Aproveitamento",mine.pointsPct,other.pointsPct,(value)=>`${Math.round(Number(value)||0)}%`),compareRow("Maior sequência",mine.longest,other.longest)),
+            matches.length>1 && React.createElement("section",{style:{marginBottom:20}},React.createElement("div",{style:{fontSize:16,fontWeight:850,margin:"0 0 10px"}},"Destaques"),React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10}},React.createElement("div",{className:"family-card",style:{padding:15}},React.createElement("div",{style:{fontSize:11,color:"var(--muted)",marginBottom:6}},"Maior vitória"),React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:10,fontWeight:850}},React.createElement("span",null,biggestWin(currentTeam)),React.createElement("span",null,biggestWin(opponentTeam)))),React.createElement("div",{className:"family-card",style:{padding:15}},React.createElement("div",{style:{fontSize:11,color:"var(--muted)",marginBottom:6}},"Jogo com mais gols"),React.createElement("strong",{style:{fontSize:17}},`${topGame?topGame.total:0} gols`)))),
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"end",gap:12,margin:"24px 0 12px"}},React.createElement("div",null,React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)"}},"Histórico"),React.createElement("div",{style:{fontSize:20,fontWeight:850}},"Confrontos")),React.createElement("div",{style:{fontSize:12,color:"var(--muted)"}},`${matches.length} ${matches.length===1?"partida":"partidas"}`)),
+            Object.entries(grouped).map(([label,items])=>React.createElement("section",{key:label,style:{marginBottom:22}},React.createElement("div",{style:{fontSize:13,fontWeight:700,marginBottom:8,color:"var(--muted)"}},label),items.map((match)=>React.createElement(HistoryMatchCard,{key:match.id,match,teamById,avatarForTeam,profileNameForTeam,canDelete:false}))))
+          );
+        }
+
+        function TeamViewer({ team, squadOf, ownership, onOpenDetail, profiles, tournament, tournaments, teams, currentProfile, onOpenChampionshipSummary, onOfferPlayer, onClose }) {
           let profile = (profiles || []).find((item) => item && typeof item === "object" && String(item.id) === String(team.profileId));
+          let currentTeam = (teams || []).find((item)=>item&&currentProfile&&String(item.profileId)===String(currentProfile.id)&&item.active!==false) || null;
+          let canCompare = !!(tournament && currentTeam && String(currentTeam.id)!==String(team.id));
           let trophies = (tournaments || []).filter((item)=>item&&item.status==="finished").map((item)=>{
             let standings=Array.isArray(item.finalStandings)?item.finalStandings:[];
             let entry=standings.find((row)=>row&&String(row.profileId)===String(team.profileId)&&Number(row.position)===1);
@@ -7698,6 +7758,8 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 readOnly:true, onBack:onClose, viewerProfile:profile,
                 readOnlyActionLabel:"Fazer oferta", onReadOnlyAction:onOfferPlayer,
                 viewerTrophies: trophies.length ? React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10,marginTop:16,textAlign:"initial" } }, trophies.map(({tournament:item})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:14,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } }, React.createElement(TrophyAsset,{tournament:item,size:54,style:{marginBottom:6}}), React.createElement("div", { style:{ fontWeight:850,fontSize:13 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)",fontSize:11.5,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão")))) : null,
+                extraViewLabel:canCompare?"Estatísticas":null,
+                renderExtraView:canCompare?()=>React.createElement(HeadToHeadStats,{tournament,currentTeam,opponentTeam:team,profiles,teams}):null,
               })
             )
           );
