@@ -101,11 +101,15 @@ revoke all on function public._pack_pool(text, boolean, text[]) from public, ano
 -- ---------------------------------------------------------------------------
 -- open_pack
 -- ---------------------------------------------------------------------------
+-- Assinatura nova (com p_catalog_checksum). Remove a antiga, se existir, para não criar sobrecarga.
+drop function if exists public.open_pack(text, text, text, text);
+
 create or replace function public.open_pack(
   p_tournament_id text,
   p_pack_id text,
   p_team_id text,
-  p_actor_profile_id text default null
+  p_actor_profile_id text default null,
+  p_catalog_checksum text default null
 )
 returns jsonb
 language plpgsql
@@ -196,6 +200,13 @@ begin
   if v_before < v_price then raise exception 'insufficient_funds' using errcode = 'P0001'; end if;
 
   if not exists (select 1 from public.player_catalog) then raise exception 'catalog_not_loaded' using errcode = 'P0001'; end if;
+
+  -- Guarda de versão: o cliente informa o sha256 do players.json que ele está exibindo.
+  -- Se for diferente do catálogo carregado no banco, o sorteio seria sobre dados que o jogador não vê.
+  if p_catalog_checksum is not null
+     and p_catalog_checksum is distinct from (select source_checksum from public.player_catalog_meta where id) then
+    raise exception 'catalog_outdated' using errcode = 'P0001';
+  end if;
 
   v_use_overrides := coalesce((v_t.market_settings->>'playerOverridesEnabled')::boolean, true);
 
@@ -364,8 +375,8 @@ begin
 end;
 $$;
 
-revoke all on function public.open_pack(text, text, text, text) from public;
-grant execute on function public.open_pack(text, text, text, text) to anon, authenticated;
+revoke all on function public.open_pack(text, text, text, text, text) from public;
+grant execute on function public.open_pack(text, text, text, text, text) to anon, authenticated;
 revoke all on function public.rollback_pack_opening(text, text) from public;
 grant execute on function public.rollback_pack_opening(text, text) to anon, authenticated;
 

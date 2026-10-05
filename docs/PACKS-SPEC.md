@@ -56,6 +56,13 @@ Arquivos em `supabase/`:
 
 **Como aplicar (ordem):** 1) `PACKS-V1.sql`  2) `PLAYER-CATALOG-SEED.sql`. Ambos no SQL Editor do Supabase. Como nada existente é alterado, os campeonatos atuais não são afetados.
 
+**Quando o `players.json` mudar:**
+1. `node tools/generate-catalog-sql.js` — valida o JSON (id duplicado, sem nome, overall fora de 1–99 viram erro; valor ausente vira aviso) e regera o seed.
+2. Aplicar o `PLAYER-CATALOG-SEED.sql` gerado no Supabase. É upsert por `player_id`: atualiza overall/valor/nome, insere novos e remove do catálogo quem saiu do JSON.
+3. Publicar o novo `players.json` no app.
+Se os passos 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` (o cliente envia o sha256 do JSON que exibe, e o servidor compara com `player_catalog_meta.source_checksum`). Qualquer edição no arquivo, até de formatação, muda o checksum e exige regerar o seed.
+**Cuidados:** manter os **ids estáveis** (posse, overrides e histórico de todos os campeonatos usam o id); jogadores removidos do JSON que já têm dono continuam no elenco, só deixam de entrar no pool; evitar trocar a base no meio de um campeonato de cartas, porque mudar overalls altera as probabilidades de quem ainda vai abrir pacotes. Campeonatos no modo mercado não usam `player_catalog`.
+
 **Decisões do `open_pack`:**
 - Config e modo vêm do torneio no servidor (`raw_data->packSettings` e `raw_data->>'mode'`), nunca do cliente.
 - Toma o mesmo advisory lock do `apply_tournament_delta`, então nenhuma escrita do app concorre com o sorteio.

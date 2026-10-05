@@ -37,6 +37,11 @@ select expect_err($$select open_pack('T1','inexistente','A','p1')$$,'pack_not_fo
 select expect_err($$select open_pack('T1','prata','A','p1')$$,'pack_locked');
 select expect_err($$select open_pack('NOPE','bronze','A','p1')$$,'tournament_not_found');
 
+select '--- 2b guarda de versao do catalogo';
+select expect_err($$select open_pack('T1','bronze','A','p1','checksum-velho')$$,'catalog_outdated');
+select expect_eq('checksum correto passa', (open_pack('T1','bronze','A','p1',(select source_checksum from player_catalog_meta)) ->> 'balanceAfter'), '220');
+select rollback_pack_opening((select id from pack_openings where team_id='A' order by created_at desc limit 1),'adm') is not null;
+
 select '--- 3 marco: 3 bronze (somando times) liberam a prata';
 select open_pack('T1','bronze','B','p2') is not null;
 select open_pack('T1','bronze','B','p2') is not null;
