@@ -41,7 +41,6 @@
       version: 1,
       isOpen: true,
       sellDepreciationPct: 25,
-      rosterMax: 30,
       eliteThreshold: 90,
       packs: PACK_PRESETS.map((preset) => ({
         id: preset.id, label: preset.label, enabled: true, price: preset.price, cards: preset.cards,
@@ -53,13 +52,15 @@
 
   function packSettingsOf(tournament) {
     const raw = tournament && tournament.packSettings && typeof tournament.packSettings === "object" ? tournament.packSettings : null;
-    if (!raw) return defaultPackSettings();
     const fallback = defaultPackSettings();
+    if (!raw) return { ...fallback, rosterMax: Math.max(1, Math.round(Number(tournament && tournament.rosterSettings && tournament.rosterSettings.maxPlayers) || 30)) };
     return {
       version: 1,
       isOpen: raw.isOpen !== false,
       sellDepreciationPct: Math.min(100, Math.max(0, Number(raw.sellDepreciationPct != null ? raw.sellDepreciationPct : fallback.sellDepreciationPct) || 0)),
-      rosterMax: Math.max(1, Math.round(Number(raw.rosterMax != null ? raw.rosterMax : fallback.rosterMax) || fallback.rosterMax)),
+      // O limite máximo do elenco é o do campeonato (rosterSettings, editado pelo admin).
+      // packSettings.rosterMax só é usado como legado, se o torneio não tiver rosterSettings.
+      rosterMax: Math.max(1, Math.round(Number(tournament && tournament.rosterSettings && tournament.rosterSettings.maxPlayers) || Number(raw.rosterMax) || 30)),
       eliteThreshold: Math.min(99, Math.max(1, Math.round(Number(raw.eliteThreshold != null ? raw.eliteThreshold : fallback.eliteThreshold) || fallback.eliteThreshold))),
       packs: (Array.isArray(raw.packs) ? raw.packs : fallback.packs).filter((pack) => pack && pack.id).map((pack) => ({
         id: String(pack.id),

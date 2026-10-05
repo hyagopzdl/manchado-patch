@@ -3157,7 +3157,7 @@
                           profiles: x,
                           statusOf: Pe,
                           packsMode: packsMode,
-                          packStore: packsMode ? React.createElement(window.ManchaApp.PackStore, { tournament: R, team: ProfileTeam, profile: te, ownership: c, catalogMap: xe, finished: !!(R && R.status === "finished") }) : null,
+                          packStore: packsMode ? React.createElement(window.ManchaApp.PackStore, { tournament: R, team: ProfileTeam, profile: te, ownership: c, catalogMap: xe, onSell: It, finished: !!(R && R.status === "finished") }) : null,
                           onBuy: kt,
                           onOpenDetail: (player) => { let status = Pe(player); let balanceCheck = ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true }; be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free", balanceCheck }); },
                           transfers: k,
@@ -7017,6 +7017,49 @@
           return {version,type,name,groups,matches,champion,runner,names};
         }
 
+        function RosterRulesForm({ settings, onSave }) {
+          let initial = {
+            min: settings && settings.minPlayers != null ? Number(settings.minPlayers) : 23,
+            max: settings && settings.maxPlayers != null ? Number(settings.maxPlayers) : 30,
+            base: settings && settings.minBaseRosterPlayers != null ? Number(settings.minBaseRosterPlayers) : 0,
+          };
+          let [draft, setDraft] = b({ min: String(initial.min), max: String(initial.max), base: String(initial.base) });
+          let [note, setNote] = b("");
+          // Se o valor salvo mudar (ex.: salvei, ou outro admin alterou), o rascunho acompanha.
+          He(() => { setDraft({ min: String(initial.min), max: String(initial.max), base: String(initial.base) }); }, [initial.min, initial.max, initial.base]);
+          let dirty = draft.min !== String(initial.min) || draft.max !== String(initial.max) || draft.base !== String(initial.base);
+          function readNumber(value, fallback, low, high) {
+            let parsed = Number(value);
+            if (String(value).trim() === "" || !Number.isFinite(parsed)) return fallback;
+            return Math.min(high, Math.max(low, Math.round(parsed)));
+          }
+          function save() {
+            if (!dirty) return;
+            let minValue = readNumber(draft.min, initial.min, 0, 99);
+            let maxValue = readNumber(draft.max, initial.max, 1, 99);
+            let baseValue = readNumber(draft.base, initial.base, 0, 99);
+            let message = "Regras salvas.";
+            if (maxValue < minValue) { maxValue = minValue; message = `O máximo não pode ser menor que o mínimo; ajustei para ${minValue}.`; }
+            setDraft({ min: String(minValue), max: String(maxValue), base: String(baseValue) });
+            setNote(message);
+            onSave(minValue, maxValue, baseValue);
+          }
+          function field(label, key, low, high) {
+            return React.createElement("div", null,
+              React.createElement("label", { style: P }, label),
+              React.createElement("input", {
+                type: "number", inputMode: "numeric", min: low, max: high, style: q, value: draft[key],
+                onChange: (event) => { setDraft({ ...draft, [key]: event.target.value }); setNote(""); },
+                onKeyDown: (event) => { if (event.key === "Enter") save(); },
+              }));
+          }
+          return React.createElement(React.Fragment, null,
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 10 } },
+              field("Mínimo total", "min", 0, 99), field("Máximo total", "max", 1, 99), field("Mínimo do elenco-base", "base", 0, 99)),
+            React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" } },
+              React.createElement("button", { className: "tapbtn", disabled: !dirty, onClick: save, style: { ...M, ...W, width: "auto", margin: 0, padding: "10px 18px", opacity: dirty ? 1 : .45, cursor: dirty ? "pointer" : "not-allowed" } }, "Salvar regras"),
+              note && React.createElement("span", { style: { fontSize: 12.5, color: "var(--muted)" } }, note)));
+        }
         function AdminBudgetInput({ team, onCommit }) {
           let [draft, setDraft] = b(String(Number(team && team.budget) || 0));
           let [saving, setSaving] = b(false);
@@ -7593,11 +7636,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             adminSection === "rules" && currentTournament && React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Regras do elenco"),
               React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Define quantos jogadores cada time precisa manter e o limite para novas contratações."),
-              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 10 } },
-                React.createElement("div", null, React.createElement("label", { style: P }, "Mínimo total"), React.createElement("input", { type: "number", min: 0, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, onChange: (event) => onUpdateRosterRules(event.target.value, currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30, currentTournament.rosterSettings && currentTournament.rosterSettings.minBaseRosterPlayers != null ? currentTournament.rosterSettings.minBaseRosterPlayers : 0) })),
-                React.createElement("div", null, React.createElement("label", { style: P }, "Máximo total"), React.createElement("input", { type: "number", min: 1, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30, onChange: (event) => onUpdateRosterRules(currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, event.target.value, currentTournament.rosterSettings && currentTournament.rosterSettings.minBaseRosterPlayers != null ? currentTournament.rosterSettings.minBaseRosterPlayers : 0) })),
-                React.createElement("div", null, React.createElement("label", { style: P }, "Mínimo do elenco-base"), React.createElement("input", { type: "number", min: 0, max: 99, style: q, value: currentTournament.rosterSettings && currentTournament.rosterSettings.minBaseRosterPlayers != null ? currentTournament.rosterSettings.minBaseRosterPlayers : 0, onChange: (event) => onUpdateRosterRules(currentTournament.rosterSettings && currentTournament.rosterSettings.minPlayers != null ? currentTournament.rosterSettings.minPlayers : 23, currentTournament.rosterSettings && currentTournament.rosterSettings.maxPlayers != null ? currentTournament.rosterSettings.maxPlayers : 30, event.target.value) }))
-              ),
+              React.createElement(RosterRulesForm, { settings: currentTournament.rosterSettings, onSave: onUpdateRosterRules }),
               React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10, lineHeight:1.45 } }, "O mínimo do elenco-base impede a venda ao mercado ou para outro usuário quando o time atingir essa quantidade. Jogadores contratados posteriormente não entram nessa contagem.")
             ),
             adminSection === "participants" && currentTournament && React.createElement("div", { style: E },

@@ -31,7 +31,7 @@
     return total ? sum / total : 0;
   }
 
-  function PackStore({ tournament, team, profile, ownership, catalogMap, finished = false }) {
+  function PackStore({ tournament, team, profile, ownership, catalogMap, onSell = null, finished = false }) {
     const App = window.ManchaApp, Packs = App.PacksFeature, L = App.L, E = App.E, overallColor = App.overallColor, positionColor = App.positionColor;
     const settings = React.useMemo(() => Packs.packSettingsOf(tournament), [tournament]);
     const [stats, setStats] = React.useState({ counts: {}, mine: [], loaded: false });
@@ -85,7 +85,7 @@
         try { checksum = (await Packs.loadCatalog(Packs.catalogIdOf(tournament))).checksum; } catch (checksumError) { checksum = null; }
         const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum });
         const cards = (Array.isArray(result.cards) ? result.cards : []).slice().sort((a, b) => (Number(a.overall) || 0) - (Number(b.overall) || 0));
-        if (alive.current) setReveal({ packId: pack.id, packLabel: pack.label, cards, flipped: 0 });
+        if (alive.current) setReveal({ packId: pack.id, packLabel: pack.label, cards, revealed: [] });
         reloadStats();
       } catch (openError) {
         console.error("open_pack failed", openError);
@@ -120,12 +120,19 @@
       const info = catalogMap && catalogMap.get ? catalogMap.get(String(card.playerId)) : null;
       const color = overallColor(card.overall);
       const elite = Number(card.overall) >= settings.eliteThreshold;
+      const current = ownership && ownership[String(card.playerId)];
+      const owned = !!(current && teamId && String(current.teamId) === teamId);
+      const sellAmount = Math.ceil((Number(card.value) || 0) * (1 - settings.sellDepreciationPct / 100));
       return h("div", { className: "pack-card-face pack-card-front" + (elite ? " is-elite" : ""), style: { "--card-color": color } },
         h("div", { className: "pack-card-overall", style: { color } }, card.overall),
         h("span", { className: "pack-card-pos", style: { background: positionColor(card.position) } }, card.position || "—"),
         h("strong", { className: "pack-card-name" }, card.name),
         h("small", { className: "pack-card-club" }, (info && info.club) || ""),
-        h("div", { className: "pack-card-value" }, L(card.value))
+        h("div", { className: "pack-card-value" }, L(card.value)),
+        onSell && h("button", {
+          className: "tapbtn pack-card-sell", disabled: !owned,
+          onClick: (event) => { event.stopPropagation(); onSell(info || { id: String(card.playerId), name: card.name, value: card.value, overall: card.overall, position: card.position }); },
+        }, owned ? `Vender · ${L(sellAmount)}` : "Vendida")
       );
     }
 
@@ -133,11 +140,19 @@
       if (!reveal) return null;
       const pack = settings.packs.find((item) => item.id === reveal.packId);
       const total = reveal.cards.length;
-      const done = reveal.flipped >= total;
+      const revealedSet = new Set(reveal.revealed);
+      const done = revealedSet.size >= total;
       const best = reveal.cards.reduce((max, card) => Math.max(max, Number(card.overall) || 0), 0);
       const glow = overallColor(best);
       const again = pack && !packBlock(pack);
-      const flipNext = () => setReveal((current) => current && current.flipped < current.cards.length ? { ...current, flipped: current.flipped + 1 } : current);
+      // Qualquer carta pode ser virada, em qualquer ordem.
+      const flipOne = (index) => setReveal((current) => current && !current.revealed.includes(index) ? { ...current, revealed: [...current.revealed, index] } : current);
+      const flipNext = () => setReveal((current) => {
+        if (!current) return current;
+        const next = current.cards.findIndex((_, index) => !current.revealed.includes(index));
+        return next < 0 ? current : { ...current, revealed: [...current.revealed, next] };
+      });
+      const flipAll = () => setReveal((current) => current && { ...current, revealed: current.cards.map((_, index) => index) });
       return ReactDOM.createPortal(
         h("div", { className: "pack-reveal-overlay" },
           h("div", { className: "pack-reveal-panel" },
@@ -146,16 +161,17 @@
               h("button", { className: "tapbtn pack-reveal-close", "aria-label": "Fechar", onClick: () => setReveal(null) }, "✕")
             ),
             h("div", { className: "pack-reveal-cards" }, reveal.cards.map((card, index) =>
-              h("div", { key: card.playerId, className: "pack-card" + (index < reveal.flipped ? " is-flipped" : ""), style: { "--glow": glow }, onClick: () => { if (index === reveal.flipped) flipNext(); } },
+              h("div", { key: card.playerId, className: "pack-card" + (revealedSet.has(index) ? " is-flipped" : ""), style: { "--glow": glow }, onClick: () => flipOne(index) },
                 h("div", { className: "pack-card-inner" },
                   h("div", { className: "pack-card-face pack-card-back" }, h("span", null, "?")),
                   cardFront(card)
                 )
               )
             )),
+            !done && h("div", { className: "pack-reveal-hint" }, "Toque em qualquer carta para virar."),
             h("div", { className: "pack-reveal-actions" },
-              !done && h("button", { className: "tapbtn pack-open-btn", onClick: flipNext }, reveal.flipped === 0 ? "Revelar" : "Próxima carta"),
-              !done && h("button", { className: "tapbtn pack-ghost-btn", onClick: () => setReveal((current) => current && { ...current, flipped: current.cards.length }) }, "Revelar todas"),
+              !done && h("button", { className: "tapbtn pack-open-btn", onClick: flipNext }, revealedSet.size === 0 ? "Revelar" : "Próxima carta"),
+              !done && h("button", { className: "tapbtn pack-ghost-btn", onClick: flipAll }, "Revelar todas"),
               done && pack && h("button", { className: "tapbtn pack-open-btn", disabled: !again || !!busyPackId, onClick: () => openPack(pack) }, again ? `Abrir outro · ${L(pack.price)}` : (packBlock(pack) || "Indisponível")),
               done && h("button", { className: "tapbtn pack-ghost-btn", onClick: () => setReveal(null) }, "Fechar")
             )

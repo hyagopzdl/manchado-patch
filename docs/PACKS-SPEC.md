@@ -104,7 +104,8 @@ Se 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` 
 - Aba **Mercado** do modo cartas abre em **Pacotes**; o controle segmentado tem Pacotes · Jogadores · Favoritos · Recomendados (Jogadores = consulta). "Negociações" virou "Histórico".
 - Cada pacote mostra preço, cartas, OVR médio dos pesos, e se está bloqueado (barra de progresso do marco, contado somando todos os times). Bloqueios no botão: loja fechada, saldo, elenco cheio (`elenco + cartas > rosterMax`).
 - Abrir chama `open_pack` (com o sha256 do `players.json` carregado) e depois atualiza o estado e avisa os outros clientes por broadcast (`pack_opened`).
-- Revelação: cartas viradas com brilho na cor da melhor carta do pacote, revelação em ordem crescente de overall (a melhor por último), "Revelar todas", "Abrir outro". Respeita `prefers-reduced-motion`.
+- Revelação: cartas viradas com brilho na cor da melhor carta do pacote. Qualquer carta pode ser virada, em qualquer ordem ("Próxima carta" segue a ordem crescente de overall, a melhor por último), "Revelar todas", "Abrir outro". Cada carta revelada tem **Vender · XM** (usa o fluxo normal de venda ao mercado e a depreciação do campeonato). Respeita `prefers-reduced-motion`.
+- **Limite do elenco:** vale o `rosterSettings.maxPlayers` do campeonato (o que o admin edita em Regras do elenco), no app e no `open_pack`. `packSettings.rosterMax` é só legado.
 - Erros do servidor (`pack_locked`, `roster_full`, `insufficient_funds`, `catalog_outdated`, ...) viram mensagens em português.
 - "Suas últimas aberturas" lista as 8 mais recentes do time.
 - Arquivos: `js/features/pack-store.js`, `loadPackStats`/`openPack` em `js/supabase.js`, estilos em `css/features.css`.

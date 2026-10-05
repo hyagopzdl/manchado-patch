@@ -196,9 +196,11 @@ begin
     raise exception 'not_team_owner' using errcode = 'P0001';
   end if;
 
+  -- O limite do elenco é o do campeonato (rosterSettings.maxPlayers, editado pelo admin).
+  -- packSettings.rosterMax é só legado, usado se o torneio não tiver rosterSettings.
   v_max := coalesce(
-    nullif(v_settings->>'rosterMax', '')::integer,
     nullif(v_t.raw_data->'rosterSettings'->>'maxPlayers', '')::integer,
+    nullif(v_settings->>'rosterMax', '')::integer,
     30
   );
   select count(*) into v_size from public.player_ownership where tournament_id = p_tournament_id and team_id = p_team_id;

@@ -119,3 +119,15 @@ insert into teams(id,tournament_id,profile_id,name,budget) values ('ORF','T6',nu
 select expect_err($$select open_pack('T6','mid','ORF',null)$$,'not_team_owner');
 select expect_err($$select open_pack('T6','mid','ORF','p1')$$,'not_team_owner');
 select expect_eq('saldo do orfao intacto', (select budget::text from teams where id='ORF'), '100');
+
+select '--- 12 limite do elenco vem do rosterSettings do campeonato (nao do packSettings legado)';
+insert into tournaments(id,name,status,market_settings,raw_data) values
+ ('T8','Limite40','ongoing','{}', jsonb_build_object('mode','packs','rosterSettings',jsonb_build_object('minPlayers',23,'maxPlayers',40),
+   'packSettings', jsonb_build_object('rosterMax',30,'packs', jsonb_build_array(
+     jsonb_build_object('id','b','label','B','price',1,'cards',3,'weights','{"75":1}'::jsonb)))));
+insert into teams(id,tournament_id,profile_id,name,budget) values ('L','T8','p1','L',100);
+insert into player_ownership(tournament_id,player_id,team_id,acquisition_source,acquired_at)
+ select 'T8', player_id, 'L','initial_roster', now() from (select player_id from player_catalog where catalog_id='default' and overall < 74 order by player_id limit 35) q;
+select expect_eq('35+3=38 <= 40 abre mesmo com packSettings.rosterMax=30', jsonb_array_length(open_pack('T8','b','L','p1')->'cards')::text, '3');
+select expect_eq('elenco de partida tem 35 + 3 da abertura', (select count(*)::text from player_ownership where tournament_id='T8' and team_id='L'), '38');
+select expect_err($$select open_pack('T8','b','L','p1')$$,'roster_full');
