@@ -54,7 +54,7 @@ Arquivos em `supabase/`:
 - `PACKS-V1.sql`: tabelas `player_catalog`, `player_catalog_meta`, `pack_openings` e as RPCs `open_pack` e `rollback_pack_opening`. Aditivo e idempotente. Não altera nenhuma tabela ou função existente.
 - `catalog-seeds/<id>.sql`: carga de cada catálogo, **gerada** por `node tools/generate-catalog-sql.js`.
 
-**Como aplicar (ordem):** 1) `PACKS-V1.sql`  2) `catalog-seeds/default.sql`. Ambos no SQL Editor do Supabase. Como nada existente é alterado, os campeonatos atuais não são afetados.
+**Como aplicar (ordem):** 1) `PACKS-V1.sql`  2) `catalog-seeds/default.sql`.  3) `PACKS-SMOKE-TEST.sql` (opcional, recomendado): roda no banco real sem deixar rastro e termina com uma mensagem de erro proposital `SMOKE_OK ...` (ou `SMOKE_FAIL ...`); o erro é o que garante o rollback. Ambos no SQL Editor do Supabase. Como nada existente é alterado, os campeonatos atuais não são afetados.
 
 **Várias bases (catálogos):**
 - Cada base é um **catálogo com id**. O `players.json` atual é o catálogo `default`; os campeonatos existentes não têm `catalogId` e continuam nele.

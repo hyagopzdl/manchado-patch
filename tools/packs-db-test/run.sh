@@ -12,4 +12,8 @@ $P -f "$ROOT/tools/packs-db-test/schema.sql"
 $P -f "$ROOT/supabase/PACKS-V1.sql" 2>&1 | grep -v NOTICE || true
 $P -f "$ROOT/supabase/catalog-seeds/default.sql"
 psql -h "$D" -p $PORT -U postgres -q -f "$ROOT/tools/packs-db-test/tests.sql" 2>&1 | grep -v NOTICE | tee "$D/out.txt"
+echo "--- teste de fumaça (supabase/PACKS-SMOKE-TEST.sql)" | tee -a "$D/out.txt"
+SMOKE=$(psql -h "$D" -p $PORT -U postgres -q -f "$ROOT/supabase/PACKS-SMOKE-TEST.sql" 2>&1 | grep -E "SMOKE_(OK|FAIL)" || true)
+echo "$SMOKE" | tee -a "$D/out.txt"
+case "$SMOKE" in *SMOKE_OK*) ;; *) echo "FAIL: teste de fumaça não retornou SMOKE_OK" | tee -a "$D/out.txt";; esac
 if grep -q "FAIL" "$D/out.txt"; then echo "RESULTADO: FALHOU"; exit 1; else echo "RESULTADO: todos os testes passaram"; fi

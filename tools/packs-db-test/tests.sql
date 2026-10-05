@@ -113,3 +113,9 @@ select expect_err($$select open_pack('T7','mid','Y','p1')$$,'catalog_not_loaded'
 select expect_err($$select open_pack('T6','mid','X','p1','checksum-do-default')$$,'catalog_outdated');
 select expect_eq('checksum do alt passa', jsonb_array_length(open_pack('T6','mid','X','p1','alt-sum')->'cards')::text, '3');
 select expect_eq('mesmo id 195 pode pertencer no T6 sem conflito com outros torneios', (select count(*)::text from player_ownership where tournament_id='T6' and player_id='195'), '1');
+
+select '--- 11 time orfao (profile_id nulo) nao pode ser gasto';
+insert into teams(id,tournament_id,profile_id,name,budget) values ('ORF','T6',null,'Orfao',100);
+select expect_err($$select open_pack('T6','mid','ORF',null)$$,'not_team_owner');
+select expect_err($$select open_pack('T6','mid','ORF','p1')$$,'not_team_owner');
+select expect_eq('saldo do orfao intacto', (select budget::text from teams where id='ORF'), '100');

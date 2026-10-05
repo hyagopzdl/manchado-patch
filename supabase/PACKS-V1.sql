@@ -191,7 +191,10 @@ begin
 
   select * into v_team from public.teams where tournament_id = p_tournament_id and id = p_team_id for update;
   if not found then raise exception 'team_not_found' using errcode = 'P0001'; end if;
-  if v_team.profile_id is distinct from p_actor_profile_id then raise exception 'not_team_owner' using errcode = 'P0001'; end if;
+  -- Exige perfil informado: time órfão (perfil removido, profile_id nulo) não pode ser gasto por ninguém.
+  if p_actor_profile_id is null or v_team.profile_id is distinct from p_actor_profile_id then
+    raise exception 'not_team_owner' using errcode = 'P0001';
+  end if;
 
   v_max := coalesce(
     nullif(v_settings->>'rosterMax', '')::integer,
