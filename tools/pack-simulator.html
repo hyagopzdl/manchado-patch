@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Simulador de Pacotes</title>
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--line:#2a2f3a;--txt:#e8eaf0;--muted:#8d95a5;--ok:#2fbf71;--warn:#e0a526;--bad:#e5484d;--acc:#4a7fc1}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 system-ui,sans-serif;padding:16px;max-width:1100px;margin-inline:auto}
+  h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:22px 0 8px}p.sub{color:var(--muted);margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+  input,select,textarea{width:100%;background:#0f1115;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:7px;font:inherit}
+  textarea{font-family:ui-monospace,monospace;font-size:12px;min-height:90px}
+  button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;margin-right:8px}
+  button.sec{background:#2a2f3a}
+  table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right}th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
+  .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.muted{color:var(--muted)}
+  .packhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.packhead b{font-size:15px}
+  .wrap{overflow-x:auto}
+</style>
+</head>
+<body>
+<h1>Simulador de Pacotes</h1>
+<p class="sub">Ferramenta de calibração. Lê <code>../players.json</code>, não grava nada e não faz parte do app. Sirva a raiz do repo (ex.: <code>python3 -m http.server</code>) e abra <code>/tools/pack-simulator.html</code>.</p>
+
+<div class="card"><div class="grid">
+  <div><label>Overall "elite" (≥)</label><input id="elite" type="number" value="90" /></div>
+  <div><label>Depreciação na venda (%)</label><input id="dep" type="number" value="25" /></div>
+  <div><label>Times</label><input id="teams" type="number" value="8" /></div>
+  <div><label>Seed</label><input id="seed" type="number" value="42" /></div>
+  <div><label>Overrides</label><select id="ovr"><option value="off">desligados (base)</option></select></div>
+  <div><label>Vender tudo de volta ao pool</label><select id="sellback"><option value="0">não</option><option value="1">sim</option></select></div>
+</div>
+<div style="margin-top:10px"><label>Sequência de aberturas por time (ids separados por vírgula)</label>
+<input id="seq" value="bronze,bronze,bronze,prata,prata,ouro,ouro,platina,diamante" /></div>
+</div>
+
+<h2>Pacotes</h2>
+<div id="packs"></div>
+<div style="margin:10px 0 18px">
+  <button id="btnAnalyze">Analisar (pool cheio)</button>
+  <button id="btnSim" class="sec">Simular campeonato</button>
+  <button id="btnReset" class="sec">Restaurar padrão</button>
+</div>
+<div id="out"></div>
+
+<script src="./pack-sim-core.js"></script>
+<script>
+const DEFAULTS=[
+  {id:"bronze",label:"Bronze",cards:3,mu:72,sigma:3,tail:0},
+  {id:"prata",label:"Prata",cards:3,mu:76,sigma:3.5,tail:0.002},
+  {id:"ouro",label:"Ouro",cards:3,mu:80,sigma:4,tail:0.01},
+  {id:"platina",label:"Platina",cards:3,mu:84,sigma:4,tail:0.03},
+  {id:"diamante",label:"Diamante",cards:3,mu:88,sigma:4,tail:0.08},
+];
+let players=[],packs=[];
+const $=id=>document.getElementById(id);
+const fmt=(n,d=1)=>Number(n).toFixed(d);
+
+function initPacks(){
+  packs=DEFAULTS.map(d=>({...d,weights:PackSim.generateWeights(d.mu,d.sigma,d.tail),price:0}));
+  const pool=PackSim.groupByOverall(players);
+  packs.forEach(p=>{p.price=Math.round(PackSim.analyze(pool,p,90).evPack*1.3);});
+  renderPacks();
+}
+function renderPacks(){
+  $("packs").innerHTML=packs.map((p,i)=>`<div class="card"><div class="packhead"><b>${p.label}</b><span class="muted">id: ${p.id}</span></div>
+  <div class="grid">
+    <div><label>Preço</label><input data-i="${i}" data-f="price" type="number" value="${p.price}"/></div>
+    <div><label>Cartas</label><input data-i="${i}" data-f="cards" type="number" value="${p.cards}"/></div>
+    <div><label>Centro (μ)</label><input data-i="${i}" data-f="mu" type="number" step="0.5" value="${p.mu}"/></div>
+    <div><label>Largura (σ)</label><input data-i="${i}" data-f="sigma" type="number" step="0.5" value="${p.sigma}"/></div>
+    <div><label>Cauda</label><input data-i="${i}" data-f="tail" type="number" step="0.001" value="${p.tail}"/></div>
+    <div style="align-self:end"><button class="sec" data-regen="${i}">Gerar pesos</button></div>
+  </div>
+  <div style="margin-top:8px"><label>Pesos por overall (JSON editável)</label><textarea data-i="${i}" data-f="weights">${JSON.stringify(p.weights)}</textarea></div></div>`).join("");
+  document.querySelectorAll("[data-f]").forEach(el=>el.addEventListener("change",e=>{
+    const p=packs[+el.dataset.i],f=el.dataset.f;
+    if(f==="weights"){try{p.weights=JSON.parse(el.value);}catch(err){alert("JSON de pesos inválido");}}
+    else p[f]=Number(el.value);
+  }));
+  document.querySelectorAll("[data-regen]").forEach(b=>b.addEventListener("click",()=>{
+    const p=packs[+b.dataset.regen];p.weights=PackSim.generateWeights(p.mu,p.sigma,p.tail);renderPacks();
+  }));
+}
+function analyze(){
+  const elite=+$("elite").value,dep=+$("dep").value,pool=PackSim.groupByOverall(players);
+  const rows=packs.map(p=>{const a=PackSim.analyze(pool,p,elite);
+    const sellEv=a.evPack*(1-dep/100),net=sellEv-p.price;
+    return `<tr><td>${p.label}</td><td>${p.price}</td><td>${p.cards}</td><td>${fmt(a.meanOverall)}</td><td>${fmt(a.evPack)}</td>
+    <td>${fmt(sellEv)}</td><td class="${net>=0?'bad':'ok'}">${fmt(net)}</td><td>${fmt(a.pEliteCard*100,2)}%</td><td>${fmt(a.pEliteAtLeastOne*100,1)}%</td></tr>`;}).join("");
+  $("out").innerHTML=`<h2>Análise com pool cheio</h2><div class="card wrap"><table><tr><th>Pacote</th><th>Preço</th><th>Cartas</th><th>OVR médio</th><th>Valor esperado</th><th>Valor após venda</th><th>Resultado líquido médio</th><th>P(elite/carta)</th><th>P(≥1 elite)</th></tr>${rows}</table>
+  <p class="muted">"Resultado líquido médio" é o que sobra ao vender tudo de volta: negativo (verde) = pacote com custo, positivo (vermelho) = dinheiro infinito.</p></div>`;
+}
+function simulate(){
+  const elite=+$("elite").value,dep=+$("dep").value,teams=+$("teams").value,seed=+$("seed").value;
+  const openings=$("seq").value.split(",").map(s=>s.trim()).filter(Boolean);
+  const bad=openings.find(o=>!packs.some(p=>p.id===o));if(bad){alert("Pacote inexistente na sequência: "+bad);return;}
+  const r=PackSim.simulate({players,packs,openings,teams,sellDepPct:dep,eliteThreshold:elite,seed,sellBackAll:$("sellback").value==="1"});
+  const rows=packs.map(p=>{const s=r.perPack[p.id];if(!s.opened)return"";
+    return `<tr><td>${p.label}</td><td>${s.opened}</td><td>${s.spent}</td><td>${s.cards}</td><td>${fmt(s.valueSum/s.opened)}</td><td>${fmt(s.sellSum/s.opened)}</td><td>${s.elite}</td></tr>`;}).join("");
+  const tail=Object.entries(r.remainingByOverall).filter(([o])=>+o>=80).sort((a,b)=>b[0]-a[0]).map(([o,v])=>`<tr><td>${o}</td><td>${v.initial}</td><td>${v.remaining}</td><td class="${v.remaining===0?'bad':v.remaining<v.initial*0.3?'warn':'ok'}">${fmt(v.remaining/v.initial*100,0)}%</td></tr>`).join("");
+  const totalSpent=Object.values(r.perPack).reduce((s,x)=>s+x.spent,0);
+  $("out").innerHTML=`<h2>Simulação: ${teams} times × ${openings.length} aberturas</h2><div class="card wrap"><table><tr><th>Pacote</th><th>Aberturas</th><th>Gasto total</th><th>Cartas</th><th>Valor médio/pacote</th><th>Venda média/pacote</th><th>Elites sorteados</th></tr>${rows}</table>
+  <p class="muted">Gasto por time: ${fmt(totalSpent/teams,0)} · cartas por time: ${fmt(r.totalCards/teams,1)}</p></div>
+  <h2>Esgotamento do pool (overall ≥ 80)</h2><div class="card wrap"><table><tr><th>Overall</th><th>Jogadores</th><th>Restam</th><th>% livre</th></tr>${tail}</table></div>`;
+}
+$("btnAnalyze").onclick=analyze;$("btnSim").onclick=simulate;$("btnReset").onclick=()=>{initPacks();$("out").innerHTML="";};
+fetch("../players.json").then(r=>r.json()).then(d=>{players=d;initPacks();analyze();}).catch(()=>{$("out").innerHTML='<div class="card bad">Não foi possível carregar ../players.json. Sirva a raiz do repositório por HTTP.</div>';});
+</script>
+</body>
+</html>
