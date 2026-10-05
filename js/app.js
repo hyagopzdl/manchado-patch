@@ -3157,6 +3157,7 @@
                           profiles: x,
                           statusOf: Pe,
                           packsMode: packsMode,
+                          packStore: packsMode ? React.createElement(window.ManchaApp.PackStore, { tournament: R, team: ProfileTeam, profile: te, ownership: c, catalogMap: xe, finished: !!(R && R.status === "finished") }) : null,
                           onBuy: kt,
                           onOpenDetail: (player) => { let status = Pe(player); let balanceCheck = ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true }; be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free", balanceCheck }); },
                           transfers: k,
@@ -4577,6 +4578,7 @@
         }
         function lo({
           packsMode: packsMode = false,
+          packStore: packStore = null,
           catalog: e,
           catalogMap: catalogMap,
           ownership: t,
@@ -4605,7 +4607,7 @@
           onDeleteTransfer: onDeleteTransfer,
         }) {
           let catalogValueCeiling = Math.max(333, ...(Array.isArray(e) ? e : []).map((player) => Number(player && player.value) || 0));
-          let [marketSection, setMarketSection] = b("all"),
+          let [marketSection, setMarketSection] = b(packsMode ? "packs" : "all"),
             [clubQuery, setClubQuery] = b(""),
             [positionFilter, setPositionFilter] = b("all"),
             [exactPositionFilter, setExactPositionFilter] = b("all"),
@@ -4964,18 +4966,21 @@
                 React.createElement("span", { className:"market-header-action-label" }, packsMode ? "Histórico" : "Negociações"),
                 unreadOffers>0&&React.createElement("span", { style:{ minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:"var(--danger)",color:"white",display:"grid",placeItems:"center",fontSize:10,fontWeight:850 } }, unreadOffers>9?"9+":unreadOffers)
               ),
-              React.createElement("h1", { style:{ margin:0, padding:"0 112px", fontSize:"clamp(32px,5vw,48px)", lineHeight:1, letterSpacing:"-.055em", textAlign:"center" } }, packsMode ? "Banco de jogadores" : "Mercado"),
+              React.createElement("h1", { style:{ margin:0, padding:"0 112px", fontSize:"clamp(32px,5vw,48px)", lineHeight:1, letterSpacing:"-.055em", textAlign:"center" } }, "Mercado"),
               (activeTeam || isAdmin) && React.createElement("button", { className:"tapbtn", onClick:onOpenBalanceHistory, title:isAdmin&&!activeTeam?"Ver histórico de transações":"Ver histórico de saldo", style:{ position:"absolute", right:0, top:"50%", transform:"translateY(-50%)", border:"1px solid color-mix(in srgb, var(--green) 30%, var(--border))", background:"color-mix(in srgb, var(--green) 10%, var(--surface))", color:"var(--heading)", borderRadius:999, padding:"9px 12px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontWeight:800, boxShadow:"0 10px 26px rgba(0,0,0,.12)" } }, React.createElement(BankIcon,{ size:15,color:"var(--green)" }), isAdmin&&!activeTeam?React.createElement("span",{className:"market-header-action-label"},"Histórico"):L(activeTeam.budget))
             ),
             !marketRules.isOpen && React.createElement("div", { style:{ ...E, padding:14, marginBottom:14, border:"1px solid color-mix(in srgb, var(--yellow) 45%, var(--border))", background:"color-mix(in srgb, var(--yellow) 10%, var(--surface))", display:"flex", gap:10, alignItems:"flex-start" } }, React.createElement(at,{size:18,color:"var(--yellow)"}), React.createElement("div",null,React.createElement("strong",null,"Mercado fechado"),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:3}},"Compras, vendas e negociações estão temporariamente pausadas pela administração."))),
             React.createElement(
               "div",
               { style: { display: "flex", gap: 4, padding: 4, marginBottom: 18, background: "var(--surface-soft)", border: "1px solid var(--border)", borderRadius: 999, overflowX: "auto" } },
+              packsMode && React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("packs"), style: segmentStyle(marketSection === "packs") }, React.createElement(Star, { size: 15 }), "Pacotes"),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("all"), style: segmentStyle(marketSection === "all") }, React.createElement(Xe, { size: 15 }), "Jogadores"),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("favorites"), style: segmentStyle(marketSection === "favorites") }, React.createElement("svg", { width:15,height:15,viewBox:"0 0 24 24",fill:"currentColor",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true" }, React.createElement("path", { d:"m12 2.8 2.8 5.68 6.27.91-4.54 4.42 1.07 6.24L12 17.1l-5.6 2.95 1.07-6.24-4.54-4.42 6.27-.91L12 2.8Z" })), "Favoritos"),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("recommended"), style: segmentStyle(marketSection === "recommended") }, React.createElement(Star, { size: 15 }), "Recomendados"),
             ),
-            marketSection === "negotiations"
+            packsMode && marketSection === "packs"
+              ? packStore
+              : marketSection === "negotiations"
               ? React.createElement(TradeOffersArea, { offers, catalog: catalogMap, teamById: l, activeTeam, transfers: d, allTeams, profiles, isAdmin, onRollbackTransfer, onDeleteTransfer, onAccept: onAcceptOffer, onUpdate: onUpdateOffer, onOpenDetail: f, onExplorePlayers: () => setMarketSection("all") })
               : marketSection === "favorites"
                 ? React.createElement(React.Fragment, null,
@@ -8190,7 +8195,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
           let items = [
             { key: "table", icon: pe, label: "Tabela" },
             { key: "teams", icon: Vt, label: "Elenco" },
-            ...(!tournamentFinished ? [{ key: "market", icon: Xe, label: packsMode ? "Jogadores" : "Mercado", badge: unreadOffers }] : []),
+            ...(!tournamentFinished ? [{ key: "market", icon: Xe, label: "Mercado", badge: unreadOffers }] : []),
             { key: "profile", icon: ProfileIcon, label: "Perfil", avatar: true },
           ];
           if (l) items.push({ key: "admin", icon: AdminIcon, label: "Admin" });

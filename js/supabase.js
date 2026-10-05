@@ -797,6 +797,31 @@
     if(error) throw error; invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"release_clause_shielded"); return data||{ok:true};
   }
 
+  // ---- Modo cartas (pacotes) ----
+  // counts: aberturas não revertidas por pacote, somando todos os times (base dos marcos de desbloqueio).
+  // mine: últimas aberturas do time informado, com as cartas.
+  async function loadPackStats({tournamentId,teamId=null,mineLimit=20}={}){
+    if(!client||!tournamentId) return {counts:{},mine:[]};
+    const tid=String(tournamentId);
+    const rows=await selectAll("pack_openings","id,pack_id",q=>q.eq("tournament_id",tid).is("rolled_back_at",null).order("id"));
+    const counts={}; rows.forEach(row=>{counts[row.pack_id]=(counts[row.pack_id]||0)+1;});
+    let mine=[];
+    if(teamId){
+      const own=await select("pack_openings","id,pack_id,price,cards,created_at",q=>q.eq("tournament_id",tid).eq("team_id",String(teamId)).is("rolled_back_at",null).order("created_at",{ascending:false}).limit(mineLimit));
+      mine=own.map(row=>({id:row.id,packId:row.pack_id,price:Number(row.price)||0,cards:Array.isArray(row.cards)?row.cards:[],createdAt:ms(row.created_at)}));
+    }
+    return {counts,mine};
+  }
+  async function openPack({tournamentId,packId,teamId,actorProfileId:actorId,catalogChecksum}){
+    await load(); if(!client) throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("open_pack",{
+      p_tournament_id:String(tournamentId),p_pack_id:String(packId),p_team_id:String(teamId),
+      p_actor_profile_id:actorId?String(actorId):actorProfileId(),p_catalog_checksum:catalogChecksum||null
+    });
+    if(error) throw error;
+    invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"pack_opened");
+    return data||{ok:true};
+  }
   async function loadPlayerOverrideHistory(limit=200){
     await load();
     if(!client)throw new Error("Supabase não configurado");
@@ -996,5 +1021,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,loadPackStats,openPack,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();

@@ -1,6 +1,6 @@
 # Modo Cartas (pacotes) — especificação
 
-Status: fases 1 (simulador), 2 (backend) e 3 (modo no app) prontas. Falta a loja de pacotes (fase 4): ainda não há tela para abrir pacotes nem painel admin de configuração.
+Status: fases 1 (simulador), 2 (backend), 3 (modo no app) e a loja de pacotes (fase 4a) prontas. Falta o painel admin de configuração (fase 4b), as trocas por jogadores e a animação elaborada.
 
 ## Princípio de segurança
 - Torneio ganha o campo `mode`: `"market"` (padrão, também para torneios sem o campo) ou `"packs"`.
@@ -100,11 +100,21 @@ Se 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` 
 
 **Testes da fase 3** (feitos num navegador headless com Supabase simulado, sem tocar no banco real): campeonato de mercado idêntico ao anterior (título, 23 botões de compra, detalhe com proposta); campeonato de cartas sem botões de compra; venda de carta de pacote a 25% (129 → 97M); criação de campeonato de cartas com base alternativa gerando 23 jogadores por time com ids da base escolhida; criação de campeonato de mercado sem nenhum campo novo; base alternativa carregada ao selecionar o campeonato.
 
-## Pendências conhecidas (fase 4)
-- Tela de abertura de pacotes (usar `open_pack`, enviando o checksum da base: `PacksFeature.loadCatalog(id).checksum`), com revelação.
-- Painel admin: preço, cartas, pesos por overall, marcos de desbloqueio, depreciação, loja aberta/fechada e estorno de abertura.
-- Pacotes novos ainda não aparecem em extrato com ícone próprio (usam o rótulo "Pacote ...").
-- Validar `packSettings` do torneio contra o servidor ao salvar (o servidor já valida ao abrir).
+## Fase 4a — loja de pacotes (no app, branch)
+- Aba **Mercado** do modo cartas abre em **Pacotes**; o controle segmentado tem Pacotes · Jogadores · Favoritos · Recomendados (Jogadores = consulta). "Negociações" virou "Histórico".
+- Cada pacote mostra preço, cartas, OVR médio dos pesos, e se está bloqueado (barra de progresso do marco, contado somando todos os times). Bloqueios no botão: loja fechada, saldo, elenco cheio (`elenco + cartas > rosterMax`).
+- Abrir chama `open_pack` (com o sha256 do `players.json` carregado) e depois atualiza o estado e avisa os outros clientes por broadcast (`pack_opened`).
+- Revelação: cartas viradas com brilho na cor da melhor carta do pacote, revelação em ordem crescente de overall (a melhor por último), "Revelar todas", "Abrir outro". Respeita `prefers-reduced-motion`.
+- Erros do servidor (`pack_locked`, `roster_full`, `insufficient_funds`, `catalog_outdated`, ...) viram mensagens em português.
+- "Suas últimas aberturas" lista as 8 mais recentes do time.
+- Arquivos: `js/features/pack-store.js`, `loadPackStats`/`openPack` em `js/supabase.js`, estilos em `css/features.css`.
+
+## Pendências conhecidas
+- **Fase 4b:** painel admin (preço, cartas, pesos por overall, marcos, depreciação, loja aberta/fechada, estorno de abertura via `rollback_pack_opening`). Até lá, `packSettings` só muda editando o torneio no banco.
+- Aviso ao vivo para os outros jogadores quando alguém tira uma carta alta (o broadcast `pack_opened` já é emitido; falta a UI).
+- Animação de suspense mais elaborada (som, vibração, tremor).
+- Trocas por jogadores (N por M), no lugar das ofertas por dinheiro.
+- Ícone próprio para `pack_purchase` no extrato (hoje usa o rótulo "Pacote ...").
 
 ## Fases
 1. Simulador de calibração — feito.
