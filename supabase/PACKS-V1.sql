@@ -179,8 +179,9 @@ begin
   if jsonb_typeof(v_weights) <> 'object' or v_weights = '{}'::jsonb then raise exception 'invalid_weights' using errcode = 'P0001'; end if;
 
   -- Marco de desbloqueio: X aberturas (não revertidas) de outro pacote, somando todos os times.
+  -- Só vale se packSettings.unlocksEnabled = true (por padrão desligado durante os testes).
   v_unlock := v_pack->'unlock';
-  if v_unlock is not null and jsonb_typeof(v_unlock) = 'object' then
+  if coalesce((v_settings->>'unlocksEnabled')::boolean, false) and v_unlock is not null and jsonb_typeof(v_unlock) = 'object' then
     select count(*) into v_unlock_count
     from public.pack_openings
     where tournament_id = p_tournament_id and pack_id = v_unlock->>'packId' and rolled_back_at is null;

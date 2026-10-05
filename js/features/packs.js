@@ -40,6 +40,8 @@
     return {
       version: 1,
       isOpen: true,
+      // Marcos de desbloqueio desligados por enquanto (fase de testes): todos os pacotes ficam liberados.
+      unlocksEnabled: false,
       sellDepreciationPct: 25,
       eliteThreshold: 90,
       packs: PACK_PRESETS.map((preset) => ({
@@ -57,6 +59,7 @@
     return {
       version: 1,
       isOpen: raw.isOpen !== false,
+      unlocksEnabled: raw.unlocksEnabled === true,
       sellDepreciationPct: Math.min(100, Math.max(0, Number(raw.sellDepreciationPct != null ? raw.sellDepreciationPct : fallback.sellDepreciationPct) || 0)),
       // O limite máximo do elenco é o do campeonato (rosterSettings, editado pelo admin).
       // packSettings.rosterMax só é usado como legado, se o torneio não tiver rosterSettings.

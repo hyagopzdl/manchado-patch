@@ -23,6 +23,8 @@ Status: fases 1 (simulador), 2 (backend), 3 (modo no app) e a loja de pacotes (f
 | Trocas entre usuários | No modo cartas só por jogadores (sem dinheiro), N por M. **Fase posterior ao MVP.** |
 
 ## Marcos de desbloqueio
+**Estado atual (testes):** `packSettings.unlocksEnabled` é `false` por padrão, então todos os pacotes ficam liberados, no app e no `open_pack`. Para voltar a exigir os marcos, definir `unlocksEnabled: true` (o painel admin da fase 4b terá esse interruptor).
+
 Cada pacote tem `unlock`: `null` (liberado desde o início) ou `{ packId, count }`.
 Exemplo: Prata libera quando o total de pacotes Bronze abertos no torneio, somando todos os participantes, chegar a 200.
 O estado é calculado a partir do log de aberturas (sem campo "desbloqueado" que possa dessincronizar).

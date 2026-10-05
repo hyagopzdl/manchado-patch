@@ -10,7 +10,7 @@ $$ select case when got = want then 'ok '||label||'='||got else 'FAIL '||label||
 insert into profiles values ('p1','Alice','user'),('p2','Bob','user'),('adm','Admin','admin');
 insert into tournaments(id,name,status,market_settings,raw_data) values
  ('T1','Cartas','ongoing','{}', jsonb_build_object('mode','packs','packSettings', jsonb_build_object(
-   'rosterMax',30,
+   'rosterMax',30,'unlocksEnabled',true,
    'packs', jsonb_build_array(
      jsonb_build_object('id','bronze','label','Bronze','price',40,'cards',3,'weights',(select jsonb_object_agg(o::text, exp(-0.5*power((o-72)/3.0,2))) from generate_series(65,97) o),'unlock',null),
      jsonb_build_object('id','prata','label','Prata','price',100,'cards',3,'weights',(select jsonb_object_agg(o::text, exp(-0.5*power((o-76)/3.5,2))) from generate_series(65,97) o),'unlock',jsonb_build_object('packId','bronze','count',3)),
@@ -131,3 +131,11 @@ insert into player_ownership(tournament_id,player_id,team_id,acquisition_source,
 select expect_eq('35+3=38 <= 40 abre mesmo com packSettings.rosterMax=30', jsonb_array_length(open_pack('T8','b','L','p1')->'cards')::text, '3');
 select expect_eq('elenco de partida tem 35 + 3 da abertura', (select count(*)::text from player_ownership where tournament_id='T8' and team_id='L'), '38');
 select expect_err($$select open_pack('T8','b','L','p1')$$,'roster_full');
+
+select '--- 13 marcos desligados por padrao (unlocksEnabled ausente): pacote com unlock abre direto';
+insert into tournaments(id,name,status,market_settings,raw_data) values
+ ('T9','SemMarcos','ongoing','{}', jsonb_build_object('mode','packs','rosterSettings',jsonb_build_object('minPlayers',23,'maxPlayers',40),
+   'packSettings', jsonb_build_object('packs', jsonb_build_array(
+     jsonb_build_object('id','prata','label','Prata','price',1,'cards',3,'weights','{"75":1}'::jsonb,'unlock',jsonb_build_object('packId','bronze','count',50))))));
+insert into teams(id,tournament_id,profile_id,name,budget) values ('M9','T9','p1','M9',100);
+select expect_eq('prata abre sem cumprir o marco', jsonb_array_length(open_pack('T9','prata','M9','p1')->'cards')::text, '3');

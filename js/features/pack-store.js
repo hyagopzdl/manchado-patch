@@ -66,11 +66,14 @@
       const found = settings.packs.find((pack) => pack.id === packId);
       return found ? found.label : packId;
     }
+    function isLocked(pack) {
+      return !!(settings.unlocksEnabled && pack.unlock && (stats.counts[pack.unlock.packId] || 0) < pack.unlock.count);
+    }
     function packBlock(pack) {
       if (finished) return "Campeonato encerrado";
       if (!settings.isOpen) return "Loja fechada";
       if (!pack.enabled) return "Indisponível";
-      if (pack.unlock && (stats.counts[pack.unlock.packId] || 0) < pack.unlock.count) return "Bloqueado";
+      if (isLocked(pack)) return "Bloqueado";
       if (budget < pack.price) return "Saldo insuficiente";
       if (rosterSize + pack.cards > settings.rosterMax) return `Elenco cheio (${rosterSize}/${settings.rosterMax})`;
       return null;
@@ -99,7 +102,7 @@
       const mean = weightedMeanOverall(pack.weights);
       const accent = overallColor(Math.round(mean));
       const block = packBlock(pack);
-      const locked = pack.unlock && (stats.counts[pack.unlock.packId] || 0) < pack.unlock.count;
+      const locked = isLocked(pack);
       const have = pack.unlock ? Math.min(stats.counts[pack.unlock.packId] || 0, pack.unlock.count) : 0;
       return h("article", { key: pack.id, className: "pack-tile" + (locked ? " is-locked" : ""), style: { "--pack-accent": accent } },
         h("div", { className: "pack-tile-art" }, h("span", { className: "pack-tile-cards" }, `${pack.cards} cartas`)),
@@ -187,6 +190,7 @@
         h("span", null, `Saldo ${L(budget)}`)
       ),
       !settings.isOpen && h("div", { className: "pack-store-notice" }, "A loja está fechada pela administração."),
+      !settings.unlocksEnabled && h("div", { className: "pack-store-notice" }, "Modo de teste: os marcos de desbloqueio estão desativados e todos os pacotes estão liberados."),
       error && h("div", { className: "pack-store-error", role: "alert" }, error),
       h("div", { className: "pack-grid" }, settings.packs.map(packTile)),
       stats.mine.length > 0 && h("section", { className: "pack-history" },

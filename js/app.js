@@ -2545,7 +2545,8 @@
             if (maxPlayers < minPlayers) maxPlayers = minPlayers;
             let currentBaseMinimum = R.rosterSettings && R.rosterSettings.minBaseRosterPlayers != null ? R.rosterSettings.minBaseRosterPlayers : 0;
             let minBaseRosterPlayers = Math.max(0, Math.round(Number(minBaseValue != null ? minBaseValue : currentBaseMinimum) || 0));
-            ae(m.map((item) => item.id === R.id ? { ...item, rosterSettings: { ...(item.rosterSettings || {}), minPlayers, maxPlayers, minBaseRosterPlayers } } : item));
+            // packSettings.rosterMax é legado (o limite do elenco é o do rosterSettings): remove para não divergir.
+            ae(m.map((item) => { if (item.id !== R.id) return item; let next = { ...item, rosterSettings: { ...(item.rosterSettings || {}), minPlayers, maxPlayers, minBaseRosterPlayers } }; if (next.packSettings && next.packSettings.rosterMax != null) { let { rosterMax, ...restPackSettings } = next.packSettings; next.packSettings = restPackSettings; } return next; }));
           }
           function viewTournament(tournamentId) {
             setSelectedTournamentId(tournamentId || null);
