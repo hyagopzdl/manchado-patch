@@ -52,16 +52,28 @@ O estado é calculado a partir do log de aberturas (sem campo "desbloqueado" que
 ## Backend (pronto, testado em Postgres 16 com o schema real)
 Arquivos em `supabase/`:
 - `PACKS-V1.sql`: tabelas `player_catalog`, `player_catalog_meta`, `pack_openings` e as RPCs `open_pack` e `rollback_pack_opening`. Aditivo e idempotente. Não altera nenhuma tabela ou função existente.
-- `PLAYER-CATALOG-SEED.sql`: carga do catálogo, **gerada** por `node tools/generate-catalog-sql.js`. Regenerar e reaplicar sempre que o `players.json` mudar.
+- `catalog-seeds/<id>.sql`: carga de cada catálogo, **gerada** por `node tools/generate-catalog-sql.js`.
 
-**Como aplicar (ordem):** 1) `PACKS-V1.sql`  2) `PLAYER-CATALOG-SEED.sql`. Ambos no SQL Editor do Supabase. Como nada existente é alterado, os campeonatos atuais não são afetados.
+**Como aplicar (ordem):** 1) `PACKS-V1.sql`  2) `catalog-seeds/default.sql`. Ambos no SQL Editor do Supabase. Como nada existente é alterado, os campeonatos atuais não são afetados.
 
-**Quando o `players.json` mudar:**
-1. `node tools/generate-catalog-sql.js` — valida o JSON (id duplicado, sem nome, overall fora de 1–99 viram erro; valor ausente vira aviso) e regera o seed.
-2. Aplicar o `PLAYER-CATALOG-SEED.sql` gerado no Supabase. É upsert por `player_id`: atualiza overall/valor/nome, insere novos e remove do catálogo quem saiu do JSON.
-3. Publicar o novo `players.json` no app.
-Se os passos 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` (o cliente envia o sha256 do JSON que exibe, e o servidor compara com `player_catalog_meta.source_checksum`). Qualquer edição no arquivo, até de formatação, muda o checksum e exige regerar o seed.
-**Cuidados:** manter os **ids estáveis** (posse, overrides e histórico de todos os campeonatos usam o id); jogadores removidos do JSON que já têm dono continuam no elenco, só deixam de entrar no pool; evitar trocar a base no meio de um campeonato de cartas, porque mudar overalls altera as probabilidades de quem ainda vai abrir pacotes. Campeonatos no modo mercado não usam `player_catalog`.
+**Várias bases (catálogos):**
+- Cada base é um **catálogo com id**. O `players.json` atual é o catálogo `default`; os campeonatos existentes não têm `catalogId` e continuam nele.
+- Um torneio escolhe o catálogo em `catalogId` (ausente = `default`). O `open_pack` sorteia só desse catálogo, e a guarda de versão compara com o checksum daquele catálogo.
+- Os catálogos são adicionados **só pelo git**: o arquivo JSON da base + uma linha em `catalogs.json` (usado depois pelo seletor do app na criação do campeonato) + o seed gerado.
+- **Overrides valem só para o catálogo `default`** (são globais por `player_id`, e bases diferentes podem reaproveitar ids). Para outros catálogos o servidor os ignora; o app deve fazer o mesmo (fase 3). Escopar overrides e revisões por catálogo fica para depois.
+- Ids repetidos entre catálogos não conflitam: a posse é por torneio e cada torneio usa um único catálogo.
+
+**Adicionando uma base nova:**
+1. Colocar o JSON na raiz (ex.: `players-2026.json`) e registrar em `catalogs.json`.
+2. `node tools/generate-catalog-sql.js edicao-2026 players-2026.json` — valida e gera `supabase/catalog-seeds/edicao-2026.sql`.
+3. Aplicar o seed no Supabase. Só toca nas linhas daquele catálogo.
+
+**Quando um JSON existente mudar:**
+1. `node tools/generate-catalog-sql.js [catalogId] [arquivo]` (sem argumentos = `default` a partir de `players.json`). Valida o JSON (id duplicado, sem nome, overall fora de 1–99 viram erro; valor ausente vira aviso).
+2. Aplicar o seed gerado. É upsert por `(catalog_id, player_id)`: atualiza, insere novos e remove do catálogo quem saiu do arquivo.
+3. Publicar o JSON atualizado no app.
+Se 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` (o cliente envia o sha256 do JSON que exibe). Qualquer edição no arquivo, até de formatação, muda o checksum e exige regerar o seed.
+**Cuidados:** manter os ids estáveis dentro de um mesmo catálogo; jogador removido que já tem dono continua no elenco (só sai do pool); evitar mudar a base no meio de um campeonato de cartas, pois altera as probabilidades.
 
 **Decisões do `open_pack`:**
 - Config e modo vêm do torneio no servidor (`raw_data->packSettings` e `raw_data->>'mode'`), nunca do cliente.

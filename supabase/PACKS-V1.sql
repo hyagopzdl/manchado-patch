@@ -1,14 +1,17 @@
 -- PACKS-V1: backend do modo cartas (pacotes). 100% aditivo.
 --
 -- O que faz:
---   * cria player_catalog / player_catalog_meta (catálogo base, carregado por PLAYER-CATALOG-SEED.sql)
+--   * cria player_catalog / player_catalog_meta (catálogos base, um por catalog_id, carregados pelos
+--     seeds em supabase/catalog-seeds/<id>.sql; o catálogo "default" é o players.json atual)
 --   * cria pack_openings (log de cada abertura)
 --   * cria as RPCs open_pack e rollback_pack_opening
 -- O que NÃO faz: não altera nenhuma tabela, coluna ou função existente.
 -- A config (preços, pesos, marcos, limites) vem do torneio (tournaments.raw_data->'packSettings'),
 -- nunca do cliente. O modo vem de tournaments.raw_data->>'mode' = 'packs'.
+-- O catálogo do torneio vem de tournaments.raw_data->>'catalogId' (ausente = 'default').
+-- Overrides de jogadores são globais por player_id, então só valem para o catálogo 'default'.
 --
--- Ordem de aplicação: 1) este arquivo  2) PLAYER-CATALOG-SEED.sql
+-- Ordem de aplicação: 1) este arquivo  2) supabase/catalog-seeds/default.sql
 -- Idempotente: pode rodar mais de uma vez.
 
 begin;
@@ -17,15 +20,17 @@ begin;
 -- Catálogo base (espelho do players.json para o servidor sortear)
 -- ---------------------------------------------------------------------------
 create table if not exists public.player_catalog (
-  player_id text primary key,
+  catalog_id text not null default 'default',
+  player_id text not null,
   name text not null,
   position text,
   overall integer not null,
-  value numeric not null default 0
+  value numeric not null default 0,
+  primary key (catalog_id, player_id)
 );
 
 create table if not exists public.player_catalog_meta (
-  id boolean primary key default true check (id),
+  catalog_id text primary key,
   player_count integer not null,
   source_checksum text not null,
   loaded_at timestamptz not null default now()
@@ -70,6 +75,7 @@ create policy pack_openings_read on public.pack_openings for select to anon, aut
 -- ---------------------------------------------------------------------------
 create or replace function public._pack_pool(
   p_tournament_id text,
+  p_catalog_id text,
   p_use_overrides boolean,
   p_exclude text[]
 )
@@ -87,7 +93,8 @@ as $$
     coalesce(case when p_use_overrides then o.market_value end, c.value)
   from public.player_catalog c
   left join public.player_catalog_overrides o on o.player_id = c.player_id
-  where not exists (
+  where c.catalog_id = p_catalog_id
+    and not exists (
           select 1 from public.player_ownership po
           where po.tournament_id = p_tournament_id
             and po.player_id = c.player_id
@@ -96,14 +103,11 @@ as $$
     and c.player_id <> all (coalesce(p_exclude, '{}'::text[]));
 $$;
 
-revoke all on function public._pack_pool(text, boolean, text[]) from public, anon, authenticated;
+revoke all on function public._pack_pool(text, text, boolean, text[]) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- open_pack
 -- ---------------------------------------------------------------------------
--- Assinatura nova (com p_catalog_checksum). Remove a antiga, se existir, para não criar sobrecarga.
-drop function if exists public.open_pack(text, text, text, text);
-
 create or replace function public.open_pack(
   p_tournament_id text,
   p_pack_id text,
@@ -128,6 +132,7 @@ declare
   v_max integer;
   v_size integer;
   v_use_overrides boolean;
+  v_catalog_id text;
   v_now timestamptz := clock_timestamp();
   v_opening_id text;
   v_drawn text[] := '{}'::text[];
@@ -199,19 +204,23 @@ begin
   v_before := coalesce(v_team.budget, 0);
   if v_before < v_price then raise exception 'insufficient_funds' using errcode = 'P0001'; end if;
 
-  if not exists (select 1 from public.player_catalog) then raise exception 'catalog_not_loaded' using errcode = 'P0001'; end if;
+  v_catalog_id := coalesce(nullif(v_t.raw_data->>'catalogId', ''), 'default');
+  if not exists (select 1 from public.player_catalog where catalog_id = v_catalog_id) then
+    raise exception 'catalog_not_loaded' using errcode = 'P0001';
+  end if;
 
   -- Guarda de versão: o cliente informa o sha256 do players.json que ele está exibindo.
   -- Se for diferente do catálogo carregado no banco, o sorteio seria sobre dados que o jogador não vê.
   if p_catalog_checksum is not null
-     and p_catalog_checksum is distinct from (select source_checksum from public.player_catalog_meta where id) then
+     and p_catalog_checksum is distinct from (select source_checksum from public.player_catalog_meta where catalog_id = v_catalog_id) then
     raise exception 'catalog_outdated' using errcode = 'P0001';
   end if;
 
-  v_use_overrides := coalesce((v_t.market_settings->>'playerOverridesEnabled')::boolean, true);
+  -- Overrides são globais por player_id: só são seguros no catálogo 'default'.
+  v_use_overrides := v_catalog_id = 'default' and coalesce((v_t.market_settings->>'playerOverridesEnabled')::boolean, true);
 
   select coalesce(jsonb_object_agg(overall::text, n), '{}'::jsonb) into v_pool_snapshot
-  from (select overall, count(*) n from public._pack_pool(p_tournament_id, v_use_overrides, v_drawn) group by overall) s;
+  from (select overall, count(*) n from public._pack_pool(p_tournament_id, v_catalog_id, v_use_overrides, v_drawn) group by overall) s;
 
   for v_i in 1..v_cards loop
     select array_agg(overall order by overall), array_agg(weight order by overall)
@@ -219,7 +228,7 @@ begin
     from (
       select p.overall,
              coalesce(nullif(v_weights->>(p.overall::text), '')::numeric, 0) as weight
-      from public._pack_pool(p_tournament_id, v_use_overrides, v_drawn) p
+      from public._pack_pool(p_tournament_id, v_catalog_id, v_use_overrides, v_drawn) p
       group by p.overall
     ) x
     where weight > 0;
@@ -238,7 +247,7 @@ begin
     end loop;
 
     select * into v_card
-    from public._pack_pool(p_tournament_id, v_use_overrides, v_drawn) p
+    from public._pack_pool(p_tournament_id, v_catalog_id, v_use_overrides, v_drawn) p
     where p.overall = v_pick
     order by random()
     limit 1;
@@ -298,7 +307,7 @@ begin
   values (v_opening_id, p_tournament_id, p_team_id, p_actor_profile_id, p_pack_id, v_price, v_result, v_weights, v_pool_snapshot, v_now);
 
   return jsonb_build_object(
-    'ok', true, 'openingId', v_opening_id, 'packId', p_pack_id, 'price', v_price,
+    'ok', true, 'openingId', v_opening_id, 'packId', p_pack_id, 'catalogId', v_catalog_id, 'price', v_price,
     'balanceBefore', v_before, 'balanceAfter', v_after, 'cards', v_result
   );
 end;

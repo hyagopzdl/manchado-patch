@@ -90,3 +90,26 @@ select case when (select n from o where overall=75) between 150 and 210
              and (select n from o where overall=80) between 35 and 85
        then 'ok distribuicao dentro do esperado' else 'FAIL distribuicao fora do esperado' end;
 select expect_eq('sem jogador repetido', (select (count(*)=count(distinct player_id))::text from player_ownership where tournament_id='T4'), 'true');
+
+select '--- 10 catalogos diferentes (ids colidem de proposito com o default)';
+-- catalogo "alt": conjunto diferente; o id '195' (Henry no default) aqui e outro jogador
+insert into player_catalog(catalog_id,player_id,name,position,overall,value) values
+ ('alt','195','Alt Star','CF',99,500),('alt','A1','Alt Mid','CM',60,5),('alt','A2','Alt Mid 2','CM',60,5),('alt','A3','Alt Mid 3','CM',60,5);
+insert into player_catalog_meta(catalog_id,player_count,source_checksum) values ('alt',4,'alt-sum');
+insert into tournaments(id,name,status,market_settings,raw_data) values
+ ('T6','Alt','ongoing','{}', jsonb_build_object('mode','packs','catalogId','alt','packSettings', jsonb_build_object('rosterMax',30,'packs', jsonb_build_array(
+   jsonb_build_object('id','star','label','Star','price',1,'cards',1,'weights','{"99":1}'::jsonb),
+   jsonb_build_object('id','mid','label','Mid','price',1,'cards',3,'weights','{"60":1}'::jsonb))))),
+ ('T7','SemCatalogo','ongoing','{}', jsonb_build_object('mode','packs','catalogId','nope','packSettings', jsonb_build_object('rosterMax',30,'packs', jsonb_build_array(
+   jsonb_build_object('id','mid','label','Mid','price',1,'cards',1,'weights','{"60":1}'::jsonb)))));
+insert into teams(id,tournament_id,profile_id,name,budget) values ('X','T6','p1','X',100),('Y','T7','p1','Y',100);
+-- override global no id '195' (default: Henry). Nao pode afetar o catalogo alt.
+insert into player_catalog_overrides(player_id,overall) values ('195',50);
+-- (com o override 195->50 ativo, o Alt Star de 99 ainda sai: overrides nao valem fora do default)
+select expect_eq('alt sorteia so do proprio catalogo e ignora override', open_pack('T6','star','X','p1')->'cards'->0->>'name', 'Alt Star');
+delete from player_catalog_overrides where player_id='195';
+select expect_err($$select open_pack('T6','star','X','p1')$$,'pool_empty');
+select expect_err($$select open_pack('T7','mid','Y','p1')$$,'catalog_not_loaded');
+select expect_err($$select open_pack('T6','mid','X','p1','checksum-do-default')$$,'catalog_outdated');
+select expect_eq('checksum do alt passa', jsonb_array_length(open_pack('T6','mid','X','p1','alt-sum')->'cards')::text, '3');
+select expect_eq('mesmo id 195 pode pertencer no T6 sem conflito com outros torneios', (select count(*)::text from player_ownership where tournament_id='T6' and player_id='195'), '1');
