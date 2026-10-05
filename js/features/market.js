@@ -78,7 +78,11 @@
   function marketSaleDepreciation(tournament, playerId, teamId, ownershipValue, transfersValue) {
     let settings = tournament && tournament.marketSettings && typeof tournament.marketSettings === "object" ? tournament.marketSettings : {};
     let initialRoster = isInitialRosterPlayer(playerId, teamId, ownershipValue, transfersValue);
-    let pct = initialRoster
+    let ownershipItem = ownershipValue && typeof ownershipValue === "object" ? ownershipValue[playerId] : null;
+    let fromPack = !!ownershipItem && inferPlayerAcquisition(playerId, ownershipItem, transfersValue).acquisitionSource === "pack";
+    let pct = fromPack && window.ManchaApp.PacksFeature
+      ? window.ManchaApp.PacksFeature.packSellDepreciationPct(tournament)
+      : initialRoster
       ? Number(settings.initialRosterDepreciationPct != null ? settings.initialRosterDepreciationPct : 50)
       : Number(settings.depreciationPct != null ? settings.depreciationPct : 10);
     return { depreciationPct:Math.min(100,Math.max(0,pct||0)), initialRoster };

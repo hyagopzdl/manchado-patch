@@ -1,6 +1,6 @@
 # Modo Cartas (pacotes) — especificação
 
-Status: fase 1 (simulador) e fase 2 (backend) prontas. O app ainda não usa nada disso: nenhuma linha de `js/` ou `css/` foi alterada.
+Status: fases 1 (simulador), 2 (backend) e 3 (modo no app) prontas. Falta a loja de pacotes (fase 4): ainda não há tela para abrir pacotes nem painel admin de configuração.
 
 ## Princípio de segurança
 - Torneio ganha o campo `mode`: `"market"` (padrão, também para torneios sem o campo) ou `"packs"`.
@@ -89,10 +89,27 @@ Se 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` 
 
 **Para a fase 3 (UI):** os tipos `pack_pull`, `pack_purchase` e `pack_rollback` são novos e a tela de transferências/extrato precisa saber exibi-los. Após chamar a RPC, o cliente deve recarregar o estado (como já faz com `refreshNormalizedStateAfterRpc`) e fazer o broadcast.
 
+## Fase 3 — o que o app faz hoje (modo `packs`)
+- **Criação (Campeonato → Começar do zero):** escolha do modelo (Mercado de jogadores / Cartas) e, quando `catalogs.json` tem mais de uma base, escolha da base. No modo cartas o elenco inicial balanceado é obrigatório (23 por time). "Continuar temporada" herda modo, base e `packSettings` da temporada anterior.
+- **Campos gravados no torneio** (somente quando não são o padrão): `mode: "packs"`, `catalogId`, `packSettings` (valores iniciais de `js/features/packs.js`, placeholders vindos do simulador). Um campeonato de mercado comum é gravado exatamente como antes.
+- **Base por campeonato:** o app carrega o catálogo do campeonato selecionado (`catalogs.json` → arquivo). Overrides só valem na base `default`.
+- **Mercado desligado no modo cartas:** o título vira "Banco de jogadores" (navegação: "Jogadores"), sem botões de compra/oferta, detalhe do jogador sem proposta, sem "Fazer oferta" em elencos alheios, multa rescisória desativada, `kt` (compra/oferta) bloqueado. "Negociações" vira "Histórico".
+- **Venda ao mercado** continua: cartas vindas de pacote usam `packSettings.sellDepreciationPct` (padrão 25%); elenco inicial continua com a regra antiga.
+- **Histórico:** `pack_pull` aparece nas transferências e na atividade. O botão de reverter fica desabilitado para esses itens (o estorno de pacote usa `rollback_pack_opening`, a ligar na fase 4).
+- Versões de cache de `index.html` atualizadas (`20261005-packs-v1`) e `packs.js` adicionado.
+
+**Testes da fase 3** (feitos num navegador headless com Supabase simulado, sem tocar no banco real): campeonato de mercado idêntico ao anterior (título, 23 botões de compra, detalhe com proposta); campeonato de cartas sem botões de compra; venda de carta de pacote a 25% (129 → 97M); criação de campeonato de cartas com base alternativa gerando 23 jogadores por time com ids da base escolhida; criação de campeonato de mercado sem nenhum campo novo; base alternativa carregada ao selecionar o campeonato.
+
+## Pendências conhecidas (fase 4)
+- Tela de abertura de pacotes (usar `open_pack`, enviando o checksum da base: `PacksFeature.loadCatalog(id).checksum`), com revelação.
+- Painel admin: preço, cartas, pesos por overall, marcos de desbloqueio, depreciação, loja aberta/fechada e estorno de abertura.
+- Pacotes novos ainda não aparecem em extrato com ícone próprio (usam o rótulo "Pacote ...").
+- Validar `packSettings` do torneio contra o servidor ao salvar (o servidor já valida ao abrir).
+
 ## Fases
 1. Simulador de calibração — feito.
 2. Backend aditivo (`PACKS-V1.sql`) — feito.
-3. Seletor de modo na criação do torneio + gating da UI (mercado vira banco de consulta).
+3. Seletor de modo na criação do torneio + gating da UI (mercado vira banco de consulta) — feito (ver abaixo).
 4. MVP: loja de pacotes, revelação simples, venda de volta, painel admin de configuração (preço, cartas, pesos por overall, marcos, elenco).
 5. Trocas por jogadores (N por M).
 6. UX de tensão (animação, som, aviso ao vivo).

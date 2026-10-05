@@ -290,17 +290,16 @@
             document.documentElement.setAttribute("data-theme", theme);
             localStorage.setItem("pes-theme", JSON.stringify(theme));
           }, [theme]);
-          He(() => {
-            fetch("./players.json")
-              .then((o) => {
-                if (!o.ok) throw new Error("fail");
-                return o.json();
-              })
-              .then((o) => setBaseCatalog(Array.isArray(o) ? o : []))
-              .catch(() => d(!0));
-          }, []);
           let catalogTournament = X(() => m.find((item) => item && item.id === selectedTournamentId) || null, [m, selectedTournamentId]);
-          let overridesEnabled = !(catalogTournament && catalogTournament.marketSettings && catalogTournament.marketSettings.playerOverridesEnabled === false);
+          let activeCatalogId = window.ManchaApp.PacksFeature.catalogIdOf(catalogTournament);
+          He(() => {
+            let cancelled = false;
+            window.ManchaApp.PacksFeature.loadCatalog(activeCatalogId)
+              .then((catalog) => { if (!cancelled) { setBaseCatalog(catalog.players); d(!1); } })
+              .catch(() => { if (!cancelled) d(!0); });
+            return () => { cancelled = true; };
+          }, [activeCatalogId]);
+          let overridesEnabled = window.ManchaApp.PacksFeature.overridesAllowed(catalogTournament);
           let n = X(() => (Array.isArray(baseCatalog) ? baseCatalog : []).map((player) => {
             if (!player || typeof player !== "object" || !overridesEnabled) return player;
             let override = playerCatalogOverrides && playerCatalogOverrides[player.id];
@@ -1178,7 +1177,7 @@
           }
           function releaseClauseSettings(tournament = R) {
             let raw=tournament&&tournament.marketSettings&&tournament.marketSettings.releaseClause&&typeof tournament.marketSettings.releaseClause==="object"?tournament.marketSettings.releaseClause:{};
-            return { enabled:raw.enabled===true, multiplier:Math.max(1,Number(raw.multiplier)||2), revalueMultiplier:Math.max(1,Number(raw.revalueMultiplier)||1.5), protectedGames:Math.max(0,Math.round(Number(raw.protectedGames)||0)), maxSufferedPerTeam:Math.max(0,Math.round(Number(raw.maxSufferedPerTeam)||0)), blockDirectRepurchase:raw.blockDirectRepurchase!==false, shieldingEnabled:raw.shieldingEnabled!==false, shieldingConversion:Math.max(.01,Number(raw.shieldingConversion)||1), shieldingMaxPct:Math.max(0,Number(raw.shieldingMaxPct)||0) };
+            return { enabled:raw.enabled===true&&!window.ManchaApp.PacksFeature.isPacksMode(tournament), multiplier:Math.max(1,Number(raw.multiplier)||2), revalueMultiplier:Math.max(1,Number(raw.revalueMultiplier)||1.5), protectedGames:Math.max(0,Math.round(Number(raw.protectedGames)||0)), maxSufferedPerTeam:Math.max(0,Math.round(Number(raw.maxSufferedPerTeam)||0)), blockDirectRepurchase:raw.blockDirectRepurchase!==false, shieldingEnabled:raw.shieldingEnabled!==false, shieldingConversion:Math.max(.01,Number(raw.shieldingConversion)||1), shieldingMaxPct:Math.max(0,Number(raw.shieldingMaxPct)||0) };
           }
           function releaseClauseState(tournament = R) { return tournament&&tournament.releaseClauseState&&typeof tournament.releaseClauseState==="object"?tournament.releaseClauseState:{}; }
           function releaseClauseContractStatus(playerId, teamId, tournament = R, matchesValue = null) {
@@ -1223,7 +1222,9 @@
           function marketOperationBlock(player, status, tournament = R) { return window.ManchaApp.MarketFeature.marketOperationBlock(player, status, tournament); }
           function evaluateMarketBalance(player, buyerTeamId, tournament = R, teamsValue = p, ownershipValue = c, catalogValue = n) { return window.ManchaApp.MarketFeature.evaluateMarketBalance(player, buyerTeamId, tournament, teamsValue, ownershipValue, catalogValue); }
           function marketBalanceMessage(check) { return window.ManchaApp.MarketFeature.marketBalanceMessage(check); }
+          let packsMode = window.ManchaApp.PacksFeature.isPacksMode(R);
           function kt(o) {
+            if (packsMode) { window.alert("Neste campeonato os jogadores só entram por pacotes de cartas."); return; }
             let status = Pe(o);
             if (!ProfileTeam) return;
             let accessStatus = marketMinimumGamesStatus(ProfileTeam.id);
@@ -1906,7 +1907,7 @@
             if (finishedCup) window.alert(`🏆 ${finishedCup.finalStandings[0].profileNameSnapshot} venceu ${finishedCup.name}!`);
           }
 
-          function createAdminTournament(options = {}) {
+          async function createAdminTournament(options = {}) {
             let name = adminTournamentName.trim();
             if (!name) return;
             if (m.some((item) => String(item.name || "").trim().toLowerCase() === name.toLowerCase())) {
@@ -2046,11 +2047,19 @@
                 financialTransactions.unshift(financeEntry("initial_balance", teamId, budget, "Saldo inicial da competição"));
               });
             }
+            let Packs = window.ManchaApp.PacksFeature;
+            let packsMode = source ? Packs.isPacksMode(source) : options.tournamentModel === "packs";
+            let newCatalogId = source ? Packs.catalogIdOf(source) : (typeof options.catalogId === "string" && options.catalogId ? options.catalogId : Packs.DEFAULT_CATALOG_ID);
             let randomRoster=null;
             if(!source && options.randomRoster && options.randomRoster.enabled){
+              let rosterBaseCatalog = baseCatalog;
+              if (newCatalogId !== activeCatalogId) {
+                try { rosterBaseCatalog = (await Packs.loadCatalog(newCatalogId)).players; }
+                catch (error) { window.alert("Não foi possível carregar a base de jogadores escolhida. Nenhum campeonato foi criado."); return false; }
+              }
               let targetOverall=Math.max(60,Math.min(95,Math.round(Number(options.randomRoster.targetOverall)||80)));
-              let creationCatalog=(Array.isArray(baseCatalog)?baseCatalog:[]).map((player)=>{
-                let override=playerCatalogOverrides&&playerCatalogOverrides[player&&player.id];
+              let creationCatalog=(Array.isArray(rosterBaseCatalog)?rosterBaseCatalog:[]).map((player)=>{
+                let override=newCatalogId===Packs.DEFAULT_CATALOG_ID&&playerCatalogOverrides&&playerCatalogOverrides[player&&player.id];
                 if(!player||!override||typeof override!=="object")return player;
                 return {...player,overall:override.overall!=null?Number(override.overall):player.overall,value:override.value!=null?Number(override.value):player.value,attack:override.attack!=null?Number(override.attack):player.attack,defense:override.defense!=null?Number(override.defense):player.defense,attrs:{...(player.attrs||{}),...((override.attrs&&typeof override.attrs==="object")?override.attrs:{})}};
               });
@@ -2072,6 +2081,8 @@
               sourceChampionshipId: source ? source.id : null,
               inheritance: source ? inheritance : null,
               randomRoster,
+              ...(newCatalogId !== Packs.DEFAULT_CATALOG_ID ? { catalogId: newCatalogId } : {}),
+              ...(packsMode ? { mode: "packs", packSettings: source && source.packSettings ? { ...source.packSettings } : Packs.defaultPackSettings() } : {}),
               marketSettings: source && source.marketSettings ? { ...source.marketSettings } : { depreciationPct: 10, initialRosterDepreciationPct:50, isOpen:true, freePlayerOverallLimit:{enabled:false,minOverall:1,maxOverall:99} },
               rosterSettings: source && source.rosterSettings ? { ...source.rosterSettings } : { minPlayers: 23, maxPlayers: 30, minBaseRosterPlayers: 0 },
               economySettings: source && source.economySettings ? { ...source.economySettings } : { winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
@@ -3100,7 +3111,7 @@
                           },
                         },
                         "N\xE3o encontrei o arquivo ",
-                        React.createElement("code", null, "players.json"),
+                        React.createElement("code", null, activeCatalogId === "default" ? "players.json" : "catalogs.json"),
                         " ao lado do index.html. Sem ele o cat\xE1logo de jogadores n\xE3o carrega.",
                       ),
                     React.createElement(
@@ -3145,6 +3156,7 @@
                           allTeams: p,
                           profiles: x,
                           statusOf: Pe,
+                          packsMode: packsMode,
                           onBuy: kt,
                           onOpenDetail: (player) => { let status = Pe(player); let balanceCheck = ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true }; be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free", balanceCheck }); },
                           transfers: k,
@@ -3199,7 +3211,7 @@
                     ),
                     Y === "table" && R && R.type !== "cup" && R.status !== "finished" && (ProfileTeam || isAdminProfile(te)) && p.filter((team) => team && team.active !== false).length >= 2 &&
                       React.createElement("button", { onClick: openMatchWizard, className: "tapbtn sports-fab", title: "Adicionar partida", "aria-label": "Adicionar partida", style: { position: "fixed", left: "50%", bottom: 62, transform: "translateX(-50%)", width: 58, height: 58, borderRadius: "50%", border: "5px solid var(--surface)", background: "var(--green)", color: "white", fontSize: 32, lineHeight: 1, display: "grid", placeItems: "center", cursor: "pointer", zIndex: 140, boxShadow: "0 8px 20px rgba(0,0,0,.18)" } }, "+"),
-                    React.createElement(mo, { tab: Y, setTab: (nextTab) => nextTab === "admin" ? requestAdminAccess() : oe(nextTab), isAdmin: isAdminProfile(te), unreadOffers: unreadOfferCount, profile: te, presence, tournamentFinished: !!(R && (R.status === "finished" || R.type === "cup")) }),
+                    React.createElement(mo, { packsMode, tab: Y, setTab: (nextTab) => nextTab === "admin" ? requestAdminAccess() : oe(nextTab), isAdmin: isAdminProfile(te), unreadOffers: unreadOfferCount, profile: te, presence, tournamentFinished: !!(R && (R.status === "finished" || R.type === "cup")) }),
                     championshipSummary && React.createElement(ChampionshipSummaryModal, { tournament: championshipSummary, profiles: x, onClose: () => setChampionshipSummary(null) }),
                     cupMatchModal && R && R.type === "cup" && React.createElement(CupScoreModal, { data:cupMatchModal, setData:setCupMatchModal, tournament:R, teams:p, profiles:x, onClose:()=>setCupMatchModal(null), onSave:saveCupMatchResult }),
                     adminGate && React.createElement(ee, { title: adminGate.mode === "create" ? "Criar senha de administrador" : "Acessar administração", onClose: () => setAdminGate(null) },
@@ -3328,6 +3340,7 @@
                       }),
                     Me &&
                       React.createElement(ro, {
+                        readOnlyMarket: packsMode,
                         player: Me,
                         catalog: n,
                         statusOf: Pe,
@@ -4563,6 +4576,7 @@
           );
         }
         function lo({
+          packsMode: packsMode = false,
           catalog: e,
           catalogMap: catalogMap,
           ownership: t,
@@ -4863,6 +4877,7 @@
           });
 
           function playerAction(player, status, activeOffer) {
+            if (packsMode) return null;
             if (!(status.kind === "free" || (status.teamId && (!activeTeam || status.teamId !== activeTeam.id)))) return null;
             let price = status.kind === "free" ? player.value : status.kind === "listed" && status.price ? status.price : player.value;
             let insufficient = status.kind === "free" && activeTeam && Number(activeTeam.budget || 0) < Number(price || 0);
@@ -4946,10 +4961,10 @@
             React.createElement("header", { style:{ position:"relative", minHeight:64, display:"grid", placeItems:"center", marginBottom:18, padding:"4px 0" } },
               React.createElement("button", { className:"tapbtn", onClick:()=>setMarketSection("negotiations"), title:"Abrir negociações", style:{ position:"absolute", left:0, top:"50%", transform:"translateY(-50%)", border:"1px solid color-mix(in srgb, #ffbb26 42%, var(--border))", background:marketSection==="negotiations"?"color-mix(in srgb, #ffbb26 22%, var(--surface))":"color-mix(in srgb, #ffbb26 10%, var(--surface))", color:"#ffcc4d", borderRadius:999, padding:"9px 12px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontWeight:800, boxShadow:"0 10px 26px rgba(0,0,0,.12)" } },
                 React.createElement(OfferIcon,{ size:16,color:"#ffcc4d" }),
-                React.createElement("span", { className:"market-header-action-label" }, "Negociações"),
+                React.createElement("span", { className:"market-header-action-label" }, packsMode ? "Histórico" : "Negociações"),
                 unreadOffers>0&&React.createElement("span", { style:{ minWidth:18,height:18,padding:"0 5px",borderRadius:999,background:"var(--danger)",color:"white",display:"grid",placeItems:"center",fontSize:10,fontWeight:850 } }, unreadOffers>9?"9+":unreadOffers)
               ),
-              React.createElement("h1", { style:{ margin:0, padding:"0 112px", fontSize:"clamp(32px,5vw,48px)", lineHeight:1, letterSpacing:"-.055em", textAlign:"center" } }, "Mercado"),
+              React.createElement("h1", { style:{ margin:0, padding:"0 112px", fontSize:"clamp(32px,5vw,48px)", lineHeight:1, letterSpacing:"-.055em", textAlign:"center" } }, packsMode ? "Banco de jogadores" : "Mercado"),
               (activeTeam || isAdmin) && React.createElement("button", { className:"tapbtn", onClick:onOpenBalanceHistory, title:isAdmin&&!activeTeam?"Ver histórico de transações":"Ver histórico de saldo", style:{ position:"absolute", right:0, top:"50%", transform:"translateY(-50%)", border:"1px solid color-mix(in srgb, var(--green) 30%, var(--border))", background:"color-mix(in srgb, var(--green) 10%, var(--surface))", color:"var(--heading)", borderRadius:999, padding:"9px 12px", display:"inline-flex", alignItems:"center", gap:7, cursor:"pointer", fontWeight:800, boxShadow:"0 10px 26px rgba(0,0,0,.12)" } }, React.createElement(BankIcon,{ size:15,color:"var(--green)" }), isAdmin&&!activeTeam?React.createElement("span",{className:"market-header-action-label"},"Histórico"):L(activeTeam.budget))
             ),
             !marketRules.isOpen && React.createElement("div", { style:{ ...E, padding:14, marginBottom:14, border:"1px solid color-mix(in srgb, var(--yellow) 45%, var(--border))", background:"color-mix(in srgb, var(--yellow) 10%, var(--surface))", display:"flex", gap:10, alignItems:"flex-start" } }, React.createElement(at,{size:18,color:"var(--yellow)"}), React.createElement("div",null,React.createElement("strong",null,"Mercado fechado"),React.createElement("div",{style:{fontSize:12,color:"var(--muted)",marginTop:3}},"Compras, vendas e negociações estão temporariamente pausadas pela administração."))),
@@ -4980,7 +4995,7 @@
                         let balanceBlocked=!balanceCheck.allowed;
                         let overallBlocked=status.kind==="free"&&marketRules.freePlayerOverallLimit.enabled&&(Number(player.overall||0)<Number(marketRules.freePlayerOverallLimit.minOverall!=null?marketRules.freePlayerOverallLimit.minOverall:1)||Number(player.overall||0)>Number(marketRules.freePlayerOverallLimit.maxOverall||99));
                         let closed=!marketRules.isOpen;
-                        let label=own?null:closed?"Mercado fechado":overallBlocked?(Number(player.overall||0)<Number(marketRules.freePlayerOverallLimit.minOverall!=null?marketRules.freePlayerOverallLimit.minOverall:1)?"Abaixo do limite":"Acima do limite"):balanceBlocked?"Bloqueado pelo equilíbrio":status.kind==="free"?(insufficient?"Saldo insuficiente":`Comprar · ${L(price)}`):activeOffer?"Ver negociação":`Ofertar · ${L(price)}`;
+                        let label=packsMode?null:own?null:closed?"Mercado fechado":overallBlocked?(Number(player.overall||0)<Number(marketRules.freePlayerOverallLimit.minOverall!=null?marketRules.freePlayerOverallLimit.minOverall:1)?"Abaixo do limite":"Acima do limite"):balanceBlocked?"Bloqueado pelo equilíbrio":status.kind==="free"?(insufficient?"Saldo insuficiente":`Comprar · ${L(price)}`):activeOffer?"Ver negociação":`Ofertar · ${L(price)}`;
                         return React.createElement(UnifiedPlayerCard,{ key:player.id,player,onOpen:f,currentTeamName:status.teamId&&l(status.teamId)?l(status.teamId).name:null,actionLabel:label,actionDisabled:closed||insufficient||balanceBlocked||overallBlocked,dimmed:overallBlocked,isFavorite:true,onToggleFavorite,onAction:()=>{activeOffer?setMarketSection("negotiations"):r(player)}});
                       }))
                     )) : React.createElement("div", { style:{ ...E,padding:24,textAlign:"center",color:"var(--muted)" } }, "Você ainda não adicionou jogadores aos favoritos."))
@@ -5094,7 +5109,7 @@
                       let balanceBlocked = !balanceCheck.allowed;
                       let overallBlocked = status.kind === "free" && marketRules.freePlayerOverallLimit.enabled && (Number(player.overall || 0) < Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1) || Number(player.overall || 0) > Number(marketRules.freePlayerOverallLimit.maxOverall || 99));
                       let closed = !marketRules.isOpen;
-                      let label = closed ? "Mercado fechado" : overallBlocked ? (Number(player.overall || 0) < Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1) ? "Abaixo do limite" : "Acima do limite") : balanceBlocked ? "Bloqueado pelo equilíbrio" : status.kind === "free" ? (insufficient ? "Saldo insuficiente" : `Comprar · ${L(price)}`) : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`;
+                      let label = packsMode ? null : closed ? "Mercado fechado" : overallBlocked ? (Number(player.overall || 0) < Number(marketRules.freePlayerOverallLimit.minOverall != null ? marketRules.freePlayerOverallLimit.minOverall : 1) ? "Abaixo do limite" : "Acima do limite") : balanceBlocked ? "Bloqueado pelo equilíbrio" : status.kind === "free" ? (insufficient ? "Saldo insuficiente" : `Comprar · ${L(price)}`) : activeOffer ? "Ver negociação" : `Ofertar · ${L(price)}`;
                       return React.createElement(UnifiedPlayerCard, {
                         key:player.id, player, onOpen:f, actionLabel:label,
                         currentTeamName:status.teamId && l(status.teamId) ? l(status.teamId).name : null, actionDisabled:closed || insufficient || balanceBlocked || overallBlocked, dimmed:overallBlocked,
@@ -5378,7 +5393,7 @@
             value(rightNumber,hasRight,"right")
           );
         }
-        function ro({ player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport, playerReportsEnabled = true, releaseClauseOf, onPayReleaseClause, onIncreaseReleaseClause }) {
+        function ro({ readOnlyMarket = false, player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport, playerReportsEnabled = true, releaseClauseOf, onPayReleaseClause, onIncreaseReleaseClause }) {
           let detailContext = e && e.player ? e : { player:e, fromOtherTeam:false };
           e = detailContext.player;
           let [comparePlayer,setComparePlayer] = b(null), [pickerOpen,setPickerOpen] = b(false), [compareQuery,setCompareQuery] = b("");
@@ -5410,12 +5425,12 @@
           let sideLabel = sideValue === "right" ? "Direito" : sideValue === "left" ? "Esquerdo" : sideValue === "both" ? "Ambos" : (e.favouredSide || "—");
           let detailBalanceBlocked = detailContext.balanceCheck && detailContext.balanceCheck.allowed === false;
           let clauseInfo = releaseClauseOf && e ? releaseClauseOf(e) : null;
-          let normalAction = (detailContext.canBuy
+          let normalAction = readOnlyMarket ? null : (detailContext.canBuy
             ? React.createElement("button", { className:"tapbtn", disabled: !activeTeam || Number(activeTeam.budget || 0) < Number(e.value || 0) || detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>onBuy&&onBuy(e), style:{ ...M, ...W, width:"100%", margin:0, opacity: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) && !detailBalanceBlocked ? 1 : .45, cursor: activeTeam && Number(activeTeam.budget || 0) >= Number(e.value || 0) && !detailBalanceBlocked ? "pointer" : "not-allowed" } }, detailBalanceBlocked ? "Bloqueado pelo equilíbrio" : activeTeam && Number(activeTeam.budget || 0) < Number(e.value || 0) ? "Saldo insuficiente" : `Comprar · ${L(e.value)}`)
             : detailContext.fromOtherTeam && onOffer
               ? React.createElement("button", { className:"tapbtn", disabled:detailBalanceBlocked, title:detailBalanceBlocked?"Bloqueado pela regra de equilíbrio":undefined, onClick:()=>!detailBalanceBlocked&&onOffer(e), style:{ ...M, ...W, width:"100%", margin:0, opacity:detailBalanceBlocked?.45:1, cursor:detailBalanceBlocked?"not-allowed":"pointer" } }, detailBalanceBlocked?"Bloqueado pelo equilíbrio":"Fazer proposta")
               : null);
-          let clauseAction = !comparePlayer && clauseInfo && clauseInfo.settings && clauseInfo.settings.enabled && (clauseInfo.other || clauseInfo.own) ? React.createElement("div",{style:{...E,padding:14,marginTop:10}},
+          let clauseAction = !readOnlyMarket && !comparePlayer && clauseInfo && clauseInfo.settings && clauseInfo.settings.enabled && (clauseInfo.other || clauseInfo.own) ? React.createElement("div",{style:{...E,padding:14,marginTop:10}},
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start"}},React.createElement("div",null,React.createElement("strong",{style:{fontSize:13}},"Multa rescisória"),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:3}},`Base ${L(clauseInfo.base)}${clauseInfo.shielding>0?` · Blindagem +${L(clauseInfo.shielding)}`:""}`)),React.createElement("strong",{style:{fontSize:18,color:"var(--heading)"}},L(clauseInfo.total))),
             clauseInfo.contract&&clauseInfo.contract.locked&&React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:9}},`🛡 Contrato protegido · ${clauseInfo.contract.gamesRemaining} jogos restantes`),
             clauseInfo.other&&React.createElement("button",{className:"tapbtn",disabled:clauseInfo.blocked,onClick:()=>!clauseInfo.blocked&&onPayReleaseClause&&onPayReleaseClause(e),style:{...M,...W,width:"100%",marginTop:12,opacity:clauseInfo.blocked?.45:1}},clauseInfo.blocked?clauseInfo.blockedReason:"Pagar multa"),
@@ -5982,7 +5997,8 @@
             let isIncoming = selectedTeam && String(transfer.toTeamId || "") === String(selectedTeam);
             let isOutgoing = selectedTeam && String(transfer.fromTeamId || "") === String(selectedTeam);
             let kind = typeOf(transfer);
-            let isDebit = kind === "from_market" || (kind === "between" && isIncoming && !isOutgoing);
+            let isPackPull = transfer.type === "pack_pull";
+            let isDebit = !isPackPull && (kind === "from_market" || (kind === "between" && isIncoming && !isOutgoing));
             let isCredit = kind === "to_market" || (kind === "between" && isOutgoing && !isIncoming);
             let priceColor = isDebit ? "var(--danger)" : isCredit ? "var(--green)" : "var(--heading)";
             let priceSign = isDebit ? "− " : isCredit ? "+ " : "";
@@ -6003,9 +6019,9 @@
               React.createElement("div", { className:"transfer-arrow", "aria-hidden":"true" }, "→"),
               React.createElement("div", { className:"transfer-card-side transfer-card-right" },
                 React.createElement("div", { className:"transfer-party transfer-destination" }, avatar(destination), React.createElement("div", null, React.createElement("strong", null, destination.name), React.createElement("small", null, destination.profileName))),
-                React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : transfer.type === "market_sale" ? "venda ao mercado" : transfer.type === "release_clause" ? "multa rescisória" : transfer.fromTeamId ? "transferência" : "compra"))
+                React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, isPackPull ? "Pacote" : `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : isPackPull ? String(transfer.packId || "carta") : transfer.type === "market_sale" ? "venda ao mercado" : transfer.type === "release_clause" ? "multa rescisória" : transfer.fromTeamId ? "transferência" : "compra"))
               ),
-              isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:"Reverter movimentação", disabled:!!transfer.rolledBackAt, onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
+              isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:transfer.type === "pack_pull" ? "Estorno de pacote: use a administração de pacotes" : "Reverter movimentação", disabled:!!transfer.rolledBackAt || transfer.type === "pack_pull", onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
             );
           };
           let historyContent = Object.keys(grouped).length
@@ -7131,8 +7147,9 @@ Hyago 0 x 0 Lucas`;
               if(type==="market_sale"){actor=actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||from&&from.name||"Usuário"} vendeu ${tr.playerName||"um jogador"}`;}
               else if(type==="market_purchase"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} comprou ${tr.playerName||"um jogador"}`;}
               else if(type==="release_clause"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} pagou a multa de ${tr.playerName||"um jogador"}`;}
+              else if(type==="pack_pull"){actor=actorForTeam(tr.toTeamId);title=`${actor&&actor.name||to&&to.name||"Usuário"} tirou ${tr.playerName||"um jogador"} em um pacote`;}
               else {actor=actorForTeam(tr.toTeamId)||actorForTeam(tr.fromTeamId);title=`${actor&&actor.name||"Usuário"} concluiu uma transferência de ${tr.playerName||"jogador"}`;}
-              let detail=type==="market_sale"?`Venda ao mercado · ${L(Number(tr.price)||0)}`:from&&to?`${from.name} → ${to.name} · ${L(Number(tr.price)||0)}`:`${L(Number(tr.price)||0)}`;items.push({id:`transfer:${tr.id}`,type:"market",at:Number(tr.createdAt)||0,actorId:actor&&actor.id||null,actor:actor&&actor.name||"Usuário",title,detail});
+              let detail=type==="pack_pull"?`Pacote ${tr.packId||""}`.trim():type==="market_sale"?`Venda ao mercado · ${L(Number(tr.price)||0)}`:from&&to?`${from.name} → ${to.name} · ${L(Number(tr.price)||0)}`:`${L(Number(tr.price)||0)}`;items.push({id:`transfer:${tr.id}`,type:"market",at:Number(tr.createdAt)||0,actorId:actor&&actor.id||null,actor:actor&&actor.name||"Usuário",title,detail});
             });
             (Array.isArray(activityFinancials)?activityFinancials:[]).forEach((tx)=>{
               if(!tx||String(tx.type||"")!=="match_reward")return;
@@ -7182,6 +7199,10 @@ Hyago 0 x 0 Lucas`;
           let [participantOverrides, setParticipantOverrides] = b({});
           let [competitionType, setCompetitionType] = b("league");
           let [competitionWizardOpen, setCompetitionWizardOpen] = b(false);
+          let [tournamentModel, setTournamentModel] = b("market");
+          let [creationCatalogId, setCreationCatalogId] = b("default");
+          let [catalogRegistry, setCatalogRegistry] = b([]);
+          He(() => { if (competitionWizardOpen) window.ManchaApp.PacksFeature.loadRegistry().then(setCatalogRegistry); }, [competitionWizardOpen]);
           let [competitionWizardStep, setCompetitionWizardStep] = b(1);
           let [adminSection, setAdminSection] = b("home");
           He(()=>{if(adminSection==="logs")refreshActivityLog();if(adminSection==="integrity")refreshRewardIntegrity();},[adminSection,currentTournament&&currentTournament.id]);
@@ -7295,6 +7316,8 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             setCompetitionType("league");
             setCreationMode(sourceCandidates.length ? "continue" : "new");
             setRandomRosterEnabled(false);
+            setTournamentModel("market");
+            setCreationCatalogId("default");
             setRandomRosterTargetOverall(80);
             setCompetitionWizardStep(1);
             setTournamentName("");
@@ -7325,7 +7348,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
               ? { competitionType:"cup", linkedLeagueId:cupLeagueId, groupLegs, cupPrize, cupParticipantIds }
               : creationMode === "continue"
                 ? { competitionType:"league", mode:"continue", sourceTournamentId, inheritance, participantOverrides }
-                : { competitionType:"league", mode:"new", newParticipantIds, newParticipantDrafts, randomRoster:{enabled:randomRosterEnabled,targetOverall:randomRosterTargetOverall,maxRolls:3} };
+                : { competitionType:"league", mode:"new", tournamentModel, catalogId:creationCatalogId, newParticipantIds, newParticipantDrafts, randomRoster:{enabled:tournamentModel==="packs"?true:randomRosterEnabled,targetOverall:randomRosterTargetOverall,maxRolls:3} };
             try {
               let result = await onCreateTournament(options);
               if (result !== false) closeCompetitionWizard();
@@ -7358,6 +7381,17 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 competitionType === "league" ? React.createElement(React.Fragment,null,
                   React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 } },
                     [["new","Começar do zero"],["continue","Continuar temporada"]].map(([value,label])=>React.createElement("button", { key:value, disabled:value==="continue"&&!sourceCandidates.length, onClick:()=>setCreationMode(value), style:{ padding:13, borderRadius:14, border:creationMode===value?"1px solid var(--green)":"1px solid var(--border)", background:creationMode===value?"color-mix(in srgb, var(--green) 10%, var(--surface))":"var(--surface-soft)", color:"var(--heading)", fontWeight:750, opacity:value==="continue"&&!sourceCandidates.length?.45:1 } }, label))),
+                  creationMode === "new" && React.createElement("div", null,
+                    React.createElement("label", { style:P }, "Modelo do campeonato"),
+                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 } },
+                      [["market","Mercado de jogadores"],["packs","Cartas (pacotes)"]].map(([value,label])=>React.createElement("button", { key:value, onClick:()=>{ setTournamentModel(value); if (value==="packs") setRandomRosterEnabled(true); }, style:{ padding:13, borderRadius:14, border:tournamentModel===value?"1px solid var(--green)":"1px solid var(--border)", background:tournamentModel===value?"color-mix(in srgb, var(--green) 10%, var(--surface))":"var(--surface-soft)", color:"var(--heading)", fontWeight:750 } }, label))),
+                    React.createElement("div", { style:{ fontSize:12, lineHeight:1.5, color:"var(--muted)", marginTop:8 } }, tournamentModel==="packs" ? "Os jogadores só entram por pacotes de cartas. O mercado de compra e as ofertas entre usuários ficam desligados; a tela de jogadores vira apenas consulta. Vender ao mercado continua possível." : "Modelo atual: compra e venda de jogadores no mercado, com ofertas entre usuários.")
+                  ),
+                  creationMode === "new" && catalogRegistry.length > 1 && React.createElement("div", null,
+                    React.createElement("label", { style:P }, "Base de jogadores"),
+                    React.createElement("select", { style:q, value:creationCatalogId, onChange:(event)=>setCreationCatalogId(event.target.value) }, catalogRegistry.map((item)=>React.createElement("option", { key:item.id, value:item.id }, item.label || item.id))),
+                    creationCatalogId !== "default" && React.createElement("div", { style:{ fontSize:12, lineHeight:1.5, color:"var(--muted)", marginTop:8 } }, "Overrides e revisões de jogadores valem apenas para a base atual e ficam desligados nesta base.")
+                  ),
                   creationMode === "continue" && React.createElement("div", null, React.createElement("label", { style:P }, "Temporada anterior"), React.createElement("select", { style:q, value:sourceTournamentId, onChange:(event)=>setSourceTournamentId(event.target.value) }, sourceCandidates.map((item)=>React.createElement("option", { key:item.id, value:item.id }, item.name))))
                 ) : React.createElement("div", null,
                   React.createElement("label", { style:P }, "Liga vinculada"),
@@ -7382,7 +7416,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                   React.createElement("div", { style:{ padding:15,border:"1px solid var(--border)",borderRadius:16,background:randomRosterEnabled?"color-mix(in srgb,var(--green) 8%,var(--surface-soft))":"var(--surface-soft)" } },
                     React.createElement("label", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,cursor:"pointer" } },
                       React.createElement("span", null, React.createElement("span", { style:{ display:"block",fontWeight:850,fontSize:14 } }, "Gerar elencos balanceados automaticamente"), React.createElement("span", { style:{ display:"block",fontSize:11.5,lineHeight:1.45,color:"var(--muted)",marginTop:4 } }, "23 jogadores por time, posições equilibradas e 3 tentativas totais por participante.")),
-                      React.createElement("input", { type:"checkbox",checked:randomRosterEnabled,onChange:(event)=>setRandomRosterEnabled(event.target.checked) })
+                      React.createElement("input", { type:"checkbox",checked:tournamentModel==="packs"?true:randomRosterEnabled,disabled:tournamentModel==="packs",onChange:(event)=>setRandomRosterEnabled(event.target.checked) })
                     ),
                     randomRosterEnabled && React.createElement("div", { style:{ marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)",display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
                       React.createElement("div", null, React.createElement("div", { style:{fontWeight:750,fontSize:12.5} }, "Overall médio alvo"), React.createElement("div", { style:{fontSize:11,color:"var(--muted)",marginTop:3,lineHeight:1.4} }, "O algoritmo também equilibra melhor XI, setores e valor de mercado.")),
@@ -7400,7 +7434,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             } else {
               let participantCount = competitionType === "cup" ? cupParticipantIds.length : creationMode === "continue" ? Object.values(participantOverrides).filter((item)=>item&&item.include!==false).length : newParticipantIds.length;
               content = React.createElement("div", { style:{ display:"grid", gap:10 } },
-                [["Tipo",competitionType==="cup"?"Copa · grupos + mata-mata":"Campeonato · pontos corridos"],["Nome",tournamentName],["Participantes",String(participantCount)]].map(([label,value])=>React.createElement("div",{key:label,style:{display:"flex",justifyContent:"space-between",gap:16,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},label),React.createElement("strong",{style:{textAlign:"right"}},value))),
+                [["Tipo",competitionType==="cup"?"Copa · grupos + mata-mata":"Campeonato · pontos corridos"],["Nome",tournamentName],["Participantes",String(participantCount)],...(competitionType==="league"&&creationMode==="new"?[["Modelo",tournamentModel==="packs"?"Cartas (pacotes)":"Mercado de jogadores"],["Base de jogadores",(catalogRegistry.find((item)=>item.id===creationCatalogId)||{}).label||creationCatalogId]]:[])].map(([label,value])=>React.createElement("div",{key:label,style:{display:"flex",justifyContent:"space-between",gap:16,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},label),React.createElement("strong",{style:{textAlign:"right"}},value))),
                 competitionType==="league"&&creationMode==="new"&&React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:16,padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},"Elencos iniciais"),React.createElement("strong",{style:{textAlign:"right"}},randomRosterEnabled?`Balanceados · alvo ${Math.max(60,Math.min(95,Math.round(Number(randomRosterTargetOverall)||80)))} OVR · 3 tentativas`:"Manuais")),
                 competitionType==="cup"&&React.createElement(React.Fragment,null,React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},"Liga vinculada"),React.createElement("strong",null,cupLeague?cupLeague.name:"—")),React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"12px 0",borderBottom:"1px solid var(--border)"}},React.createElement("span",{style:{color:"var(--muted)"}},"Fase de grupos"),React.createElement("strong",null,groupLegs===2?"Ida e volta":"Somente ida")),React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"12px 0"}},React.createElement("span",{style:{color:"var(--muted)"}},"Premiação"),React.createElement("strong",null,`${Math.max(0,Number(cupPrize)||0)}M`)))
               );
@@ -7940,7 +7974,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 baseRosterPlayerIds:squadOf(team.id).filter((player)=>{ let item=ownership&&ownership[player.id]; return item&&item.acquisitionSource==="initial_roster"&&String(item.initialTeamId||"")===String(team.id); }).map((player)=>String(player.id)),
                 rosterSettings:tournament&&tournament.rosterSettings?tournament.rosterSettings:{minPlayers:23,maxPlayers:30},
                 readOnly:true, onBack:onClose, viewerProfile:profile,
-                readOnlyActionLabel:"Fazer oferta", onReadOnlyAction:onOfferPlayer,
+                readOnlyActionLabel:window.ManchaApp.PacksFeature.isPacksMode(tournament)?null:"Fazer oferta", onReadOnlyAction:window.ManchaApp.PacksFeature.isPacksMode(tournament)?null:onOfferPlayer,
                 viewerTrophies: trophies.length ? React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10,marginTop:16,textAlign:"initial" } }, trophies.map(({tournament:item})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:14,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } }, React.createElement(TrophyAsset,{tournament:item,size:54,style:{marginBottom:6}}), React.createElement("div", { style:{ fontWeight:850,fontSize:13 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)",fontSize:11.5,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão")))) : null,
                 extraViewLabel:canCompare?"Estatísticas":null,
                 renderExtraView:canCompare?()=>React.createElement(HeadToHeadStats,{tournament,currentTeam,opponentTeam:team,profiles,teams,tournaments,onOpenChampionshipSummary}):null,
@@ -8152,11 +8186,11 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
           let stepTwo=data.step===2&&React.createElement("div",null,React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr auto 1fr",alignItems:"start",gap:12,margin:"14px 0 18px"}},scoreColumn(left,"left"),React.createElement("div",{style:{fontWeight:800,color:"var(--muted)",paddingTop:70}},"×"),scoreColumn(right,"right")),scorerPanel("left",left),scorerPanel("right",right),React.createElement("div",{style:{margin:"18px 0",padding:14,border:"1px solid var(--border)",borderRadius:16}},React.createElement("div",{style:{textAlign:"center",fontWeight:900,marginBottom:10}},"🟥 Teve crime?"),React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,maxWidth:280,margin:"0 auto"}},React.createElement("button",{onClick:()=>setData({...data,hadCrime:false,leftRedCards:[],rightRedCards:[]}),style:{padding:10,borderRadius:12,border:!data.hadCrime?"1px solid var(--green)":"1px solid var(--border)",background:!data.hadCrime?"color-mix(in srgb,var(--green) 12%,var(--surface))":"var(--surface)",color:"var(--heading)",fontWeight:800}},"Não"),React.createElement("button",{onClick:()=>setData({...data,hadCrime:true}),style:{padding:10,borderRadius:12,border:data.hadCrime?"1px solid #ff3b30":"1px solid var(--border)",background:data.hadCrime?"rgba(255,59,48,.12)":"var(--surface)",color:data.hadCrime?"#ff5a52":"var(--heading)",fontWeight:800}},"Sim")),data.hadCrime&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:14}},crimeRoster("left",left),crimeRoster("right",right))),React.createElement("div",{style:{display:"flex",gap:8}},React.createElement("button",{onClick:()=>setData({...data,step:1}),style:{...M,background:"var(--surface-soft)",color:"var(--heading)"}},"Voltar"),React.createElement("button",{onClick:()=>onSave(data),disabled:data.saving===true,style:{...M,...W,opacity:data.saving===true?.6:1,cursor:data.saving===true?"wait":"pointer"}},data.saving===true?"Salvando…":"Salvar partida")));
           return React.createElement(ee,{title,onClose},stepOne,stepTwo);
         }
-        function mo({ tab: e, setTab: t, isAdmin: l, unreadOffers, profile, presence, tournamentFinished }) {
+        function mo({ tab: e, setTab: t, isAdmin: l, unreadOffers, profile, presence, tournamentFinished, packsMode = false }) {
           let items = [
             { key: "table", icon: pe, label: "Tabela" },
             { key: "teams", icon: Vt, label: "Elenco" },
-            ...(!tournamentFinished ? [{ key: "market", icon: Xe, label: "Mercado", badge: unreadOffers }] : []),
+            ...(!tournamentFinished ? [{ key: "market", icon: Xe, label: packsMode ? "Jogadores" : "Mercado", badge: unreadOffers }] : []),
             { key: "profile", icon: ProfileIcon, label: "Perfil", avatar: true },
           ];
           if (l) items.push({ key: "admin", icon: AdminIcon, label: "Admin" });
