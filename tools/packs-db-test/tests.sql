@@ -139,3 +139,38 @@ insert into tournaments(id,name,status,market_settings,raw_data) values
      jsonb_build_object('id','prata','label','Prata','price',1,'cards',3,'weights','{"75":1}'::jsonb,'unlock',jsonb_build_object('packId','bronze','count',50))))));
 insert into teams(id,tournament_id,profile_id,name,budget) values ('M9','T9','p1','M9',100);
 select expect_eq('prata abre sem cumprir o marco', jsonb_array_length(open_pack('T9','prata','M9','p1')->'cards')::text, '3');
+
+select '--- 14 estorno de multa rescisoria (usa a pay_player_release_clause real)';
+insert into tournaments(id,name,status,market_settings,raw_data) values
+ ('T10','Multa','ongoing', jsonb_build_object('isOpen',true,'releaseClause',jsonb_build_object('enabled',true,'multiplier',2,'revalueMultiplier',1.5,'protectedGames',50,'maxSufferedPerTeam',2,'blockDirectRepurchase',false)),
+ jsonb_build_object('rosterSettings',jsonb_build_object('minPlayers',23,'maxPlayers',30)));
+insert into teams(id,tournament_id,profile_id,name,budget) values ('SEL','T10','p2','Vendedor',100),('BUY','T10','p1','Comprador',500);
+-- vendedor com 24 jogadores (o primeiro e o alvo da multa); comprador com 5
+insert into player_ownership(tournament_id,player_id,team_id,acquisition_source,acquired_at)
+ select 'T10', player_id, 'SEL','initial_roster', now() from (select player_id from player_catalog where catalog_id='default' order by player_id limit 24) q;
+insert into player_ownership(tournament_id,player_id,team_id,acquisition_source,acquired_at)
+ select 'T10', player_id, 'BUY','initial_roster', now() from (select player_id from player_catalog where catalog_id='default' order by player_id offset 100 limit 5) q;
+create temp table _rc as select player_id pid from player_catalog where catalog_id='default' order by player_id limit 1;
+insert into player_catalog_overrides(player_id,overall,market_value) select pid,null,50 from _rc;
+select expect_eq('multa paga (2 x 50 = 100)', (pay_player_release_clause('T10',(select pid from _rc),'Alvo','BUY','SEL',50,100,'p1')->>'clausePaid'), '100');
+select expect_eq('apos pagar: saldos comprador/vendedor', (select string_agg(id||'='||budget, ' ' order by id) from teams where tournament_id='T10'), 'BUY=400 SEL=200');
+select expect_eq('apos pagar: valor de mercado reavaliado', (select market_value::text from player_catalog_overrides where player_id=(select pid from _rc)), '75');
+
+select expect_err($$select rollback_release_clause((select id from transfers where transfer_type='release_clause' and tournament_id='T10'),'p2')$$,'not_admin');
+select expect_err($$select rollback_release_clause('inexistente','adm')$$,'transfer_not_found');
+select expect_eq('estorno devolve a multa', (rollback_release_clause((select id from transfers where transfer_type='release_clause' and tournament_id='T10'),'adm')->>'refunded'), '100');
+select expect_eq('apos estorno: saldos voltaram', (select string_agg(id||'='||budget, ' ' order by id) from teams where tournament_id='T10'), 'BUY=500 SEL=100');
+select expect_eq('apos estorno: jogador voltou ao vendedor', (select team_id from player_ownership where tournament_id='T10' and player_id=(select pid from _rc)), 'SEL');
+select expect_eq('apos estorno: fonte de aquisicao', (select acquisition_source from player_ownership where tournament_id='T10' and player_id=(select pid from _rc)), 'rollback');
+select expect_eq('apos estorno: valor de mercado restaurado', (select market_value::text from player_catalog_overrides where player_id=(select pid from _rc)), '50');
+select expect_eq('apos estorno: contrato do comprador removido', (select (not (raw_data->'releaseClauseState'->'contracts' ? (select pid from _rc)))::text from tournaments where id='T10'), 'true');
+select expect_eq('apos estorno: multa sofrida do vendedor volta a 0', (select raw_data->'releaseClauseState'->'sufferedByTeam'->>'SEL' from tournaments where id='T10'), '0');
+select expect_eq('apos estorno: transferencia marcada como revertida', (select (coalesce(raw_data->>'rolledBackAt','')<>'')::text from transfers where tournament_id='T10' and transfer_type='release_clause'), 'true');
+select expect_eq('apos estorno: lancamentos originais marcados', (select count(*)::text from financial_transactions where tournament_id='T10' and transaction_type in ('release_clause_purchase','release_clause_sale') and coalesce(raw_data->>'rolledBackAt','')<>''), '2');
+select expect_eq('apos estorno: 2 lancamentos de estorno somando zero', (select sum(amount)::text||'/'||count(*) from financial_transactions where tournament_id='T10' and transaction_type='release_clause_rollback'), '0/2');
+select expect_err($$select rollback_release_clause((select id from transfers where transfer_type='release_clause' and tournament_id='T10'),'adm')$$,'already_rolled_back');
+
+select '--- 14b estorno bloqueado se o jogador ja saiu do comprador';
+select pay_player_release_clause('T10',(select pid from _rc),'Alvo','BUY','SEL',50,100,'p1') is not null;
+update player_ownership set team_id='SEL' where tournament_id='T10' and player_id=(select pid from _rc);
+select expect_err($$select rollback_release_clause((select id from transfers where transfer_type='release_clause' and tournament_id='T10' and coalesce(raw_data->>'rolledBackAt','')='' limit 1),'adm')$$,'player_changed');

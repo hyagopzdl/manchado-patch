@@ -2322,6 +2322,24 @@
               window.alert(messages[failureReason] || "A compra não pôde ser revertida.");
             }, false);
           }
+          async function rollbackReleaseClauseTransfer(transfer) {
+            if (typeof window.ManchaApp.rollbackReleaseClause !== "function") { window.alert("Atualize a página para usar o estorno de multa rescisória."); return; }
+            if (!window.confirm(`Reverter a multa rescisória de ${transfer.playerName || "jogador"}? O jogador volta ao time de origem, os saldos são devolvidos, o valor de mercado volta ao anterior e o contrato protegido e a contagem de multas sofridas são desfeitos.`)) return;
+            try {
+              await window.ManchaApp.rollbackReleaseClause({ tournamentId: R.id, transferId: transfer.id, actorProfileId: te && te.id });
+              window.alert("Multa rescisória revertida com sucesso.");
+            } catch (error) {
+              console.error("release clause rollback failed", error);
+              let messages = {
+                not_admin: "Apenas o administrador pode reverter uma multa rescisória.",
+                already_rolled_back: "Esta multa já foi revertida.",
+                transfer_not_found: "A multa rescisória não foi encontrada.",
+                player_changed: "O jogador já saiu do time comprador. O estorno foi bloqueado para evitar inconsistência.",
+                team_not_found: "Um dos times desta multa não existe mais neste campeonato.",
+              };
+              window.alert(messages[String((error && error.message) || "")] || "Não foi possível reverter a multa rescisória.");
+            }
+          }
           async function rollbackPackTransfer(transfer) {
             let openingId = transfer.openingId;
             if (!openingId) { window.alert("Não foi possível identificar a abertura deste pacote."); return; }
@@ -2345,7 +2363,7 @@
             if (!transfer || !R || !isAdminProfile(te)) return;
             if (transfer.rolledBackAt) { window.alert("Esta transferência já foi revertida."); return; }
             if (transfer.type === "pack_pull") { await rollbackPackTransfer(transfer); return; }
-            if (transfer.type === "release_clause") { window.alert("A multa rescisória não pode ser revertida por este histórico."); return; }
+            if (transfer.type === "release_clause") { await rollbackReleaseClauseTransfer(transfer); return; }
             if (typeof loadFinancialTransactions !== "function") { window.alert("Não foi possível carregar o histórico financeiro."); return; }
             let teamId = transfer.type === "market_sale" ? transfer.fromTeamId : transfer.toTeamId;
             let expectedTypes = transfer.type === "market_sale" ? ["market_sale"] : transfer.type === "user_transfer" ? ["player_purchase"] : ["market_purchase"];

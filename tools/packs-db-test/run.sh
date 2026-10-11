@@ -9,7 +9,9 @@ trap 'run "$BIN/pg_ctl -D $D/data stop -m immediate >/dev/null 2>&1" || true; rm
 run "$BIN/initdb -D $D/data -A trust >/dev/null && $BIN/pg_ctl -D $D/data -o '-p $PORT -k $D' -l $D/log -w start >/dev/null"
 P="psql -h $D -p $PORT -U postgres -q -v ON_ERROR_STOP=1"
 $P -f "$ROOT/tools/packs-db-test/schema.sql"
+$P -f "$ROOT/tools/packs-db-test/release-clause-fixture.sql"
 $P -f "$ROOT/supabase/PACKS-V1.sql" 2>&1 | grep -v NOTICE || true
+$P -f "$ROOT/supabase/ROLLBACK-RELEASE-CLAUSE.sql"
 $P -f "$ROOT/supabase/catalog-seeds/default.sql"
 psql -h "$D" -p $PORT -U postgres -q -f "$ROOT/tools/packs-db-test/tests.sql" 2>&1 | grep -v NOTICE | tee "$D/out.txt"
 echo "--- teste de fumaça (supabase/PACKS-SMOKE-TEST.sql)" | tee -a "$D/out.txt"
