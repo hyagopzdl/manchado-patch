@@ -112,6 +112,16 @@ Se 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` 
 - "Suas últimas aberturas" lista as 8 mais recentes do time.
 - Arquivos: `js/features/pack-store.js`, `loadPackStats`/`openPack` em `js/supabase.js`, estilos em `css/features.css`.
 
+## Fase 4b — editor de chances (no app, branch)
+- Seção **Configurar** no Mercado do modo cartas, **visível e editável por todos** (não só admin). Mostra quem alterou por último e quando (`packSettings.updatedAt/updatedByProfileId`).
+- Um pacote por vez (abas): ativo, preço, cartas, marco de desbloqueio (pacote anterior + quantidade). Geral: loja aberta, exigir marcos, taxa na venda de volta.
+- Chances **digitadas em %** por overall, em faixas recolhíveis (65–69 ... 90+), com barra, "N livres de M" e overalls sem jogador apagados. Total com botão **Normalizar para 100%** (ao salvar, normaliza e grava somando 100).
+- Resumo ao vivo (mesma regra do servidor, pool livre): OVR médio, valor esperado, chance de elite por carta e no pacote, venda de volta, custo líquido, aviso de "dinheiro infinito" e de chances redistribuídas.
+- Atalhos: curva (centro/largura/cauda), por faixas (igual por overall ou por jogador), copiar de outro pacote, restaurar padrão.
+- Rascunho com **Salvar/Descartar** explícitos; sobrevive a trocar de seção; aviso se alguém salvou enquanto você editava; aviso se já houve aberturas.
+- Arquivos: `js/features/pack-config.js` (tela), cálculo em `js/features/packs.js` (`percentWeights`, `poolStats`, `analyzeWeights`, `distributeBands`).
+- Sem interruptores para criar/remover pacotes (só os 5 atuais) e sem mapa de calor comparativo ainda.
+
 ## Pendências conhecidas
 - **Fase 4b:** painel admin (preço, cartas, pesos por overall, marcos, depreciação, loja aberta/fechada, estorno de abertura via `rollback_pack_opening`). Até lá, `packSettings` só muda editando o torneio no banco.
 - Aviso ao vivo para os outros jogadores quando alguém tira uma carta alta (o broadcast `pack_opened` já é emitido; falta a UI).

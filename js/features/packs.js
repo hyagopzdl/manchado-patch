@@ -82,6 +82,79 @@
     return packSettingsOf(tournament).sellDepreciationPct;
   }
 
+  // ---- Editor de chances (porcentagens por overall) ----
+  // Faixas exibidas no editor. A última vai até 99.
+  const OVERALL_BANDS = [[65, 69], [70, 74], [75, 79], [80, 84], [85, 89], [90, 99]];
+
+  // Normaliza pesos quaisquer para porcentagens que somam 100. Pesos <= 0 saem.
+  function percentWeights(weights) {
+    const entries = Object.entries(weights || {}).map(([overall, weight]) => [String(overall), Math.max(0, Number(weight) || 0)]).filter(([, weight]) => weight > 0);
+    const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+    const result = {};
+    if (total > 0) entries.forEach(([overall, weight]) => { result[overall] = (weight / total) * 100; });
+    return result;
+  }
+
+  // Jogadores livres por overall (o que o servidor sorteia): Map overall -> { n, sumValue, total }.
+  function poolStats(players, ownership) {
+    const map = new Map();
+    (Array.isArray(players) ? players : []).forEach((player) => {
+      const overall = Number(player && player.overall) || 0;
+      if (!overall) return;
+      const entry = map.get(overall) || { n: 0, sumValue: 0, total: 0 };
+      entry.total += 1;
+      const owner = ownership && ownership[String(player.id)];
+      if (!(owner && owner.teamId)) { entry.n += 1; entry.sumValue += Number(player.value) || 0; }
+      map.set(overall, entry);
+    });
+    return map;
+  }
+
+  // Resumo de um pacote: mesma regra do servidor (renormaliza entre overalls com jogador livre).
+  function analyzeWeights({ weights, pool, cards, price, sellPct, elite }) {
+    const entries = Object.entries(weights || {}).map(([o, w]) => [Number(o), Math.max(0, Number(w) || 0)]).filter(([, w]) => w > 0);
+    const configured = entries.reduce((sum, [, w]) => sum + w, 0);
+    const available = entries.filter(([o]) => pool.get(o) && pool.get(o).n > 0);
+    const total = available.reduce((sum, [, w]) => sum + w, 0);
+    const result = { configured, unavailableShare: configured > 0 ? (configured - total) / configured : 0, effective: {}, meanOverall: 0, evPerCard: 0, evPack: 0, pEliteCard: 0, pEliteAtLeastOne: 0, sellEv: 0, net: 0, valid: total > 0 };
+    if (!(total > 0)) return result;
+    available.forEach(([o, w]) => {
+      const p = w / total, stat = pool.get(o);
+      result.effective[o] = p * 100;
+      result.meanOverall += p * o;
+      result.evPerCard += p * (stat.sumValue / stat.n);
+      if (o >= elite) result.pEliteCard += p;
+    });
+    const count = Math.max(1, Number(cards) || 1);
+    result.evPack = result.evPerCard * count;
+    result.pEliteAtLeastOne = 1 - Math.pow(1 - result.pEliteCard, count);
+    result.sellEv = result.evPack * (1 - (Number(sellPct) || 0) / 100);
+    result.net = (Number(price) || 0) - result.sellEv;
+    return result;
+  }
+
+  // Distribui a porcentagem de cada faixa entre os overalls dela.
+  // mode "overall": mesma chance para cada overall com jogador livre; "player": proporcional ao nº de jogadores livres.
+  function distributeBands(bandPercents, pool, mode) {
+    const weights = {};
+    OVERALL_BANDS.forEach(([low, high], index) => {
+      const pct = Math.max(0, Number(bandPercents[index]) || 0);
+      if (!(pct > 0)) return;
+      const overalls = [];
+      for (let o = low; o <= high; o++) if (pool.get(o) && pool.get(o).n > 0) overalls.push(o);
+      if (!overalls.length) return;
+      const shares = mode === "player" ? overalls.map((o) => pool.get(o).n) : overalls.map(() => 1);
+      const sum = shares.reduce((a, b) => a + b, 0);
+      overalls.forEach((o, i) => { weights[String(o)] = (pct * shares[i]) / sum; });
+    });
+    return weights;
+  }
+
+  function presetWeights(packId) {
+    const preset = PACK_PRESETS.find((item) => item.id === packId);
+    return preset ? percentWeights(gaussianWeights(preset.mu, preset.sigma, preset.tail)) : {};
+  }
+
   // ---- Catálogos (bases de jogadores) ----
   let registryPromise = null;
   const catalogCache = new Map();
@@ -131,5 +204,6 @@
   window.ManchaApp.PacksFeature = {
     DEFAULT_CATALOG_ID, isPacksMode, catalogIdOf, overridesAllowed, gaussianWeights,
     defaultPackSettings, packSettingsOf, packSellDepreciationPct, loadRegistry, loadCatalog,
+    OVERALL_BANDS, percentWeights, poolStats, analyzeWeights, distributeBands, presetWeights,
   };
 })();

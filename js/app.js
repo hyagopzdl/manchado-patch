@@ -2577,6 +2577,11 @@
             let next = { enabled: enabled === true, maxDifference: Math.max(0, Number(maxDifference) || 0) };
             ae(m.map((item) => item.id === R.id ? { ...item, marketBalanceSettings: next } : item));
           }
+          function updatePackSettings(next) {
+            if (!R) return Promise.resolve(false);
+            let tournamentId = R.id;
+            return ae(m.map((item) => item.id === tournamentId ? { ...item, packSettings: { ...next, updatedAt: Date.now(), updatedByProfileId: te && te.id ? te.id : null } } : item));
+          }
           function updateRosterRules(minValue, maxValue, minBaseValue) {
             if (!R) return;
             let minPlayers = Math.max(0, Math.round(Number(minValue) || 0));
@@ -3197,6 +3202,7 @@
                           profiles: x,
                           statusOf: Pe,
                           packsMode: packsMode,
+                          packConfig: packsMode ? React.createElement(window.ManchaApp.PackConfigEditor, { tournament: R, catalog: n, ownership: c, profiles: x, profile: te, onSave: updatePackSettings, readOnly: !!(R && R.status === "finished") }) : null,
                           packStore: packsMode ? React.createElement(window.ManchaApp.PackStore, { tournament: R, team: ProfileTeam, profile: te, ownership: c, catalogMap: xe, onSell: It, finished: !!(R && R.status === "finished") }) : null,
                           onBuy: kt,
                           onOpenDetail: (player) => { let status = Pe(player); let balanceCheck = ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true }; be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free", balanceCheck }); },
@@ -4619,6 +4625,7 @@
         function lo({
           packsMode: packsMode = false,
           packStore: packStore = null,
+          packConfig: packConfig = null,
           catalog: e,
           catalogMap: catalogMap,
           ownership: t,
@@ -5014,12 +5021,16 @@
               "div",
               { style: { display: "flex", gap: 4, padding: 4, marginBottom: 18, background: "var(--surface-soft)", border: "1px solid var(--border)", borderRadius: 999, overflowX: "auto" } },
               packsMode && React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("packs"), style: segmentStyle(marketSection === "packs") }, React.createElement(Star, { size: 15 }), "Pacotes"),
+              packsMode && React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("config"), style: segmentStyle(marketSection === "config") }, React.createElement(FilterIcon, { size: 15 }), "Configurar"),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("all"), style: segmentStyle(marketSection === "all") }, React.createElement(Xe, { size: 15 }), "Jogadores"),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("favorites"), style: segmentStyle(marketSection === "favorites") }, React.createElement("svg", { width:15,height:15,viewBox:"0 0 24 24",fill:"currentColor",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true" }, React.createElement("path", { d:"m12 2.8 2.8 5.68 6.27.91-4.54 4.42 1.07 6.24L12 17.1l-5.6 2.95 1.07-6.24-4.54-4.42 6.27-.91L12 2.8Z" })), "Favoritos"),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("recommended"), style: segmentStyle(marketSection === "recommended") }, React.createElement(Star, { size: 15 }), "Recomendados"),
             ),
+            packsMode && packConfig && React.createElement("div", { style: { display: marketSection === "config" ? "block" : "none" } }, packConfig),
             packsMode && marketSection === "packs"
               ? packStore
+              : packsMode && marketSection === "config"
+              ? null
               : marketSection === "negotiations"
               ? React.createElement(TradeOffersArea, { offers, catalog: catalogMap, teamById: l, activeTeam, transfers: d, allTeams, profiles, isAdmin, onRollbackTransfer, onDeleteTransfer, onAccept: onAcceptOffer, onUpdate: onUpdateOffer, onOpenDetail: f, onExplorePlayers: () => setMarketSection("all") })
               : marketSection === "favorites"
