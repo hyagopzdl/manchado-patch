@@ -221,7 +221,10 @@
   }
   async function hydrateTournamentFinancial(tournamentId) {
     await load();
-    const id=String(tournamentId||""); if(!id||deferredLoaded.financial.has(id)) return;
+    const id=String(tournamentId||""); if(!id) return;
+    // Decide pelo estado real: a lista deferredLoaded fica desatualizada quando o estado é recarregado (ex.: após uma RPC).
+    const present=asArray(getAt(state,"pes/tournaments")).find(t=>String(t&&t.id)===id);
+    if(present&&asObject(present.context).__financialLoaded===true) return;
     const rows=await selectAll("financial_transactions", "id,tournament_id,team_id,transaction_type,amount,balance_before,balance_after,label,reference_id,operation_id,created_at,raw_data", q=>q.eq("tournament_id",id).order("created_at",{ascending:false}).order("id"), `financial:all:${id}`);
     const tournaments=asArray(getAt(state,"pes/tournaments")).map(t=>String(t&&t.id)===id?{...t,context:{...asObject(t.context),financialTransactions:rows.map(mapFinancialRow),__financialLoaded:true}}:t);
     setAt(state,"pes/tournaments",tournaments); deferredLoaded.financial.add(id); emitAll();
@@ -812,6 +815,13 @@
     }
     return {counts,mine};
   }
+  async function rollbackPackOpening({tournamentId,openingId,actorProfileId:actorId}){
+    await load(); if(!client) throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("rollback_pack_opening",{p_opening_id:String(openingId),p_actor_profile_id:actorId?String(actorId):actorProfileId()});
+    if(error) throw error;
+    invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"pack_rollback");
+    return data||{ok:true};
+  }
   async function openPack({tournamentId,packId,teamId,actorProfileId:actorId,catalogChecksum}){
     await load(); if(!client) throw new Error("Supabase não configurado");
     const {data,error}=await client.rpc("open_pack",{
@@ -1021,5 +1031,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,loadPackStats,openPack,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,loadPackStats,openPack,rollbackPackOpening,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();

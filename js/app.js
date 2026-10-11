@@ -3,7 +3,7 @@
         const {
           C, SvgIcon, _t, Vt, pe, Xe, ze, _e, Ye, ue, Ze, et, bo, qt, Kt, $t, tt, Jt, ot, nt, Ut, at, Qt, ho, Xt,
           SettingsIcon, ProfileIcon, OfferIcon, Star, FilterIcon, FlagIcon, BankIcon, AdminIcon, UserIcon, TrophyIcon, TeamIcon, DatabaseIcon, TrashIcon, BaseRosterIcon,
-          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, startTournamentRealtimeSync, loadFinancialTransactions, loadPlayerReviews, auditRewardIntegrity, repairRewardIntegrity, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
+          it, se, W, P, q, M, E, V, O, POSITION_COLORS, _, Ie, Ve, Fe, Yt, we, Zt, Ee, U, Q, startPresenceHeartbeat, startTournamentRealtimeSync, loadFinancialTransactions, hydrateTournamentFinancial, loadPlayerReviews, auditRewardIntegrity, repairRewardIntegrity, rerollBalancedRoster, acceptBalancedRoster, startBalancedRosterTournament, prepareLateJoinBalancedRoster, rerollLateJoinBalancedRoster, acceptLateJoinBalancedRoster, importLateJoinTxtRoster, normalizeIdentityText, stableIdentityId, migrateStableIdentitySchema,
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
@@ -2322,16 +2322,37 @@
               window.alert(messages[failureReason] || "A compra não pôde ser revertida.");
             }, false);
           }
+          async function rollbackPackTransfer(transfer) {
+            let openingId = transfer.openingId;
+            if (!openingId) { window.alert("Não foi possível identificar a abertura deste pacote."); return; }
+            if (typeof window.ManchaApp.rollbackPackOpening !== "function") { window.alert("Atualize a página para usar o estorno de pacotes."); return; }
+            if (!window.confirm(`Reverter a abertura inteira deste pacote? Todas as cartas dela saem do elenco e o valor pago volta ao saldo do time. (Carta clicada: ${transfer.playerName || "jogador"})`)) return;
+            try {
+              await window.ManchaApp.rollbackPackOpening({ tournamentId: R.id, openingId, actorProfileId: te && te.id });
+              window.alert("Abertura do pacote revertida com sucesso.");
+            } catch (error) {
+              console.error("pack rollback failed", error);
+              let messages = {
+                not_admin: "Apenas o administrador pode reverter a abertura de um pacote.",
+                already_rolled_back: "Esta abertura já foi revertida.",
+                opening_not_found: "A abertura deste pacote não foi encontrada.",
+                cards_moved: "Alguma carta deste pacote já foi vendida ou trocada. O estorno foi bloqueado para evitar inconsistência.",
+              };
+              window.alert(messages[String((error && error.message) || "")] || "Não foi possível reverter a abertura do pacote.");
+            }
+          }
           async function rollbackTransferHistoryItem(transfer) {
             if (!transfer || !R || !isAdminProfile(te)) return;
             if (transfer.rolledBackAt) { window.alert("Esta transferência já foi revertida."); return; }
+            if (transfer.type === "pack_pull") { await rollbackPackTransfer(transfer); return; }
+            if (transfer.type === "release_clause") { window.alert("A multa rescisória não pode ser revertida por este histórico."); return; }
             if (typeof loadFinancialTransactions !== "function") { window.alert("Não foi possível carregar o histórico financeiro."); return; }
             let teamId = transfer.type === "market_sale" ? transfer.fromTeamId : transfer.toTeamId;
             let expectedTypes = transfer.type === "market_sale" ? ["market_sale"] : transfer.type === "user_transfer" ? ["player_purchase"] : ["market_purchase"];
             let cursor = null, transaction = null, attempts = 0;
             try {
               do {
-                let page = await loadFinancialTransactions({ tournamentId:R.id, teamId:teamId || null, limit:100, before:cursor });
+                let page = await loadFinancialTransactions({ tournamentId:R.id, teamId:teamId || null, limit:100, before:cursor, force:true });
                 let items = Array.isArray(page && page.items) ? page.items : [];
                 transaction = items.find((item) => {
                   if (!item || !expectedTypes.includes(item.type) || item.rolledBackAt) return false;
@@ -6027,7 +6048,7 @@
                 React.createElement("div", { className:"transfer-party transfer-destination" }, avatar(destination), React.createElement("div", null, React.createElement("strong", null, destination.name), React.createElement("small", null, destination.profileName))),
                 React.createElement("div", { className:"transfer-price", style:{ color:priceColor } }, React.createElement("strong", null, isPackPull ? "Pacote" : `${priceSign}${L(price)}`), React.createElement("small", null, transfer.rolledBackAt ? "revertida" : isPackPull ? String(transfer.packId || "carta") : transfer.type === "market_sale" ? "venda ao mercado" : transfer.type === "release_clause" ? "multa rescisória" : transfer.fromTeamId ? "transferência" : "compra"))
               ),
-              isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:transfer.type === "pack_pull" ? "Estorno de pacote: use a administração de pacotes" : "Reverter movimentação", disabled:!!transfer.rolledBackAt || transfer.type === "pack_pull", onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
+              isAdmin && React.createElement("div", { className:"transfer-admin-actions" }, React.createElement("button", { title:transfer.type === "pack_pull" ? "Reverter a abertura inteira do pacote" : "Reverter movimentação", disabled:!!transfer.rolledBackAt, onClick:() => onRollbackTransfer && onRollbackTransfer(transfer) }, "↶"), React.createElement("button", { title:"Apagar do histórico", onClick:() => onDeleteTransfer && onDeleteTransfer(transfer) }, "⋯"))
             );
           };
           let historyContent = Object.keys(grouped).length
