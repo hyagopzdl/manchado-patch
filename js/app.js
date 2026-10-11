@@ -2517,17 +2517,39 @@
             normalized.enabled=values.enabled===true;normalized.allowTopUps=values.allowTopUps!==false;
             ae(m.map(item=>item.id===R.id?{...item,economySettings:{...current,balanceLoanSettings:normalized}}:item));
           }
+          // Empréstimo extraordinário: independe de jogos e de elegibilidade. Usa o mesmo registro do empréstimo
+          // de equilíbrio (saldo devedor + desconto sobre as recompensas das próximas partidas).
+          function grantExtraordinaryLoan(teamId, requestedAmount, requestedPercentage, note) {
+            if (!R || !teamId) return;
+            if (!isAdminProfile(te)) { window.alert("Apenas o administrador pode conceder um empréstimo extraordinário."); return; }
+            let amount = Math.max(0, Math.round(Number(requestedAmount) || 0));
+            if (!amount) { window.alert("Informe um valor maior que zero."); return; }
+            let team = p.find((item) => String(item.id) === String(teamId));
+            if (!team) return;
+            let settings = balanceLoanSettingsOf(R), existing = balanceLoansOf(R)[String(teamId)] || null;
+            let percentage = Math.round(Number(requestedPercentage));
+            if (!(percentage >= 1 && percentage <= 100)) percentage = existing && Number(existing.repaymentPercentage) > 0 ? Math.round(Number(existing.repaymentPercentage)) : settings.repaymentPercentage;
+            let cleanNote = String(note || "").trim().slice(0, 140);
+            let now = Date.now(), before = Number(team.budget) || 0;
+            let grant = { id: _(), type: "extraordinary", amount, createdAt: now, createdByProfileId: te && te.id || null, note: cleanNote, repaymentPercentage: percentage, snapshot: { extraordinary: true } };
+            let loan = { teamId, totalGranted: Math.round(Number(existing && existing.totalGranted) || 0) + amount, totalPaid: Math.round(Number(existing && existing.totalPaid) || 0), remaining: Math.round(Number(existing && existing.remaining) || 0) + amount, status: "active", repaymentPercentage: percentage, createdAt: existing && existing.createdAt || now, updatedAt: now, grants: [...(existing && Array.isArray(existing.grants) ? existing.grants : []), grant] };
+            let loans = { ...balanceLoansOf(R), [String(teamId)]: loan }, context = R.context || {};
+            let teams = p.map((item) => String(item.id) === String(teamId) ? { ...item, budget: before + amount } : item);
+            let transactions = Array.isArray(context.financialTransactions) ? [...context.financialTransactions] : [];
+            transactions.unshift(financeEntry("balance_loan_extraordinary", teamId, amount, `Empréstimo extraordinário${cleanNote ? ` - ${cleanNote}` : ""}`, grant.id, before, now));
+            return ae(m.map((item) => item.id === R.id ? { ...item, economySettings: { ...((item.economySettings) || {}), balanceLoans: loans }, context: { ...(item.context || {}), teams, financialTransactions: transactions } } : item));
+          }
           function grantBalanceLoan(teamId, requestedAmount) {
             if(!R||!teamId)return;
             let analysis=balanceLoanAnalysis(R,p,teamId), amount=Math.max(0,Math.round(Number(requestedAmount)||0));
             if(!amount)return;
             let settings=analysis.settings, existing=analysis.loan, totalGranted=Math.round(Number(existing&&existing.totalGranted)||0);
-            if(settings.maximumTotalAmount>0&&totalGranted+amount>settings.maximumTotalAmount){window.alert(`O teto acumulado deste usuário é ${L(settings.maximumTotalAmount)}.`);return;}
+            if(settings.maximumTotalAmount>0&&analysis.totalGranted+amount>settings.maximumTotalAmount){window.alert(`O teto acumulado deste usuário é ${L(settings.maximumTotalAmount)}.`);return;}
             let team=p.find(item=>String(item.id)===String(teamId));if(!team)return;
-            let now=Date.now(), before=Number(team.budget)||0, grant={id:_(),amount,createdAt:now,createdByProfileId:te&&te.id||null,snapshot:{referenceGames:analysis.referenceGames,played:analysis.played,rawGap:analysis.rawGap,compensableGames:analysis.compensableGames,averageReward:analysis.averageReward,compensationPercentage:settings.compensationPercentage,calculated:analysis.calculated,suggested:existing?analysis.topUpSuggested:analysis.suggested}};
+            let now=Date.now(), before=Number(team.budget)||0, grant={id:_(),amount,createdAt:now,createdByProfileId:te&&te.id||null,snapshot:{referenceGames:analysis.referenceGames,played:analysis.played,rawGap:analysis.rawGap,compensableGames:analysis.compensableGames,averageReward:analysis.averageReward,compensationPercentage:settings.compensationPercentage,calculated:analysis.calculated,suggested:analysis.hasRegularGrant?analysis.topUpSuggested:analysis.suggested}};
             let loan={teamId,totalGranted:totalGranted+amount,totalPaid:Math.round(Number(existing&&existing.totalPaid)||0),remaining:Math.round(Number(existing&&existing.remaining)||0)+amount,status:"active",repaymentPercentage:existing?Math.round(Number(existing.repaymentPercentage)||settings.repaymentPercentage):settings.repaymentPercentage,createdAt:existing&&existing.createdAt||now,updatedAt:now,grants:[...(existing&&Array.isArray(existing.grants)?existing.grants:[]),grant]};
             let loans={...balanceLoansOf(R),[String(teamId)]:loan}, context=R.context||{}, teams=p.map(item=>String(item.id)===String(teamId)?{...item,budget:before+amount}:item), transactions=Array.isArray(context.financialTransactions)?[...context.financialTransactions]:[];
-            transactions.unshift(financeEntry(existing?"balance_loan_topup":"balance_loan_grant",teamId,amount,existing?"Complemento do empréstimo de equilíbrio":"Empréstimo de equilíbrio",grant.id,before,now));
+            transactions.unshift(financeEntry(analysis.hasRegularGrant?"balance_loan_topup":"balance_loan_grant",teamId,amount,analysis.hasRegularGrant?"Complemento do empréstimo de equilíbrio":"Empréstimo de equilíbrio",grant.id,before,now));
             ae(m.map(item=>item.id===R.id?{...item,economySettings:{...((item.economySettings)||{}),balanceLoans:loans},context:{...(item.context||{}),teams,financialTransactions:transactions}}:item));
           }
           // Recompensas retroativas nunca devem ser aplicadas automaticamente durante a hidratação.
@@ -3242,6 +3264,7 @@
                           onUpdateEconomyRules: updateEconomyRules,
                           onUpdateBalanceLoanSettings: updateBalanceLoanSettings,
                           onGrantBalanceLoan: grantBalanceLoan,
+                          onGrantExtraordinaryLoan: grantExtraordinaryLoan,
                           onFinishTournament: finishCurrentTournament,
                           catalog: n, playerReviews, onRefreshPlayerReviews: refreshPlayerReviews, onImportRosters: importRosterPlan, onImportHistoricalCompetition: importHistoricalCompetition, onImportMissingMatches: importMissingHistoricalMatches,
                         }),
@@ -5709,7 +5732,7 @@
           let infoModal=loanInfoOpen&&React.createElement("div",{onClick:()=>setLoanInfoOpen(false),style:{position:"fixed",inset:0,zIndex:1300,background:"rgba(0,0,0,.62)",display:"grid",placeItems:"center",padding:20}},React.createElement("div",{onClick:event=>event.stopPropagation(),style:{width:"min(430px,100%)",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:22,padding:20}},
             React.createElement("div",{style:{fontSize:18,fontWeight:850,marginBottom:8}},"Como esse valor foi definido?"),
             React.createElement("div",{style:{fontSize:13,color:"var(--muted)",lineHeight:1.55}},"O valor considera sua diferença de partidas em relação aos participantes mais ativos e a média de recompensas recebidas por jogo."),
-            loan&&loan.grants&&loan.grants.length&&React.createElement("div",{style:{marginTop:14,padding:14,borderRadius:14,background:"var(--surface-soft)",fontSize:12}},(()=>{let snap=loan.grants[loan.grants.length-1].snapshot||{};return React.createElement(React.Fragment,null,React.createElement("div",null,`Referência: ${snap.referenceGames||0} jogos · Você: ${snap.played||0}`),React.createElement("div",{style:{marginTop:5}},`Média: ${L(snap.averageReward||0)} por jogo · Compensação: ${snap.compensationPercentage||0}%`));})()),
+            loan&&loan.grants&&loan.grants.length&&React.createElement("div",{style:{marginTop:14,padding:14,borderRadius:14,background:"var(--surface-soft)",fontSize:12}},(()=>{let lastItem=loan.grants[loan.grants.length-1],regularItems=loan.grants.filter(item=>item&&item.type!=="extraordinary"),regularLast=regularItems[regularItems.length-1];let extraLine=lastItem&&lastItem.type==="extraordinary"?React.createElement("div",{style:{marginBottom:regularLast?10:0}},`Empréstimo extraordinário de ${L(lastItem.amount)} liberado pelo administrador, independente da quantidade de jogos.${lastItem.note?` Motivo: ${lastItem.note}`:""}`):null;if(!regularLast)return extraLine;let snap=regularLast.snapshot||{};return React.createElement(React.Fragment,null,extraLine,React.createElement("div",null,`Referência: ${snap.referenceGames||0} jogos · Você: ${snap.played||0}`),React.createElement("div",{style:{marginTop:5}},`Média: ${L(snap.averageReward||0)} por jogo · Compensação: ${snap.compensationPercentage||0}%`));})()),
             React.createElement("button",{onClick:()=>setLoanInfoOpen(false),style:{...M,...W,marginTop:16}},"Entendi")
           ));
           let modal=React.createElement("div",{className:"sports-modal-overlay",onClick:onClose,style:{position:"fixed",inset:0,zIndex:1200,display:"grid",placeItems:"center",padding:16,background:"rgba(0,0,0,.72)",backdropFilter:"blur(12px)"}},React.createElement("div",{onClick:(event)=>event.stopPropagation(),style:{width:"min(560px,100%)",maxHeight:"82vh",overflow:"auto",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:24,padding:20}},
@@ -5759,7 +5782,44 @@
           );
         }
 
-        function BalanceLoanAdmin({tournament,teams,onSave,onGrant}){
+        function ExtraordinaryLoanForm({ tournament, teams, onGrant }) {
+          let activeTeams = (Array.isArray(teams) ? teams : []).filter((team) => team && team.active !== false);
+          let loans = balanceLoansOf(tournament), defaultPercentage = balanceLoanSettingsOf(tournament).repaymentPercentage;
+          let [teamId, setTeamId] = b(""), [amount, setAmount] = b(""), [percentage, setPercentage] = b(""), [note, setNote] = b(""), [busy, setBusy] = b(false);
+          let chosenId = teamId || (activeTeams[0] ? String(activeTeams[0].id) : "");
+          let existing = chosenId ? loans[chosenId] || null : null;
+          let effectivePercentage = percentage !== "" ? percentage : String(existing && Number(existing.repaymentPercentage) > 0 ? existing.repaymentPercentage : defaultPercentage);
+          let chosenTeam = activeTeams.find((team) => String(team.id) === chosenId);
+          let history = [];
+          Object.values(loans).forEach((loan) => (loan && Array.isArray(loan.grants) ? loan.grants : []).forEach((grant) => { if (grant && grant.type === "extraordinary") history.push({ ...grant, teamId: loan.teamId }); }));
+          history.sort((left, right) => (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0));
+          let teamName = (id) => { let team = (teams || []).find((item) => item && String(item.id) === String(id)); return team && team.name || "Time removido"; };
+          async function submit() {
+            let value = Math.round(Number(amount) || 0), pct = Math.round(Number(effectivePercentage) || 0);
+            if (!chosenTeam) { window.alert("Escolha um participante."); return; }
+            if (!(value > 0)) { window.alert("Informe um valor maior que zero."); return; }
+            if (!(pct >= 1 && pct <= 100)) { window.alert("O desconto das recompensas precisa estar entre 1% e 100%."); return; }
+            let current = existing && Number(existing.remaining) > 0 ? ` O saldo devedor atual de ${L(existing.remaining)} passa a ${L(Number(existing.remaining) + value)} e o desconto de ${pct}% vale para todo o saldo.` : "";
+            if (!window.confirm(`Conceder empréstimo extraordinário de ${L(value)} para ${chosenTeam.name}? O valor entra no saldo agora e será descontado em ${pct}% das recompensas das próximas partidas.${current}`)) return;
+            setBusy(true);
+            try { let result = await onGrant(chosenId, value, pct, note); if (!result || result.committed !== false) { setAmount(""); setNote(""); setPercentage(""); } }
+            finally { setBusy(false); }
+          }
+          return React.createElement("div", { style: { marginTop: 18, padding: 14, borderRadius: 15, border: "1px solid var(--border)", background: "var(--surface-soft)" } },
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 850 } }, "Empréstimo extraordinário"),
+            React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 4, lineHeight: 1.5 } }, "Independe da quantidade de jogos. O valor entra no saldo agora e é cobrado como o empréstimo de equilíbrio: uma parte das recompensas das próximas partidas abate a dívida. Se o participante já tem empréstimo ativo, o valor é somado ao saldo devedor."),
+            React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, marginTop: 12 } },
+              React.createElement("label", { style: { fontSize: 11, color: "var(--muted)" } }, "Participante", React.createElement("select", { style: { ...q, marginTop: 6 }, value: chosenId, disabled: busy, onChange: (event) => { setTeamId(event.target.value); setPercentage(""); } }, activeTeams.map((team) => React.createElement("option", { key: team.id, value: String(team.id) }, team.name)))),
+              React.createElement("label", { style: { fontSize: 11, color: "var(--muted)" } }, "Valor (M)", React.createElement("input", { type: "number", inputMode: "numeric", min: 1, style: { ...q, marginTop: 6 }, value: amount, disabled: busy, onChange: (event) => setAmount(event.target.value) })),
+              React.createElement("label", { style: { fontSize: 11, color: "var(--muted)" } }, "Desconto das recompensas (%)", React.createElement("input", { type: "number", inputMode: "numeric", min: 1, max: 100, style: { ...q, marginTop: 6 }, value: effectivePercentage, disabled: busy, onChange: (event) => setPercentage(event.target.value) }))),
+            React.createElement("label", { style: { display: "block", fontSize: 11, color: "var(--muted)", marginTop: 10 } }, "Motivo (opcional)", React.createElement("input", { type: "text", maxLength: 140, style: { ...q, marginTop: 6 }, value: note, disabled: busy, placeholder: "Ex.: ajuste por rodada perdida", onChange: (event) => setNote(event.target.value) })),
+            existing && React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10 } }, `${chosenTeam ? chosenTeam.name : "Participante"} já tem ${existing.status === "paid" ? "empréstimo quitado" : `empréstimo ativo com ${L(existing.remaining)} a pagar`} (desconto atual de ${existing.repaymentPercentage}%).`),
+            React.createElement("button", { onClick: submit, disabled: busy || !chosenTeam, style: { ...M, ...W, marginTop: 12, opacity: busy ? .6 : 1 } }, busy ? "Concedendo…" : "Conceder empréstimo extraordinário"),
+            history.length > 0 && React.createElement("div", { style: { marginTop: 14, fontSize: 11.5, color: "var(--muted)" } },
+              React.createElement("div", { style: { fontWeight: 800, marginBottom: 6 } }, "Últimos extraordinários"),
+              history.slice(0, 5).map((grant) => React.createElement("div", { key: grant.id, style: { padding: "6px 0", borderTop: "1px solid var(--border)", lineHeight: 1.45 } }, `${teamName(grant.teamId)} · ${L(grant.amount)} · ${new Date(Number(grant.createdAt) || 0).toLocaleDateString("pt-BR")}${grant.note ? ` · ${grant.note}` : ""}`))));
+        }
+        function BalanceLoanAdmin({tournament,teams,onSave,onGrant,onGrantExtraordinary}){
           let initial=balanceLoanSettingsOf(tournament),[values,setValues]=b(initial),[amounts,setAmounts]=b({});He(()=>setValues(balanceLoanSettingsOf(tournament)),[tournament&&tournament.id,tournament&&tournament.economySettings]);
           let setNumber=key=>event=>setValues(current=>({...current,[key]:Math.max(0,Math.round(Number(event.target.value)||0))}));
           let analyses=(teams||[]).filter(team=>team&&team.active!==false).map(team=>({team,analysis:balanceLoanAnalysis(tournament,teams,team.id)}));
@@ -5778,20 +5838,21 @@
               field("Valor máximo por complemento","maximumTopUpAmount","M","Use 0 para não limitar cada complemento."),
               field("Limite total por usuário","maximumTotalAmount","M","Use 0 para não limitar o total liberado.")),
             React.createElement("button",{onClick:()=>onSave(values),style:{...M,marginTop:14}},"Salvar configurações"),
+            onGrantExtraordinary&&React.createElement(ExtraordinaryLoanForm,{tournament,teams,onGrant:onGrantExtraordinary}),
             React.createElement("div",{style:{marginTop:20,fontSize:13,fontWeight:850}},"Análise dos participantes"),
             React.createElement("div",{style:{display:"grid",gap:10,marginTop:10}},analyses.map(({team,analysis})=>{
-              let existing=analysis.loan,suggestion=existing?analysis.topUpSuggested:analysis.suggested,value=amounts[team.id]!=null?amounts[team.id]:suggestion;
+              let existing=analysis.loan,hasRegular=analysis.hasRegularGrant,suggestion=hasRegular?analysis.topUpSuggested:analysis.suggested,value=amounts[team.id]!=null?amounts[team.id]:suggestion;
               let maxInput=analysis.settings.maximumTotalAmount>0?Math.max(0,analysis.settings.maximumTotalAmount-analysis.totalGranted):undefined;
               return React.createElement("div",{key:team.id,style:{padding:14,borderRadius:15,border:"1px solid var(--border)",background:"var(--surface-soft)"}},
                 React.createElement("div",{style:{display:"flex",justifyContent:"space-between",gap:12,alignItems:"flex-start"}},
                   React.createElement("div",null,React.createElement("strong",null,team.name),React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:4}},`${analysis.played} jogos · referência ${analysis.referenceGames}`)),
-                  React.createElement("strong",{style:{color:suggestion>0?"var(--green)":"var(--muted)",whiteSpace:"nowrap"}},suggestion>0?`${existing?"+ ":""}${L(suggestion)}`:"Sem sugestão")),
+                  React.createElement("strong",{style:{color:suggestion>0?"var(--green)":"var(--muted)",whiteSpace:"nowrap"}},suggestion>0?`${hasRegular?"+ ":""}${L(suggestion)}`:"Sem sugestão")),
                 React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(125px,1fr))",gap:8,marginTop:12,fontSize:11.5}},
                   [["Diferença",analysis.rawGap+" jogos"],["Tolerância",analysis.settings.toleranceGames+" jogos"],["Jogos calculados",analysis.compensableGames],["Média por jogo",L(analysis.averageReward)],["Compensação",analysis.settings.compensationPercentage+"%"],["Valor calculado",L(analysis.calculated)]].map(([label,detail])=>React.createElement("div",{key:label,style:{padding:9,borderRadius:10,background:"var(--surface)",border:"1px solid var(--border)"}},React.createElement("div",{style:{fontSize:10,color:"var(--muted)",marginBottom:3}},label),React.createElement("strong",null,detail)))),
                 !analysis.hasEnoughData&&React.createElement("div",{style:{fontSize:11.5,color:"var(--danger)",marginTop:10}},"Ainda não há dados suficientes de recompensas para calcular uma sugestão."),
-                existing&&React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:10}},`Já liberado: ${L(existing.totalGranted)} · falta pagar: ${L(existing.remaining)}`),
-                existing&&analysis.missedSinceGrant>0&&React.createElement("div",{style:{fontSize:11.5,color:suggestion>0?"var(--green)":"var(--muted)",marginTop:7,lineHeight:1.45}},`Desde a última liberação, a referência avançou ${analysis.referenceIncrease} jogo(s) e ${team.name} jogou ${analysis.playerGamesSinceGrant}. A sugestão foi reavaliada automaticamente${suggestion>0?` e há ${L(suggestion)} de complemento disponível`:""}.`),
-                suggestion>0&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:8,marginTop:10}},React.createElement("input",{type:"number",min:1,...(maxInput!=null?{max:Math.max(1,maxInput)}:{}),value,onChange:event=>setAmounts({...amounts,[team.id]:Math.max(0,Math.round(Number(event.target.value)||0))}),style:q}),React.createElement("button",{onClick:()=>{let amount=Math.round(Number(value)||0);if(window.confirm(`${existing?"Liberar complemento":"Liberar empréstimo"} de ${L(amount)} para ${team.name}?`))onGrant(team.id,amount)},style:{...M,...W,margin:0,padding:"10px 14px"}},existing?"Atualizar empréstimo":"Dar empréstimo")));
+                existing&&React.createElement("div",{style:{fontSize:11.5,color:"var(--muted)",marginTop:10}},`Já liberado: ${L(existing.totalGranted)}${analysis.extraordinaryGranted>0?` (inclui ${L(analysis.extraordinaryGranted)} extraordinário)`:""} · falta pagar: ${L(existing.remaining)}`),
+                hasRegular&&analysis.missedSinceGrant>0&&React.createElement("div",{style:{fontSize:11.5,color:suggestion>0?"var(--green)":"var(--muted)",marginTop:7,lineHeight:1.45}},`Desde a última liberação, a referência avançou ${analysis.referenceIncrease} jogo(s) e ${team.name} jogou ${analysis.playerGamesSinceGrant}. A sugestão foi reavaliada automaticamente${suggestion>0?` e há ${L(suggestion)} de complemento disponível`:""}.`),
+                suggestion>0&&React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr auto",gap:8,marginTop:10}},React.createElement("input",{type:"number",min:1,...(maxInput!=null?{max:Math.max(1,maxInput)}:{}),value,onChange:event=>setAmounts({...amounts,[team.id]:Math.max(0,Math.round(Number(event.target.value)||0))}),style:q}),React.createElement("button",{onClick:()=>{let amount=Math.round(Number(value)||0);if(window.confirm(`${hasRegular?"Liberar complemento":"Liberar empréstimo"} de ${L(amount)} para ${team.name}?`))onGrant(team.id,amount)},style:{...M,...W,margin:0,padding:"10px 14px"}},hasRegular?"Atualizar empréstimo":"Dar empréstimo")));
             })));
         }
         function PlayerOverrideHistoryAdmin({ catalog }) {
@@ -7208,7 +7269,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -7791,7 +7852,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
               React.createElement("h3", { style:{ margin:"0 0 6px" } }, "Economia e premiação"),
               React.createElement("div", { style:{ fontSize:12,color:"var(--muted)",marginBottom:14,lineHeight:1.5 } }, "Defina recompensas por resultado e a faixa de premiação final."),
               React.createElement(EconomyAdminForm, { tournament:currentTournament, onSave:onUpdateEconomyRules }),
-              React.createElement(BalanceLoanAdmin,{tournament:currentTournament,teams,onSave:onUpdateBalanceLoanSettings,onGrant:onGrantBalanceLoan}),
+              React.createElement(BalanceLoanAdmin,{tournament:currentTournament,teams,onSave:onUpdateBalanceLoanSettings,onGrant:onGrantBalanceLoan,onGrantExtraordinary:onGrantExtraordinaryLoan}),
               currentTournament.type !== "cup" && React.createElement(MarketAccessAdminForm, { tournament:currentTournament, onSave:onUpdateMarketAccessRules }),
               currentTournament.type !== "cup" && React.createElement(PlayerOverrideHistoryAdmin, { catalog }),
               currentTournament.type !== "cup" && React.createElement(MarketBalanceAdminForm, { tournament:currentTournament, teams, catalog, onSave:onUpdateMarketBalanceRules }),

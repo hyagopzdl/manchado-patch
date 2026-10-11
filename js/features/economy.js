@@ -56,15 +56,22 @@
           let passesMinimum=settings.minimumAmount<=0||calculated>=settings.minimumAmount;
           let suggested=eligible&&passesMinimum?calculated:0;
           if(suggested>0&&settings.maximumAmount>0)suggested=Math.min(suggested,settings.maximumAmount);
-          let loans=balanceLoansOf(tournament), loan=loans[String(teamId)]||null,totalGranted=Math.round(Number(loan&&loan.totalGranted)||0), topUpBase=Math.max(0,Math.round(calculated-totalGranted));
-          let lastGrant=loan&&Array.isArray(loan.grants)&&loan.grants.length?loan.grants[loan.grants.length-1]:null, lastSnapshot=lastGrant&&lastGrant.snapshot&&typeof lastGrant.snapshot==="object"?lastGrant.snapshot:{};
+          let loans=balanceLoansOf(tournament), loan=loans[String(teamId)]||null;
+          // Empréstimos extraordinários (type "extraordinary") dividem o mesmo saldo devedor e a mesma cobrança,
+          // mas não entram no teto, no complemento nem no snapshot do empréstimo de equilíbrio.
+          let loanGrants=loan&&Array.isArray(loan.grants)?loan.grants:[], regularGrants=loanGrants.filter(grant=>grant&&grant.type!=="extraordinary");
+          let hasRegularGrant=!!loan&&(loanGrants.length===0||regularGrants.length>0);
+          let totalGranted=loan?(loanGrants.length?regularGrants.reduce((sum,grant)=>sum+Math.round(Number(grant.amount)||0),0):Math.round(Number(loan.totalGranted)||0)):0;
+          let extraordinaryGranted=loanGrants.filter(grant=>grant&&grant.type==="extraordinary").reduce((sum,grant)=>sum+Math.round(Number(grant.amount)||0),0);
+          let topUpBase=Math.max(0,Math.round(calculated-totalGranted));
+          let lastGrant=regularGrants.length?regularGrants[regularGrants.length-1]:null, lastSnapshot=lastGrant&&lastGrant.snapshot&&typeof lastGrant.snapshot==="object"?lastGrant.snapshot:{};
           let referenceIncrease=Math.max(0,referenceGames-Math.round(Number(lastSnapshot.referenceGames)||0)), playerGamesSinceGrant=Math.max(0,played-Math.round(Number(lastSnapshot.played)||0));
           let missedSinceGrant=Math.max(0,referenceIncrease-playerGamesSinceGrant);
-          let topUpSuggested=settings.allowTopUps&&loan&&eligible?topUpBase:0;
+          let topUpSuggested=settings.allowTopUps&&hasRegularGrant&&eligible?topUpBase:0;
           if(topUpSuggested>0&&settings.minimumTopUpAmount>0&&topUpSuggested<settings.minimumTopUpAmount)topUpSuggested=0;
           if(topUpSuggested>0&&settings.maximumTopUpAmount>0)topUpSuggested=Math.min(topUpSuggested,settings.maximumTopUpAmount);
           if(topUpSuggested>0&&settings.maximumTotalAmount>0)topUpSuggested=Math.min(topUpSuggested,Math.max(0,settings.maximumTotalAmount-totalGranted));
-          return {settings,referenceGames,played,rawGap,compensableGames,averageReward,calculated,suggested,loan,totalGranted,topUpBase,topUpSuggested,lastGrant,referenceIncrease,playerGamesSinceGrant,missedSinceGrant,eligible:loan?topUpSuggested>0:eligible&&passesMinimum,hasEnoughData,rows};
+          return {settings,referenceGames,played,rawGap,compensableGames,averageReward,calculated,suggested,loan,hasRegularGrant,extraordinaryGranted,totalGranted,topUpBase,topUpSuggested,lastGrant,referenceIncrease,playerGamesSinceGrant,missedSinceGrant,eligible:hasRegularGrant?topUpSuggested>0:eligible&&passesMinimum,hasEnoughData,rows};
         }
         function matchEconomyForTeam(match, teamId, settings) {
           let home = String(match && match.homeId) === String(teamId), score = home ? Number(match.homeScore)||0 : Number(match.awayScore)||0, opponentScore = home ? Number(match.awayScore)||0 : Number(match.homeScore)||0;
