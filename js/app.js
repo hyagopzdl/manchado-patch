@@ -4753,7 +4753,7 @@
               React.createElement("div", { className:"unified-player-grid" }, group.players.map(playerCard))
             ) : null),
             barcaPlan && React.createElement("div", { className:"barca-spacer", "aria-hidden":"true" }),
-            barcaPlan && React.createElement("div", { className:"barca-footer" + (barcaExpanded ? " is-expanded" : ""), role:"region", "aria-label":"Resumo da barca" },
+            barcaPlan && ReactDOM.createPortal(React.createElement("div", { className:"barca-footer" + (barcaExpanded ? " is-expanded" : ""), role:"region", "aria-label":"Resumo da barca" },
               barcaExpanded && React.createElement("div", { className:"barca-details" },
                 barcaPlan.items.length === 0 ? React.createElement("div", { className:"barca-empty" }, "Nenhum jogador selecionado.") : React.createElement("ul", { className:"barca-list" }, barcaPlan.items.map((item) => React.createElement("li", { key:item.player.id },
                   React.createElement("span", { className:"barca-list-name" }, React.createElement("b", null, item.player.overall), " ", item.player.name, item.initialRoster && React.createElement("small", null, " · elenco-base")),
@@ -4773,7 +4773,7 @@
                 React.createElement("div", { className:"barca-actions" },
                   React.createElement("button", { type:"button", className:"family-pill-secondary", onClick:exitBarca }, "Cancelar"),
                   React.createElement("button", { type:"button", className:"family-pill-primary", disabled:!barcaPlan.ok, title:barcaPlan.ok ? "" : (barcaPlan.blockers[0] || "Selecione jogadores"), onClick:()=>{ if (!barcaPlan.ok) { setBarcaExpanded(true); return; } if (window.confirm(`Vender ${barcaPlan.items.length} jogadores ao mercado por ${L(barcaPlan.total)}?\nSaldo após a venda: ${L(barcaPlan.budgetAfter)}.`)) onSellBatch(barcaIds, exitBarca); } }, "Vender")))
-            )
+            ), document.body)
           );
         }
         function DualRange({ min, max, step=1, minValue, maxValue, onChangeMin, onChangeMax, formatValue=(value)=>value }) {
