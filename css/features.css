@@ -813,3 +813,36 @@
 .lineup-presets-actions{display:flex;flex-wrap:wrap;gap:8px}
 .lineup-presets-actions button{padding:7px 12px;font-size:12px}
 .lineup-presets-note{font-size:11px;color:var(--muted)}
+
+/* ---- Barca (venda em lote) ---- */
+.barca-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:0 0 14px}
+.barca-toolbar-hint{font-size:12.5px;color:var(--muted);line-height:1.4}
+.barca-toggle{flex:0 0 auto;width:44px;height:44px;padding:0;border-radius:999px;display:grid;place-items:center;cursor:pointer;margin-left:auto}
+.barca-card.is-picked{outline:2px solid var(--green);outline-offset:-2px}
+.barca-footer{position:fixed;left:12px;right:12px;bottom:calc(88px + env(safe-area-inset-bottom));z-index:60;max-width:760px;margin:0 auto;border:1px solid var(--border);border-radius:18px;background:var(--surface);box-shadow:0 18px 50px rgba(0,0,0,.28);overflow:hidden}
+.barca-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px}
+.barca-expand{display:flex;align-items:center;gap:10px;min-width:0;border:0;background:transparent;color:var(--heading);text-align:left;cursor:pointer;padding:2px}
+.barca-chevron{flex:0 0 auto;color:var(--muted);font-size:14px}
+.barca-figures{display:flex;flex-wrap:wrap;gap:4px 18px;min-width:0}
+.barca-figures span{display:grid;line-height:1.15}
+.barca-figures small{font-size:10.5px;color:var(--muted);font-weight:700}
+.barca-figures b{font-size:15px;font-weight:850}
+.barca-actions{display:flex;gap:8px}
+.barca-actions button{padding:9px 14px;font-size:13px}
+.barca-actions button:disabled{opacity:.45;cursor:not-allowed}
+.barca-details{max-height:min(46vh,360px);overflow:auto;padding:12px 14px;border-bottom:1px solid var(--border);display:grid;gap:12px}
+.barca-empty{font-size:13px;color:var(--muted)}
+.barca-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.barca-list li{display:flex;justify-content:space-between;gap:10px;font-size:13px}
+.barca-list-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barca-list-name small,.barca-list-value small{color:var(--muted)}
+.barca-list-value{display:grid;text-align:right;font-weight:800;flex:0 0 auto}
+.barca-list-value small{font-weight:600;font-size:10.5px}
+.barca-rules{display:grid;gap:5px;font-size:12.5px}
+.barca-rules div{display:flex;justify-content:space-between;gap:10px}
+.barca-rules span{color:var(--muted)}
+.barca-rules .is-bad{color:var(--red,#e5484d)}
+.barca-blockers{margin:0;padding:10px 12px 10px 28px;border-radius:12px;background:color-mix(in srgb,var(--red,#e5484d) 11%,var(--surface-soft));font-size:12.5px;line-height:1.45;color:var(--heading)}
+@media (min-width:900px){.barca-footer{bottom:24px}}
+@media (max-width:520px){.barca-summary{grid-template-columns:1fr}.barca-actions{justify-content:flex-end}}
+.barca-spacer{height:150px}

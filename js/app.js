@@ -7,6 +7,7 @@
           eo, qe, L, trophyAssetFor, TrophyAsset, economySettingsOf, balanceLoanSettingsOf, balanceLoansOf, balanceLoanAnalysis, matchEconomyForTeam, prizeSettingsOf, championshipPrizeLadder, financeEntry,
           positionColor, overallColor, offerStatusLabel, isOfferOpen
         } = window.ManchaApp;
+        const BoatIcon = SvgIcon(["M12 3v11", "M12 4.5 18.5 13H12", "M12 7 6.5 13H12", "M3 16h18l-2.4 4.5H5.4z"]);
         const MagicWandIcon = SvgIcon(["M15 4l5 5", "M13.5 5.5 18.5 10.5", "M4 20l11-11", "M5 4v3", "M3.5 5.5h3", "M18 16v4", "M16 18h4"]);
         const EraserIcon = SvgIcon(["m4 15 8-8a2.5 2.5 0 0 1 3.5 0l2.5 2.5a2.5 2.5 0 0 1 0 3.5L11 20H7l-3-3a1.4 1.4 0 0 1 0-2Z", "m9 10 6 6", "M11 20h9"]);
         const ComparePlayersIcon = SvgIcon(["M8.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M3.5 19a5 5 0 0 1 10 0", "M17 10a2.5 2.5 0 1 0 0-5", "M15 14.5a4.5 4.5 0 0 1 5.5 4.4"]);
@@ -1715,6 +1716,57 @@
               }
             }, false);
           }
+          function barcaPlanOn(playerIds, source) {
+            let tournament = source ? source.tournament : R;
+            let teamId = ProfileTeam ? ProfileTeam.id : null;
+            let ownership = source ? source.ownership : c, transfers = source ? source.transfers : k, teams = source ? source.teams : p;
+            let matches = source ? source.matches : null;
+            let status = marketMinimumGamesStatus(teamId, tournament);
+            return window.ManchaApp.BarcaFeature.barcaPlan({
+              tournament, teamId, playerIds, ownership, transfers, teams, catalog: n,
+              playerOf: (id) => xe.get(id) || xe.get(String(id)) || null,
+              marketOpen: marketAccessSettings(tournament).isOpen,
+              minGamesBlocked: status.blocked, minGamesMessage: marketMinimumGamesMessage(status),
+              tradeLockFor: (id) => playerTradeLockStatus(id, teamId, tournament, ownership, transfers, matches)
+            });
+          }
+          function confirmBarcaSale(playerIds, onDone) {
+            if (!R || !ProfileTeam || !Array.isArray(playerIds) || !playerIds.length) return;
+            let tournamentId = R.id, teamId = ProfileTeam.id, failureReason = null, soldPlan = null;
+            let applyBarcaSale = (tournament) => {
+              let context = tournament.context || {};
+              let plan = barcaPlanOn(playerIds, { tournament, ownership: context.ownership || {}, transfers: Array.isArray(context.transfers) ? context.transfers : [], teams: Array.isArray(context.teams) ? context.teams : [], matches: context.matches || tournament.matches || [] });
+              if (!plan.ok) { failureReason = plan.blockers[0] || "A venda não é mais válida."; return null; }
+              soldPlan = plan;
+              return window.ManchaApp.BarcaFeature.applyBarca(tournament, plan, teamId, { financeEntry, newId: _, now: Date.now() });
+            };
+            let done = () => { if (onDone) onDone(); window.alert(`Barca concluída: ${soldPlan.items.length} jogadores vendidos por ${L(soldPlan.total)}. Novo saldo: ${L(soldPlan.budgetAfter)}.`); };
+            let db = Ee();
+            if (!db) {
+              let updated = applyBarcaSale(R);
+              if (!updated) { window.alert(failureReason || "A venda foi cancelada."); return; }
+              ae(m.map((item) => item.id === tournamentId ? updated : item));
+              done();
+              return;
+            }
+            let actionKey = `barca:${tournamentId}:${teamId}`;
+            if (!beginMarketAction(actionKey)) { window.alert("Aguarde a operação atual ser concluída."); return; }
+            db.ref("pes/tournaments").transaction((serverList) => {
+              let isArray = Array.isArray(serverList);
+              let list = isArray ? [...serverList] : Object.values(serverList || {});
+              let index = list.findIndex((item) => item && String(item.id) === String(tournamentId));
+              if (index < 0) return;
+              let updated = applyBarcaSale(list[index]);
+              if (!updated) return;
+              list[index] = updated;
+              return isArray ? list : Object.fromEntries(list.map((item, index) => [item.id || String(index), item]));
+            }, (error, committed, snapshot) => {
+              endMarketAction(actionKey);
+              if (error) window.alert("Não foi possível concluir a venda. Tente novamente.");
+              else if (!committed) window.alert(`A barca foi cancelada: ${failureReason || "o elenco mudou. Atualize a página e tente de novo."}`);
+              else { applyConfirmedTournamentSnapshot(snapshot); signalImportantUpdate("player_sale", tournamentId); done(); }
+            }, false);
+          }
           function importRosterPlan(plan, mode) {
             if (!R || !plan || !Array.isArray(plan.entries) || !plan.entries.length) return;
             let tournamentId = R.id;
@@ -3202,6 +3254,8 @@
                           onDeleteTeam: () => {},
                           squadOf: Oe,
                           onSellToMarket: It,
+                          barcaPlanFor: ProfileTeam ? (ids) => barcaPlanOn(ids) : null,
+                          onSellBatch: confirmBarcaSale,
                           depreciationPct: R && R.marketSettings && R.marketSettings.depreciationPct != null ? R.marketSettings.depreciationPct : 10,
                           ownership: c,
                           onOpenDetail: be,
@@ -4143,6 +4197,8 @@
           onDeleteTeam: n,
           squadOf: r,
           onSellToMarket: p,
+          barcaPlanFor = null,
+          onSellBatch = null,
           depreciationPct: Dp,
           ownership: F,
           onOpenDetail: c,
@@ -4165,6 +4221,13 @@
           if (!s) return React.createElement("div", { style: E }, "Nenhum time selecionado.");
           let squad = r(s.id).slice();
           let [squadView, setSquadView] = b("roster");
+          let [barcaMode, setBarcaMode] = b(false);
+          let [barcaIds, setBarcaIds] = b([]);
+          let [barcaExpanded, setBarcaExpanded] = b(false);
+          let barcaAvailable = !readOnly && !!barcaPlanFor && !!onSellBatch;
+          let barcaPlan = barcaMode && barcaAvailable ? barcaPlanFor(barcaIds) : null;
+          let exitBarca = () => { setBarcaMode(false); setBarcaIds([]); setBarcaExpanded(false); };
+          He(() => { exitBarca(); }, [s.id]);
           // Presets de formação: 0 = principal (team.lineup), 1 e 2 = extras (team.extraLineups[0..1]).
           // Quem vê o time de outra pessoa (somente leitura) enxerga só a principal.
           let [presetIndex, setPresetIndex] = b(0);
@@ -4495,6 +4558,19 @@
             let cannotSell = squad.length <= minPlayers;
             let tradeLock = !readOnly && tradeLockStatusFor ? tradeLockStatusFor(player) : null;
             let tradeLocked = !!(tradeLock && tradeLock.locked);
+            if (barcaMode && barcaAvailable) {
+              let picked = barcaIds.includes(String(player.id));
+              let toggle = () => { if (tradeLocked) return; setBarcaIds((ids) => ids.includes(String(player.id)) ? ids.filter((id) => id !== String(player.id)) : [...ids, String(player.id)]); };
+              return React.createElement(UnifiedPlayerCard, {
+                key:player.id, player, onOpen:toggle,
+                className:"barca-card" + (picked ? " is-picked" : ""),
+                actionLabel:tradeLocked ? `Faltam ${tradeLock.gamesRemaining} jogos` : picked ? "✓ Na barca" : "Colocar na barca",
+                actionDisabled:tradeLocked,
+                isInitialRoster:baseRosterPlayerIds.includes(String(player.id)),
+                currentTeamName:s && s.name ? s.name : null,
+                onAction:toggle
+              });
+            }
             return React.createElement(UnifiedPlayerCard, {
               key:player.id, player, onOpen:c,
               actionLabel:readOnly?readOnlyActionLabel:(tradeLocked?`Faltam ${tradeLock.gamesRemaining} jogos`:"Vender ao mercado"),
@@ -4667,11 +4743,37 @@
                 )
               )
             ),
+            barcaAvailable && squad.length > 0 && React.createElement("div", { className:"barca-toolbar" },
+              React.createElement("div", { className:"barca-toolbar-hint" }, barcaMode ? "Modo barca: toque nos jogadores para vender vários de uma vez." : ""),
+              React.createElement("button", { type:"button", className:"barca-toggle " + (barcaMode ? "family-pill-primary is-active" : "family-pill-secondary"), title:barcaMode ? "Sair do modo barca" : "Montar uma barca (vender vários jogadores)", "aria-label":barcaMode ? "Sair do modo barca" : "Montar uma barca", "aria-pressed":barcaMode, onClick:()=>{ if (barcaMode) exitBarca(); else setBarcaMode(true); } }, React.createElement(BoatIcon, { size:20 }))
+            ),
             squad.length===0 && React.createElement("div", { style:{ ...E, textAlign:"center", color:"var(--muted)", padding:28 } }, "Elenco vazio. Vá ao mercado para contratar jogadores."),
             Object.values(groups).map((group)=>group.players.length ? React.createElement("section", { key:group.label, style:{ marginBottom:26 } },
               React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"end", marginBottom:10 } }, React.createElement("div", null, React.createElement("h2", { style:{ margin:0, fontSize:19 } }, group.label), React.createElement("div", { style:{ fontSize:11.5, color:"var(--muted)", marginTop:3 } }, `${group.players.length} jogadores · média ${average(group.players).toFixed(1)}`))),
               React.createElement("div", { className:"unified-player-grid" }, group.players.map(playerCard))
-            ) : null)
+            ) : null),
+            barcaPlan && React.createElement("div", { className:"barca-spacer", "aria-hidden":"true" }),
+            barcaPlan && React.createElement("div", { className:"barca-footer" + (barcaExpanded ? " is-expanded" : ""), role:"region", "aria-label":"Resumo da barca" },
+              barcaExpanded && React.createElement("div", { className:"barca-details" },
+                barcaPlan.items.length === 0 ? React.createElement("div", { className:"barca-empty" }, "Nenhum jogador selecionado.") : React.createElement("ul", { className:"barca-list" }, barcaPlan.items.map((item) => React.createElement("li", { key:item.player.id },
+                  React.createElement("span", { className:"barca-list-name" }, React.createElement("b", null, item.player.overall), " ", item.player.name, item.initialRoster && React.createElement("small", null, " · elenco-base")),
+                  React.createElement("span", { className:"barca-list-value" }, L(item.amount), React.createElement("small", null, ` −${item.depreciationPct}% de ${L(item.player.value)}`))))),
+                React.createElement("div", { className:"barca-rules" },
+                  React.createElement("div", null, React.createElement("span", null, "Elenco"), React.createElement("b", { className:barcaPlan.rosterAfter < barcaPlan.minPlayers ? "is-bad" : "" }, `${barcaPlan.rosterBefore} → ${barcaPlan.rosterAfter} (mín. ${barcaPlan.minPlayers})`)),
+                  barcaPlan.baseMin > 0 && React.createElement("div", null, React.createElement("span", null, "Elenco-base"), React.createElement("b", { className:barcaPlan.baseSold && barcaPlan.baseAfter < barcaPlan.baseMin ? "is-bad" : "" }, `${barcaPlan.baseBefore} → ${barcaPlan.baseAfter} (mín. ${barcaPlan.baseMin})`)),
+                  barcaPlan.balance && barcaPlan.balance.enabled && barcaPlan.balance.futureGap != null && React.createElement("div", null, React.createElement("span", null, "Diferença entre times"), React.createElement("b", { className:barcaPlan.balance.allowed ? "" : "is-bad" }, `${barcaPlan.balance.currentGap.toFixed(1)} → ${barcaPlan.balance.futureGap.toFixed(1)} OVR (máx. ${barcaPlan.balance.threshold.toFixed(1)})`)),
+                  barcaPlan.balance && barcaPlan.balance.enabled && barcaPlan.balance.futureGap != null && React.createElement("div", null, React.createElement("span", null, "Overall do seu elenco"), React.createElement("b", null, `${barcaPlan.balance.ownBefore.toFixed(1)} → ${barcaPlan.balance.ownAfter.toFixed(1)}`))),
+                barcaPlan.blockers.length > 0 && React.createElement("ul", { className:"barca-blockers" }, barcaPlan.blockers.map((text, index) => React.createElement("li", { key:index }, text)))),
+              React.createElement("div", { className:"barca-summary" },
+                React.createElement("button", { type:"button", className:"barca-expand", "aria-expanded":barcaExpanded, "aria-label":barcaExpanded ? "Recolher detalhes" : "Ver detalhes", onClick:()=>setBarcaExpanded(!barcaExpanded) },
+                  React.createElement("span", { className:"barca-chevron" }, barcaExpanded ? "▾" : "▴"),
+                  React.createElement("span", { className:"barca-figures" },
+                    React.createElement("span", null, React.createElement("small", null, `${barcaPlan.items.length} ${barcaPlan.items.length === 1 ? "jogador" : "jogadores"} · recebe`), React.createElement("b", null, L(barcaPlan.total))),
+                    React.createElement("span", null, React.createElement("small", null, "Saldo após"), React.createElement("b", null, L(barcaPlan.budgetAfter))))),
+                React.createElement("div", { className:"barca-actions" },
+                  React.createElement("button", { type:"button", className:"family-pill-secondary", onClick:exitBarca }, "Cancelar"),
+                  React.createElement("button", { type:"button", className:"family-pill-primary", disabled:!barcaPlan.ok, title:barcaPlan.ok ? "" : (barcaPlan.blockers[0] || "Selecione jogadores"), onClick:()=>{ if (!barcaPlan.ok) { setBarcaExpanded(true); return; } if (window.confirm(`Vender ${barcaPlan.items.length} jogadores ao mercado por ${L(barcaPlan.total)}?\nSaldo após a venda: ${L(barcaPlan.budgetAfter)}.`)) onSellBatch(barcaIds, exitBarca); } }, "Vender")))
+            )
           );
         }
         function DualRange({ min, max, step=1, minValue, maxValue, onChangeMin, onChangeMax, formatValue=(value)=>value }) {
