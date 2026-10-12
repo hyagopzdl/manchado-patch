@@ -3210,7 +3210,15 @@
                           readOnly: !!(R && (R.status === "finished" || R.type === "cup")),
                           baseRosterPlayerIds: ProfileTeam ? Oe(ProfileTeam.id).filter((player) => isInitialRosterPlayer(player.id, ProfileTeam.id)).map((player) => String(player.id)) : [],
                           tradeLockStatusFor: ProfileTeam ? (player) => playerTradeLockStatus(player.id, ProfileTeam.id) : null,
-                          onSaveLineup: (teamId, lineup) => Se(p.map((team) => team && String(team.id) === String(teamId) ? { ...team, lineup } : team)),
+                          onSaveLineup: (teamId, lineup, presetIndex = 0) => Se(p.map((team) => {
+                            if (!team || String(team.id) !== String(teamId)) return team;
+                            if (!presetIndex) return { ...team, lineup };
+                            let extras = Array.isArray(team.extraLineups) ? [...team.extraLineups] : [];
+                            while (extras.length < 2) extras.push(null);
+                            extras[presetIndex - 1] = lineup;
+                            return { ...team, extraLineups: extras };
+                          })),
+                          onSaveLineupSet: (teamId, patch) => Se(p.map((team) => team && String(team.id) === String(teamId) ? { ...team, ...patch } : team)),
                         }),
 
                       Y === "market" &&
@@ -4149,6 +4157,7 @@
           baseRosterPlayerIds = [],
           tradeLockStatusFor = null,
           onSaveLineup = null,
+          onSaveLineupSet = null,
           extraViewLabel = null,
           renderExtraView = null,
         }) {
@@ -4156,7 +4165,14 @@
           if (!s) return React.createElement("div", { style: E }, "Nenhum time selecionado.");
           let squad = r(s.id).slice();
           let [squadView, setSquadView] = b("roster");
-          let savedLineup = s.lineup && typeof s.lineup === "object" ? s.lineup : {};
+          // Presets de formação: 0 = principal (team.lineup), 1 e 2 = extras (team.extraLineups[0..1]).
+          // Quem vê o time de outra pessoa (somente leitura) enxerga só a principal.
+          let [presetIndex, setPresetIndex] = b(0);
+          let activePreset = readOnly ? 0 : presetIndex;
+          let extraLineups = Array.isArray(s.extraLineups) ? s.extraLineups : [];
+          let presetLineups = [s.lineup, extraLineups[0], extraLineups[1]].map((item) => item && typeof item === "object" ? item : null);
+          let savedLineup = presetLineups[activePreset] || {};
+          let savedKey = `${savedLineup.updatedAt || 0}:${savedLineup.formation || ""}`;
           let [formation, setFormation] = b(savedLineup.formation || "4-3-3");
           let [assignments, setAssignments] = b(savedLineup.assignments && typeof savedLineup.assignments === "object" ? savedLineup.assignments : {});
           let [lineupPicker, setLineupPicker] = b(null);
@@ -4171,8 +4187,9 @@
           let lineupFieldRef = Rf(null);
           let customPositionsRef = Rf(customPositions);
           let lineupSlotEditRef = Rf({ active:false, slotId:null, pointerId:null });
+          He(() => { setPresetIndex(0); }, [s.id]);
           He(() => {
-            let current = s.lineup && typeof s.lineup === "object" ? s.lineup : {};
+            let current = savedLineup;
             setFormation(current.formation || "4-3-3");
             setAssignments(current.assignments && typeof current.assignments === "object" ? current.assignments : {});
             let nextCustomPositions = current.customPositions && typeof current.customPositions === "object" ? current.customPositions : {};
@@ -4180,7 +4197,7 @@
             customPositionsRef.current = nextCustomPositions;
             setLineupEditMode(false);
             setLineupEditingSlotId(null);
-          }, [s.id, s.lineup && s.lineup.updatedAt]);
+          }, [s.id, activePreset, savedKey]);
           He(() => () => {
             let gesture = lineupGestureRef.current;
             if (gesture && gesture.timer) window.clearTimeout(gesture.timer);
@@ -4231,7 +4248,28 @@
             setAssignments(nextAssignments);
             setCustomPositions(nextCustomPositions || {});
             customPositionsRef.current = nextCustomPositions || {};
-            if (onSaveLineup) onSaveLineup(s.id, payload);
+            if (onSaveLineup) onSaveLineup(s.id, payload, activePreset);
+          }
+          let presetHasContent = (index) => !!(presetLineups[index] && presetLineups[index].assignments && Object.keys(presetLineups[index].assignments).length);
+          let presetLabel = (index) => index === 0 ? "Principal" : `Formação ${index + 1}`;
+          function copyFromPreset(sourceIndex) {
+            if (readOnly || sourceIndex === activePreset) return;
+            let source = presetLineups[sourceIndex];
+            if (!source || !source.formation) { window.alert(`A ${presetLabel(sourceIndex)} ainda está vazia.`); return; }
+            if (presetHasContent(activePreset) && !window.confirm(`Substituir a ${presetLabel(activePreset)} pela ${presetLabel(sourceIndex)}?`)) return;
+            setLineupEditMode(false);
+            saveLineup(source.formation, { ...(source.assignments || {}) }, { ...(source.customPositions || {}) }, source.baseFormation || "4-3-3");
+          }
+          function makePresetMain() {
+            if (readOnly || activePreset === 0 || !onSaveLineupSet) return;
+            if (!presetLineups[activePreset]) { window.alert("Esta formação ainda está vazia."); return; }
+            if (!window.confirm(`Tornar a ${presetLabel(activePreset)} a formação principal? A principal atual passa para a posição ${activePreset + 1}.`)) return;
+            let list = presetLineups.slice();
+            let mainNext = list[activePreset], other = list[0];
+            list[0] = mainNext; list[activePreset] = other;
+            setLineupEditMode(false);
+            onSaveLineupSet(s.id, { lineup: list[0], extraLineups: [list[1], list[2]] });
+            setPresetIndex(0);
           }
           function autoOrganize(nextFormation = formation) {
             let targetFormation = nextFormation === "Personalizada" ? presetFormation : nextFormation;
@@ -4488,6 +4526,14 @@
                 React.createElement("button", { className:"is-active", onClick:()=>setSquadView("formation") }, "Formação")
               ),
               React.createElement("section", { style:{ ...E, padding:"clamp(16px,3vw,26px)" } },
+                !readOnly && React.createElement("div", { className:"lineup-presets" },
+                  React.createElement("div", { className:"lineup-presets-tabs", role:"tablist", "aria-label":"Formações salvas" }, [0,1,2].map((index) =>
+                    React.createElement("button", { key:index, type:"button", role:"tab", "aria-selected":index === activePreset, className:"lineup-preset-tab" + (index === activePreset ? " is-active" : ""), onClick:()=>{ stopLineupEditor(); setPresetIndex(index); } },
+                      presetLabel(index), index === 0 && React.createElement("small", null, "principal"), index > 0 && !presetHasContent(index) && React.createElement("small", null, "vazia")))),
+                  React.createElement("div", { className:"lineup-presets-actions" },
+                    [0,1,2].filter((index) => index !== activePreset).map((index) => React.createElement("button", { key:index, type:"button", className:"family-pill-secondary", disabled:!presetHasContent(index), onClick:()=>copyFromPreset(index), title:`Copiar a ${presetLabel(index)} para esta formação` }, `Copiar da ${presetLabel(index)}`)),
+                    activePreset > 0 && React.createElement("button", { type:"button", className:"family-pill-primary", disabled:!presetHasContent(activePreset), onClick:makePresetMain }, "Tornar principal")),
+                  React.createElement("div", { className:"lineup-presets-note" }, "Os outros participantes veem apenas a formação principal.")),
                 React.createElement("div", { className:"lineup-toolbar" },
                   React.createElement("div", { className:"lineup-toolbar-heading" },
                     React.createElement("div", null, "Escalação"),
