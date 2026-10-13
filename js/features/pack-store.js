@@ -36,6 +36,12 @@
     return total ? sum / total : 0;
   }
 
+  // Cor de cada pacote (tile e barra de progresso). Platina e diamante têm cor própria; os demais seguem o overall médio.
+  const PACK_ACCENTS = { platina: "#f06423", diamante: "#d92d20" };
+  function packAccent(pack, overallColor) {
+    return PACK_ACCENTS[pack.id] || overallColor(Math.round(weightedMeanOverall(pack.weights)));
+  }
+
   // Etapas da revelação de uma carta (ms depois de virar): posição → nacionalidade → clube → nome e overall.
   const STAGE_AT = [650, 1750, 2850, 4000];
 
@@ -65,7 +71,7 @@
       style: { "--glow": glow }, onClick,
     },
       h("div", { className: "pack-card-inner" },
-        h("div", { className: "pack-card-face pack-card-back" }, h("span", null, pending ? "…" : "?")),
+        h("div", { className: "pack-card-face pack-card-back" }, h("span", null, "?")),
         card && flipped ? h("div", { className: "pack-card-face pack-card-front" + (revealed && elite ? " is-elite" : "") + (revealed ? " is-revealed" : ""), style: { "--card-color": color } },
           h("div", { className: "pack-card-overall" + (revealed ? "" : " is-mystery"), style: { color } }, revealed ? card.overall : "??"),
           h("span", { className: "pack-card-pos" + hide(1), style: { background: positionColor(card.position) } }, card.position || "—"),
@@ -108,7 +114,7 @@
     const teaserUid = reveal && reveal.teaser ? reveal.uid : null;
     React.useEffect(() => {
       if (teaserUid == null) return undefined;
-      const timer = setTimeout(() => setReveal((current) => current && current.uid === teaserUid ? { ...current, teaser: false } : current), 3200);
+      const timer = setTimeout(() => setReveal((current) => current && current.uid === teaserUid ? { ...current, teaser: false } : current), 2000);
       return () => clearTimeout(timer);
     }, [teaserUid]);
 
@@ -148,7 +154,7 @@
 
     function newReveal(pack, extra) {
       const mean = weightedMeanOverall(pack.weights);
-      return { uid: Date.now() + Math.random(), mode: pack.interaction === "pick" ? "pick" : "all", packId: pack.id, packLabel: pack.label, n: pack.cards, accent: overallColor(Math.round(mean)), cards: [], pickIndex: null, phase: "choose", flipped: [], completed: [], skip: false, teaser: false, error: "", ...extra };
+      return { uid: Date.now() + Math.random(), mode: pack.interaction === "pick" ? "pick" : "all", packId: pack.id, packLabel: pack.label, n: pack.cards, accent: packAccent(pack, overallColor), cards: [], pickIndex: null, phase: "choose", flipped: [], completed: [], skip: false, teaser: false, error: "", ...extra };
     }
     async function openPack(pack) {
       if (busyPackId || packBlock(pack)) return;
@@ -198,7 +204,7 @@
 
     function packTile(pack) {
       const mean = weightedMeanOverall(pack.weights);
-      const accent = overallColor(Math.round(mean));
+      const accent = packAccent(pack, overallColor);
       const block = packBlock(pack);
       const locked = isLocked(pack);
       const have = pack.unlock ? Math.min(stats.counts[pack.unlock.packId] || 0, pack.unlock.count) : 0;
