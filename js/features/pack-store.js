@@ -218,8 +218,8 @@
       const completedSet = new Set(reveal.completed);
       const choosing = isPick && reveal.phase !== "revealing";
       const done = !choosing && (isPick ? completedSet.has(reveal.pickIndex) && flippedSet.size >= total : completedSet.size >= total);
-      // O brilho das cartas viradas é sempre a cor do pacote: nunca entrega o overall antes da revelação.
-      const glow = reveal.accent;
+      // O brilho das cartas fechadas é neutro (nem a cor do pacote, que vem do overall médio): nunca sugere o overall antes da revelação.
+      const glow = "#aab6b0";
       const again = pack && !packBlock(pack);
       const suspenseOn = settings.suspense && !reveal.skip;
       const flipOne = (index) => setReveal((current) => current && !current.flipped.includes(index) ? { ...current, flipped: [...current.flipped, index] } : current);
