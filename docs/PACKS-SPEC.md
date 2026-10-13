@@ -137,3 +137,11 @@ Se 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` 
 5. Trocas por jogadores (N por M).
 6. UX de tensão (animação, som, aviso ao vivo).
 7. Ajuste com dados reais.
+
+## Fase: escolher 1 carta e revelação com suspense
+
+- `packSettings.packs[].interaction`: `"all"` (padrão, todas as cartas ficam) ou `"pick"` (o usuário escolhe 1 das N cartas **às cegas**, pela posição; só a escolhida entra no elenco, as outras voltam ao pool e são apenas reveladas).
+- Servidor (`supabase/PACKS-V2-PICK.sql`): `open_pack(..., p_pick_index)`; em `pick` exige o índice (`pick_required`), sorteia as N cartas, grava todas em `pack_openings.cards` com `chosen` true/false, cria posse/transferência só da escolhida e o limite do elenco conta 1 carta. `rollback_pack_opening` só considera cartas com `chosen <> false`.
+- Cliente: nada é cobrado até a escolha (a mesa de cartas abre virada, sem chamar o servidor). Depois da escolha a carta vira, revela por etapas (posição → nacionalidade → clube → nome e overall) e então as outras viram em sequência. Tocar na carta durante a revelação pula a animação.
+- `packSettings.suspense` (padrão `true`) liga/desliga as etapas; vale também no modo "todas" (cada carta virada passa pelas etapas; "Revelar todas" pula).
+- Em `pick` a cor/brilho antes da revelação é neutro (não entrega o overall).

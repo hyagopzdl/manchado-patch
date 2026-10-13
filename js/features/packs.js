@@ -44,8 +44,9 @@
       unlocksEnabled: false,
       sellDepreciationPct: 25,
       eliteThreshold: 90,
+      suspense: true,
       packs: PACK_PRESETS.map((preset) => ({
-        id: preset.id, label: preset.label, enabled: true, price: preset.price, cards: preset.cards,
+        id: preset.id, label: preset.label, enabled: true, price: preset.price, cards: preset.cards, interaction: "all",
         weights: gaussianWeights(preset.mu, preset.sigma, preset.tail),
         unlock: preset.unlock ? { ...preset.unlock } : null,
       })),
@@ -60,6 +61,8 @@
       version: 1,
       isOpen: raw.isOpen !== false,
       unlocksEnabled: raw.unlocksEnabled === true,
+      // Revelação em etapas (posição → nacionalidade → clube → nome e overall). Ligada por padrão.
+      suspense: raw.suspense !== false,
       sellDepreciationPct: Math.min(100, Math.max(0, Number(raw.sellDepreciationPct != null ? raw.sellDepreciationPct : fallback.sellDepreciationPct) || 0)),
       // O limite máximo do elenco é o do campeonato (rosterSettings, editado pelo admin).
       // packSettings.rosterMax só é usado como legado, se o torneio não tiver rosterSettings.
@@ -71,6 +74,8 @@
         enabled: pack.enabled !== false,
         price: Math.max(0, Number(pack.price) || 0),
         cards: Math.min(10, Math.max(1, Math.round(Number(pack.cards) || 3))),
+        // "all": todas as cartas ficam com o time. "pick": o usuário escolhe 1 das N cartas (às cegas); as outras são só reveladas.
+        interaction: pack.interaction === "pick" ? "pick" : "all",
         weights: pack.weights && typeof pack.weights === "object" ? pack.weights : {},
         unlock: pack.unlock && typeof pack.unlock === "object" && pack.unlock.packId ? { packId: String(pack.unlock.packId), count: Math.max(0, Math.round(Number(pack.unlock.count) || 0)) } : null,
       })),

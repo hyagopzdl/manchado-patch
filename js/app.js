@@ -4157,6 +4157,7 @@
           let code = codes[normalized];
           return code ? code.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt())) : "🌐";
         }
+        window.ManchaApp.nationalityFlag = nationalityFlag;
         function UnifiedPlayerCard({ player, actionLabel, actionDisabled=false, onAction=null, onOpen=null, className="", isFavorite=false, onToggleFavorite=null, dimmed=false, isInitialRoster=false, currentTeamName=null }) {
           let flag = nationalityFlag(player.nationality);
           return React.createElement("article", {

@@ -174,3 +174,34 @@ select '--- 14b estorno bloqueado se o jogador ja saiu do comprador';
 select pay_player_release_clause('T10',(select pid from _rc),'Alvo','BUY','SEL',50,100,'p1') is not null;
 update player_ownership set team_id='SEL' where tournament_id='T10' and player_id=(select pid from _rc);
 select expect_err($$select rollback_release_clause((select id from transfers where transfer_type='release_clause' and tournament_id='T10' and coalesce(raw_data->>'rolledBackAt','')='' limit 1),'adm')$$,'player_changed');
+
+select '--- 15 pacote de escolher 1 carta (interaction=pick)';
+insert into tournaments(id,name,status,market_settings,raw_data) values
+ ('T11','Pick','ongoing','{}', jsonb_build_object('mode','packs','rosterSettings',jsonb_build_object('minPlayers',1,'maxPlayers',5),
+   'packSettings', jsonb_build_object('packs', jsonb_build_array(
+     jsonb_build_object('id','pk','label','Pick','price',10,'cards',4,'interaction','pick','weights','{"75":1,"76":1}'::jsonb),
+     jsonb_build_object('id','all','label','Todas','price',10,'cards',2,'weights','{"75":1,"76":1}'::jsonb)))));
+insert into teams(id,tournament_id,profile_id,name,budget) values ('PK','T11','p1','PK',100);
+select expect_err($$select open_pack('T11','pk','PK','p1')$$,'pick_required');
+select expect_err($$select open_pack('T11','pk','PK','p1',null,4)$$,'pick_required');
+select expect_err($$select open_pack('T11','pk','PK','p1',null,-1)$$,'pick_required');
+select expect_eq('nada foi cobrado nos erros', (select budget::text from teams where id='PK'), '100');
+select open_pack('T11','pk','PK','p1',null,2) as r \gset
+select expect_eq('devolve as 4 cartas', jsonb_array_length(:'r'::jsonb->'cards')::text, '4');
+select expect_eq('chosenIndex', (:'r'::jsonb)->>'chosenIndex', '2');
+select expect_eq('so 1 carta no elenco', (select count(*)::text from player_ownership where tournament_id='T11' and team_id='PK'), '1');
+select expect_eq('a do elenco e a da posicao 2', (select player_id from player_ownership where tournament_id='T11' and team_id='PK'), (:'r'::jsonb)->'cards'->2->>'playerId');
+select expect_eq('1 pack_pull', (select count(*)::text from transfers where tournament_id='T11' and transfer_type='pack_pull'), '1');
+select expect_eq('cobrou o preco', (select budget::text from teams where id='PK'), '90');
+select expect_eq('log guarda 4 com 1 chosen', (select count(*)||'/'||count(*) filter (where (c->>'chosen')::boolean) from pack_openings, jsonb_array_elements(cards) c where tournament_id='T11'), '4/1');
+select expect_eq('4 cartas sao jogadores distintos', (select count(distinct c->>'playerId')::text from pack_openings, jsonb_array_elements(cards) c where tournament_id='T11'), '4');
+-- limite do elenco conta 1 carta (max 5): da para abrir 4 vezes seguidas com 1 no elenco; o pacote "all" (2 cartas) nao
+select open_pack('T11','pk','PK','p1',null,0) is not null;
+select open_pack('T11','pk','PK','p1',null,3) is not null;
+select open_pack('T11','pk','PK','p1',null,1) is not null;
+select expect_eq('4 no elenco', (select count(*)::text from player_ownership where tournament_id='T11' and team_id='PK'), '4');
+select expect_err($$select open_pack('T11','all','PK','p1')$$,'roster_full');
+update teams set budget=100 where id='PK';
+select rollback_pack_opening((select id from pack_openings where tournament_id='T11' order by created_at limit 1),'adm') is not null;
+select expect_eq('estorno remove so a escolhida', (select count(*)::text from player_ownership where tournament_id='T11' and team_id='PK'), '3');
+select expect_eq('estorno devolve o preco', (select budget::text from teams where id='PK'), '110');

@@ -11,6 +11,7 @@ P="psql -h $D -p $PORT -U postgres -q -v ON_ERROR_STOP=1"
 $P -f "$ROOT/tools/packs-db-test/schema.sql"
 $P -f "$ROOT/tools/packs-db-test/release-clause-fixture.sql"
 $P -f "$ROOT/supabase/PACKS-V1.sql" 2>&1 | grep -v NOTICE || true
+$P -f "$ROOT/supabase/PACKS-V2-PICK.sql" 2>&1 | grep -v NOTICE || true
 $P -f "$ROOT/supabase/ROLLBACK-RELEASE-CLAUSE.sql"
 $P -f "$ROOT/supabase/catalog-seeds/default.sql"
 psql -h "$D" -p $PORT -U postgres -q -f "$ROOT/tools/packs-db-test/tests.sql" 2>&1 | grep -v NOTICE | tee "$D/out.txt"

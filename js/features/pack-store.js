@@ -31,6 +31,49 @@
     return total ? sum / total : 0;
   }
 
+  // Etapas da revelação de uma carta (ms depois de virar): posição → nacionalidade → clube → nome e overall.
+  const STAGE_AT = [650, 1750, 2850, 4000];
+
+  function RevealCard({ card, info, flipped, suspense, glow, elite, lost = false, pickable = false, pending = false, onFlip, onComplete, sellButton = null }) {
+    const App = window.ManchaApp, overallColor = App.overallColor, positionColor = App.positionColor, L = App.L;
+    const [stage, setStage] = React.useState(0);
+    const completeRef = React.useRef(onComplete);
+    completeRef.current = onComplete;
+    React.useEffect(() => {
+      if (!flipped || !card) return undefined;
+      if (!suspense) { setStage(4); return undefined; }
+      const timers = STAGE_AT.map((delay, index) => setTimeout(() => setStage((current) => Math.max(current, index + 1)), delay));
+      return () => timers.forEach(clearTimeout);
+    }, [flipped, suspense, !!card]);
+    React.useEffect(() => { if (flipped && card && stage >= 4 && completeRef.current) completeRef.current(); }, [stage, flipped, !!card]);
+
+    function onClick() {
+      if (!flipped) { if (onFlip) onFlip(); return; }
+      if (stage < 4) setStage(4);
+    }
+    const revealed = stage >= 4;
+    const color = revealed && card ? overallColor(card.overall) : "var(--muted)";
+    const flag = info && App.nationalityFlag ? App.nationalityFlag(info.nationality) : "🌐";
+    const hide = (needed) => (stage < needed ? " is-hidden" : "");
+    return h("div", {
+      className: "pack-card" + (flipped ? " is-flipped" : "") + (pickable ? " is-pickable" : "") + (pending ? " is-pending" : "") + (lost ? " is-lost" : ""),
+      style: { "--glow": glow }, onClick,
+    },
+      h("div", { className: "pack-card-inner" },
+        h("div", { className: "pack-card-face pack-card-back" }, h("span", null, pending ? "…" : "?")),
+        card ? h("div", { className: "pack-card-face pack-card-front" + (revealed && elite ? " is-elite" : "") + (revealed ? " is-revealed" : ""), style: { "--card-color": color } },
+          h("div", { className: "pack-card-overall" + (revealed ? "" : " is-mystery"), style: { color } }, revealed ? card.overall : "??"),
+          h("span", { className: "pack-card-pos" + hide(1), style: { background: positionColor(card.position) } }, card.position || "—"),
+          h("div", { className: "pack-card-nation" + hide(2) }, h("span", { className: "pack-card-flag" }, flag), h("span", null, (info && info.nationality) || "")),
+          h("small", { className: "pack-card-club" + hide(3) }, (info && info.club) || ""),
+          h("strong", { className: "pack-card-name" + hide(4) }, card.name),
+          h("div", { className: "pack-card-value" + hide(4) }, L(card.value)),
+          lost ? h("div", { className: "pack-card-lost" }, "Não escolhida") : (revealed && sellButton)
+        ) : null
+      )
+    );
+  }
+
   function PackStore({ tournament, team, profile, ownership, catalogMap, onSell = null, finished = false }) {
     const App = window.ManchaApp, Packs = App.PacksFeature, L = App.L, E = App.E, overallColor = App.overallColor, positionColor = App.positionColor;
     const settings = React.useMemo(() => Packs.packSettingsOf(tournament), [tournament]);
@@ -45,6 +88,16 @@
     const budget = Number(team && team.budget) || 0;
     const alive = React.useRef(true);
     React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+    // Escolher 1: quando a carta escolhida termina de se revelar, as outras viram em sequência (mostrando o que ficou de fora).
+    const pickDone = !!(reveal && reveal.mode === "pick" && reveal.phase === "revealing" && reveal.completed.includes(reveal.pickIndex));
+    React.useEffect(() => {
+      if (!pickDone) return undefined;
+      const others = reveal.cards.map((_, index) => index).filter((index) => index !== reveal.pickIndex);
+      const timers = others.map((index, order) => setTimeout(() => {
+        setReveal((current) => current && current.mode === "pick" && !current.flipped.includes(index) ? { ...current, flipped: [...current.flipped, index] } : current);
+      }, 600 + order * 380));
+      return () => timers.forEach(clearTimeout);
+    }, [pickDone]);
 
     const reloadStats = React.useCallback(async () => {
       if (!tournamentId || typeof App.loadPackStats !== "function") return;
@@ -75,26 +128,51 @@
       if (!pack.enabled) return "Indisponível";
       if (isLocked(pack)) return "Bloqueado";
       if (budget < pack.price) return "Saldo insuficiente";
-      if (rosterSize + pack.cards > settings.rosterMax) return `Elenco cheio (${rosterSize}/${settings.rosterMax})`;
+      if (rosterSize + (pack.interaction === "pick" ? 1 : pack.cards) > settings.rosterMax) return `Elenco cheio (${rosterSize}/${settings.rosterMax})`;
       return null;
     }
 
+    function newReveal(pack, extra) {
+      const mean = weightedMeanOverall(pack.weights);
+      return { uid: Date.now() + Math.random(), mode: pack.interaction === "pick" ? "pick" : "all", packId: pack.id, packLabel: pack.label, n: pack.cards, accent: overallColor(Math.round(mean)), cards: [], pickIndex: null, phase: "choose", flipped: [], completed: [], skip: false, error: "", ...extra };
+    }
     async function openPack(pack) {
       if (busyPackId || packBlock(pack)) return;
       setError("");
+      // Escolher 1: abre a mesa de cartas virada; nada é cobrado até o usuário escolher uma.
+      if (pack.interaction === "pick") { setReveal(newReveal(pack)); return; }
       setBusyPackId(pack.id);
       try {
         let checksum = null;
         try { checksum = (await Packs.loadCatalog(Packs.catalogIdOf(tournament))).checksum; } catch (checksumError) { checksum = null; }
         const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum });
         const cards = (Array.isArray(result.cards) ? result.cards : []).slice().sort((a, b) => (Number(a.overall) || 0) - (Number(b.overall) || 0));
-        if (alive.current) setReveal({ packId: pack.id, packLabel: pack.label, cards, revealed: [] });
+        if (alive.current) setReveal(newReveal(pack, { cards, phase: "revealing" }));
         reloadStats();
       } catch (openError) {
         console.error("open_pack failed", openError);
         if (alive.current) setError(errorText(openError));
       } finally {
         if (alive.current) setBusyPackId(null);
+      }
+    }
+    async function choosePick(index) {
+      const current = reveal;
+      if (!current || current.mode !== "pick" || current.phase !== "choose") return;
+      const pack = settings.packs.find((item) => item.id === current.packId);
+      if (!pack || packBlock(pack)) { setReveal((state) => state && { ...state, error: (pack && packBlock(pack)) || "Pacote indisponível." }); return; }
+      setReveal({ ...current, phase: "opening", pickIndex: index, error: "" });
+      try {
+        let checksum = null;
+        try { checksum = (await Packs.loadCatalog(Packs.catalogIdOf(tournament))).checksum; } catch (checksumError) { checksum = null; }
+        const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum, pickIndex: index });
+        const cards = Array.isArray(result.cards) ? result.cards : [];
+        if (alive.current) setReveal((state) => state && state.phase === "opening" ? { ...state, cards, phase: "revealing", flipped: [index], completed: [] } : state);
+        reloadStats();
+      } catch (openError) {
+        console.error("open_pack (pick) failed", openError);
+        const missing = /p_pick_index|PGRST202|schema cache/i.test(String(openError && (openError.message || openError.details || openError)));
+        if (alive.current) setReveal((state) => state && { ...state, phase: "choose", pickIndex: null, error: missing ? "O servidor ainda não tem o modo \"escolher 1 carta\" (falta aplicar o PACKS-V2-PICK.sql no Supabase)." : errorText(openError) });
       }
     }
 
@@ -105,7 +183,7 @@
       const locked = isLocked(pack);
       const have = pack.unlock ? Math.min(stats.counts[pack.unlock.packId] || 0, pack.unlock.count) : 0;
       return h("article", { key: pack.id, className: "pack-tile" + (locked ? " is-locked" : ""), style: { "--pack-accent": accent } },
-        h("div", { className: "pack-tile-art" }, h("span", { className: "pack-tile-cards" }, `${pack.cards} cartas`)),
+        h("div", { className: "pack-tile-art" }, h("span", { className: "pack-tile-cards" }, pack.interaction === "pick" ? `Escolha 1 de ${pack.cards}` : `${pack.cards} cartas`)),
         h("div", { className: "pack-tile-body" },
           h("div", { className: "pack-tile-title" }, h("strong", null, pack.label), h("span", null, `OVR médio ≈ ${Math.round(mean)}`)),
           locked && h("div", { className: "pack-tile-lock" },
@@ -119,64 +197,76 @@
       );
     }
 
-    function cardFront(card) {
+    function sellButtonFor(card) {
+      if (!onSell) return null;
       const info = catalogMap && catalogMap.get ? catalogMap.get(String(card.playerId)) : null;
-      const color = overallColor(card.overall);
-      const elite = Number(card.overall) >= settings.eliteThreshold;
       const current = ownership && ownership[String(card.playerId)];
       const owned = !!(current && teamId && String(current.teamId) === teamId);
       const sellAmount = Math.ceil((Number(card.value) || 0) * (1 - settings.sellDepreciationPct / 100));
-      return h("div", { className: "pack-card-face pack-card-front" + (elite ? " is-elite" : ""), style: { "--card-color": color } },
-        h("div", { className: "pack-card-overall", style: { color } }, card.overall),
-        h("span", { className: "pack-card-pos", style: { background: positionColor(card.position) } }, card.position || "—"),
-        h("strong", { className: "pack-card-name" }, card.name),
-        h("small", { className: "pack-card-club" }, (info && info.club) || ""),
-        h("div", { className: "pack-card-value" }, L(card.value)),
-        onSell && h("button", {
-          className: "tapbtn pack-card-sell", disabled: !owned,
-          onClick: (event) => { event.stopPropagation(); onSell(info || { id: String(card.playerId), name: card.name, value: card.value, overall: card.overall, position: card.position }); },
-        }, owned ? `Vender · ${L(sellAmount)}` : "Vendida")
-      );
+      return h("button", {
+        className: "tapbtn pack-card-sell", disabled: !owned,
+        onClick: (event) => { event.stopPropagation(); onSell(info || { id: String(card.playerId), name: card.name, value: card.value, overall: card.overall, position: card.position }); },
+      }, owned ? `Vender · ${L(sellAmount)}` : "Vendida");
     }
 
     function revealModal() {
       if (!reveal) return null;
       const pack = settings.packs.find((item) => item.id === reveal.packId);
-      const total = reveal.cards.length;
-      const revealedSet = new Set(reveal.revealed);
-      const done = revealedSet.size >= total;
+      const isPick = reveal.mode === "pick";
+      const total = isPick ? reveal.n : reveal.cards.length;
+      const flippedSet = new Set(reveal.flipped);
+      const completedSet = new Set(reveal.completed);
+      const choosing = isPick && reveal.phase !== "revealing";
+      const done = !choosing && (isPick ? completedSet.has(reveal.pickIndex) && flippedSet.size >= total : completedSet.size >= total);
       const best = reveal.cards.reduce((max, card) => Math.max(max, Number(card.overall) || 0), 0);
-      const glow = overallColor(best);
+      // Em "escolher 1" o brilho não pode entregar o resultado: usa a cor do pacote.
+      const glow = isPick ? reveal.accent : overallColor(best);
       const again = pack && !packBlock(pack);
-      // Qualquer carta pode ser virada, em qualquer ordem.
-      const flipOne = (index) => setReveal((current) => current && !current.revealed.includes(index) ? { ...current, revealed: [...current.revealed, index] } : current);
+      const suspenseOn = settings.suspense && !reveal.skip;
+      const flipOne = (index) => setReveal((current) => current && !current.flipped.includes(index) ? { ...current, flipped: [...current.flipped, index] } : current);
+      const complete = (index) => setReveal((current) => current && !current.completed.includes(index) ? { ...current, completed: [...current.completed, index] } : current);
       const flipNext = () => setReveal((current) => {
         if (!current) return current;
-        const next = current.cards.findIndex((_, index) => !current.revealed.includes(index));
-        return next < 0 ? current : { ...current, revealed: [...current.revealed, next] };
+        const next = current.cards.findIndex((_, index) => !current.flipped.includes(index));
+        return next < 0 ? current : { ...current, flipped: [...current.flipped, next] };
       });
-      const flipAll = () => setReveal((current) => current && { ...current, revealed: current.cards.map((_, index) => index) });
+      const flipAll = () => setReveal((current) => current && { ...current, skip: true, flipped: current.cards.map((_, index) => index) });
+      const slots = Array.from({ length: total }, (_, index) => index);
+      const hint = choosing
+        ? (reveal.phase === "opening" ? "Abrindo o pacote…" : "Escolha uma carta. As outras serão reveladas depois, mas só a sua fica com você.")
+        : !done ? (isPick ? "Toque na carta durante a revelação para pular a animação." : "Toque em qualquer carta para virar. Durante a revelação, toque nela para pular.") : "";
       return ReactDOM.createPortal(
         h("div", { className: "pack-reveal-overlay" },
           h("div", { className: "pack-reveal-panel" },
             h("div", { className: "pack-reveal-head" },
-              h("strong", null, `Pacote ${reveal.packLabel}`),
-              h("button", { className: "tapbtn pack-reveal-close", "aria-label": "Fechar", onClick: () => setReveal(null) }, "✕")
+              h("strong", null, isPick ? `Pacote ${reveal.packLabel} · escolha 1 de ${total}` : `Pacote ${reveal.packLabel}`),
+              h("button", { className: "tapbtn pack-reveal-close", "aria-label": "Fechar", disabled: reveal.phase === "opening", onClick: () => setReveal(null) }, "✕")
             ),
-            h("div", { className: "pack-reveal-cards" }, reveal.cards.map((card, index) =>
-              h("div", { key: card.playerId, className: "pack-card" + (revealedSet.has(index) ? " is-flipped" : ""), style: { "--glow": glow }, onClick: () => flipOne(index) },
-                h("div", { className: "pack-card-inner" },
-                  h("div", { className: "pack-card-face pack-card-back" }, h("span", null, "?")),
-                  cardFront(card)
-                )
-              )
-            )),
-            !done && h("div", { className: "pack-reveal-hint" }, "Toque em qualquer carta para virar."),
+            reveal.error && h("div", { className: "pack-store-error", role: "alert" }, reveal.error),
+            h("div", { className: "pack-reveal-cards" }, slots.map((index) => {
+              const card = reveal.cards[index] || null;
+              const info = card && catalogMap && catalogMap.get ? catalogMap.get(String(card.playerId)) : null;
+              const isChosen = isPick && index === reveal.pickIndex;
+              const lost = isPick && !!card && !isChosen;
+              return h(RevealCard, {
+                key: `${reveal.uid}-${index}`,
+                card, info, glow,
+                flipped: !!card && flippedSet.has(index),
+                suspense: isPick ? (isChosen && suspenseOn) : suspenseOn,
+                elite: !!card && Number(card.overall) >= settings.eliteThreshold,
+                lost, pickable: choosing && reveal.phase === "choose",
+                pending: reveal.phase === "opening" && isChosen,
+                onFlip: () => { if (choosing) choosePick(index); else flipOne(index); },
+                onComplete: () => complete(index),
+                sellButton: card && !lost ? sellButtonFor(card) : null,
+              });
+            })),
+            hint && h("div", { className: "pack-reveal-hint" }, hint),
             h("div", { className: "pack-reveal-actions" },
-              !done && h("button", { className: "tapbtn pack-open-btn", onClick: flipNext }, revealedSet.size === 0 ? "Revelar" : "Próxima carta"),
-              !done && h("button", { className: "tapbtn pack-ghost-btn", onClick: flipAll }, "Revelar todas"),
+              !choosing && !done && !isPick && h("button", { className: "tapbtn pack-open-btn", onClick: flipNext }, flippedSet.size === 0 ? "Revelar" : "Próxima carta"),
+              !choosing && !done && !isPick && h("button", { className: "tapbtn pack-ghost-btn", onClick: flipAll }, "Revelar todas"),
               done && pack && h("button", { className: "tapbtn pack-open-btn", disabled: !again || !!busyPackId, onClick: () => openPack(pack) }, again ? `Abrir outro · ${L(pack.price)}` : (packBlock(pack) || "Indisponível")),
-              done && h("button", { className: "tapbtn pack-ghost-btn", onClick: () => setReveal(null) }, "Fechar")
+              (done || (isPick && reveal.phase === "choose")) && h("button", { className: "tapbtn pack-ghost-btn", onClick: () => setReveal(null) }, done ? "Fechar" : "Cancelar")
             )
           )
         ),

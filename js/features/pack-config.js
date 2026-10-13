@@ -23,13 +23,14 @@
     return {
       isOpen: settings.isOpen,
       unlocksEnabled: settings.unlocksEnabled,
+      suspense: settings.suspense,
       sellDepreciationPct: String(settings.sellDepreciationPct),
       packs: settings.packs.map((pack) => {
         const percents = window.ManchaApp.PacksFeature.percentWeights(pack.weights);
         const weights = {};
         range.forEach((overall) => { weights[overall] = pctText(percents[String(overall)] || 0); });
         return {
-          id: pack.id, label: pack.label, enabled: pack.enabled, price: String(pack.price), cards: String(pack.cards),
+          id: pack.id, label: pack.label, enabled: pack.enabled, price: String(pack.price), cards: String(pack.cards), interaction: pack.interaction,
           unlock: pack.unlock ? { packId: pack.unlock.packId, count: String(pack.unlock.count) } : null,
           weights,
         };
@@ -102,7 +103,7 @@
     const replaceWeights = (percentMap) => { const next = {}; range.forEach((o) => { next[o] = pctText(percentMap[String(o)] || 0); }); patchPack({ weights: next }); setMessage(null); };
 
     const analysis = Packs.analyzeWeights({
-      weights: weightsNumbers(), pool, cards: Math.round(num(pack.cards)) || 1, price: num(pack.price),
+      weights: weightsNumbers(), pool, cards: pack.interaction === "pick" ? 1 : (Math.round(num(pack.cards)) || 1), price: num(pack.price),
       sellPct: num(draft.sellDepreciationPct), elite: settings.eliteThreshold,
     });
     const maxTyped = Math.max(1, ...Object.values(weightsNumbers()));
@@ -152,11 +153,12 @@
           else if (count < 1) errors.push(`${item.label}: o marco precisa de pelo menos 1 pacote.`);
           else unlock = { packId: item.unlock.packId, count };
         }
-        return { id: item.id, label: item.label, enabled: item.enabled, price, cards, weights, unlock };
+        if (item.interaction === "pick" && cards < 2) errors.push(`${item.label}: para escolher uma carta, o pacote precisa ter pelo menos 2 cartas.`);
+        return { id: item.id, label: item.label, enabled: item.enabled, price, cards, interaction: item.interaction === "pick" ? "pick" : "all", weights, unlock };
       });
       // rosterMax é legado: o limite do elenco é o do campeonato (rosterSettings).
       const { rosterMax: legacyRosterMax, ...rawWithoutLegacy } = raw;
-      return { errors, next: { ...rawWithoutLegacy, version: 1, isOpen: draft.isOpen, unlocksEnabled: draft.unlocksEnabled, sellDepreciationPct: sell, packs } };
+      return { errors, next: { ...rawWithoutLegacy, version: 1, isOpen: draft.isOpen, unlocksEnabled: draft.unlocksEnabled, suspense: draft.suspense !== false, sellDepreciationPct: sell, packs } };
     }
 
     async function save() {
@@ -227,6 +229,7 @@
       h("div", { className: "pack-cfg-card pack-cfg-general" },
         h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.isOpen, disabled, onChange: (e) => { setDraft({ ...draft, isOpen: e.target.checked }); setMessage(null); } }), " Loja aberta"),
         h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.unlocksEnabled, disabled, onChange: (e) => { setDraft({ ...draft, unlocksEnabled: e.target.checked }); setMessage(null); } }), " Exigir marcos de desbloqueio"),
+        h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.suspense !== false, disabled, onChange: (e) => { setDraft({ ...draft, suspense: e.target.checked }); setMessage(null); } }), " Revelação com suspense (posição, nacionalidade e clube antes do nome)"),
         h("label", { className: "pack-cfg-field" }, h("span", null, "Taxa na venda de volta (%)"), input(draft.sellDepreciationPct, (value) => setDraft({ ...draft, sellDepreciationPct: value }), { style: { width: 90 } }))),
 
       h("div", { className: "pack-cfg-tabs", role: "tablist" }, draft.packs.map((item) =>
@@ -238,6 +241,10 @@
         h("div", { className: "pack-cfg-fields" },
           h("label", { className: "pack-cfg-field" }, h("span", null, "Preço (M)"), input(pack.price, (value) => patchPack({ price: value }))),
           h("label", { className: "pack-cfg-field" }, h("span", null, "Cartas por pacote"), input(pack.cards, (value) => patchPack({ cards: value }))),
+          h("label", { className: "pack-cfg-field" }, h("span", null, "Como abrir"),
+            h("select", { className: "pack-cfg-input", disabled, value: pack.interaction === "pick" ? "pick" : "all", onChange: (e) => { patchPack({ interaction: e.target.value }); setMessage(null); } },
+              h("option", { value: "all" }, "Fica com todas as cartas"),
+              h("option", { value: "pick" }, "Escolhe 1 carta (as outras só são reveladas)"))),
           h("label", { className: "pack-cfg-field" }, h("span", null, "Marco de desbloqueio"),
             h("select", { className: "pack-cfg-input", disabled, value: pack.unlock ? pack.unlock.packId : "", onChange: (e) => { patchPack({ unlock: e.target.value ? { packId: e.target.value, count: pack.unlock ? pack.unlock.count : "50" } : null }); setMessage(null); } },
               h("option", { value: "" }, "Sem marco"),

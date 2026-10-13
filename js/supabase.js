@@ -811,7 +811,7 @@
     let mine=[];
     if(teamId){
       const own=await select("pack_openings","id,pack_id,price,cards,created_at",q=>q.eq("tournament_id",tid).eq("team_id",String(teamId)).is("rolled_back_at",null).order("created_at",{ascending:false}).limit(mineLimit));
-      mine=own.map(row=>({id:row.id,packId:row.pack_id,price:Number(row.price)||0,cards:Array.isArray(row.cards)?row.cards:[],createdAt:ms(row.created_at)}));
+      mine=own.map(row=>({id:row.id,packId:row.pack_id,price:Number(row.price)||0,cards:(Array.isArray(row.cards)?row.cards:[]).filter(card=>card&&card.chosen!==false),createdAt:ms(row.created_at)}));
     }
     return {counts,mine};
   }
@@ -829,11 +829,12 @@
     invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"pack_rollback");
     return data||{ok:true};
   }
-  async function openPack({tournamentId,packId,teamId,actorProfileId:actorId,catalogChecksum}){
+  async function openPack({tournamentId,packId,teamId,actorProfileId:actorId,catalogChecksum,pickIndex=null}){
     await load(); if(!client) throw new Error("Supabase não configurado");
     const {data,error}=await client.rpc("open_pack",{
       p_tournament_id:String(tournamentId),p_pack_id:String(packId),p_team_id:String(teamId),
-      p_actor_profile_id:actorId?String(actorId):actorProfileId(),p_catalog_checksum:catalogChecksum||null
+      p_actor_profile_id:actorId?String(actorId):actorProfileId(),p_catalog_checksum:catalogChecksum||null,
+      ...(Number.isInteger(pickIndex)?{p_pick_index:pickIndex}:{})
     });
     if(error) throw error;
     invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"pack_opened");
