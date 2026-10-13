@@ -869,3 +869,28 @@
 .pack-card-back{transition:box-shadow 1s ease,border-color 1s ease,background 1s ease}
 .pack-card-back span{transition:color 1s ease,text-shadow 1s ease}
 .pack-pending{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.pack-pending .pack-open-btn{width:auto;padding:8px 14px}
+
+/* ---- Cartas do pacote: layout compacto no celular (conteúdo nunca passa do card) ---- */
+.pack-card-name{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:100%;word-break:break-word}
+.pack-card-club,.pack-card-nation span:last-child{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pack-card-front{overflow:hidden}
+@media (max-width:520px){
+  .pack-reveal-overlay{padding:10px}
+  .pack-reveal-panel{padding:14px;gap:12px}
+  .pack-reveal-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .pack-card{aspect-ratio:3/4.35}
+  .pack-card-face{padding:8px 6px;gap:3px;border-radius:14px}
+  .pack-card-overall{font-size:34px}
+  .pack-card-pos{padding:2px 7px;font-size:10px}
+  .pack-card-nation{font-size:11px;gap:4px}
+  .pack-card-flag{font-size:16px}
+  .pack-card-name{font-size:12.5px;line-height:1.15}
+  .pack-card-club{font-size:9.5px}
+  .pack-card-value{font-size:11px}
+  .pack-card-lost{font-size:9.5px}
+  .pack-card-sell{padding:6px 4px;font-size:11px;border-radius:9px}
+  .pack-card-back span{font-size:44px}
+}
+.pack-card-nation{max-width:100%;min-width:0}
+.pack-card-nation .pack-card-flag{flex:0 0 auto}
+.pack-card-nation span:last-child{flex:0 1 auto;min-width:0}
