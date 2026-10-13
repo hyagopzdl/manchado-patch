@@ -182,7 +182,6 @@ insert into tournaments(id,name,status,market_settings,raw_data) values
      jsonb_build_object('id','pk','label','Pick','price',10,'cards',4,'interaction','pick','weights','{"75":1,"76":1}'::jsonb),
      jsonb_build_object('id','all','label','Todas','price',10,'cards',2,'weights','{"75":1,"76":1}'::jsonb)))));
 insert into teams(id,tournament_id,profile_id,name,budget) values ('PK','T11','p1','PK',100);
-select expect_err($$select open_pack('T11','pk','PK','p1')$$,'pick_required');
 select expect_err($$select open_pack('T11','pk','PK','p1',null,4)$$,'pick_required');
 select expect_err($$select open_pack('T11','pk','PK','p1',null,-1)$$,'pick_required');
 select expect_eq('nada foi cobrado nos erros', (select budget::text from teams where id='PK'), '100');
@@ -205,3 +204,41 @@ update teams set budget=100 where id='PK';
 select rollback_pack_opening((select id from pack_openings where tournament_id='T11' order by created_at limit 1),'adm') is not null;
 select expect_eq('estorno remove so a escolhida', (select count(*)::text from player_ownership where tournament_id='T11' and team_id='PK'), '3');
 select expect_eq('estorno devolve o preco', (select budget::text from teams where id='PK'), '110');
+
+select '--- 16 escolher 1 em duas etapas (abre sem indice: cobra, sorteia e reserva; pick_pack_card entrega)';
+insert into player_catalog(catalog_id,player_id,name,position,overall,value) values
+ ('two','T1','Two A','CM',60,10),('two','T2','Two B','CM',60,10),('two','T3','Two C','CM',60,10),('two','T4','Two D','CM',60,10),('two','T5','Two E','CM',60,10),('two','T6','Two F','CM',60,10);
+insert into player_catalog_meta(catalog_id,player_count,source_checksum) values ('two',6,'two-sum');
+insert into tournaments(id,name,status,market_settings,raw_data) values
+ ('T12','Duas','ongoing','{}', jsonb_build_object('mode','packs','catalogId','two','rosterSettings',jsonb_build_object('minPlayers',1,'maxPlayers',2),
+   'packSettings', jsonb_build_object('packs', jsonb_build_array(
+     jsonb_build_object('id','pk','label','Pick','price',10,'cards',3,'interaction','pick','weights','{"60":1}'::jsonb)))));
+insert into teams(id,tournament_id,profile_id,name,budget) values ('D1','T12','p1','D1',100),('D2','T12','p2','D2',100);
+select open_pack('T12','pk','D1','p1') as r \gset
+select expect_eq('pendente: pending=true', (:'r'::jsonb)->>'pending', 'true');
+select expect_eq('pendente: 3 cartas todas chosen=false', (select count(*)::text from jsonb_array_elements((:'r'::jsonb)->'cards') c where not (c->>'chosen')::boolean), '3');
+select expect_eq('pendente: cobrou o preco', (select budget::text from teams where id='D1'), '90');
+select expect_eq('pendente: nenhuma posse', (select count(*)::text from player_ownership where tournament_id='T12'), '0');
+select expect_eq('pendente: nenhum pack_pull', (select count(*)::text from transfers where tournament_id='T12'), '0');
+-- as 3 cartas reservadas: so sobram 3 jogadores, mas o outro time nao pode sortear 3 (pool tem 3 livres de 6? -> 3 reservados + 3 livres)
+select expect_eq('outro time ainda sorteia dos 3 livres', jsonb_array_length(open_pack('T12','pk','D2','p2')->'cards')::text, '3');
+select expect_err($$select open_pack('T12','pk','D2','p2')$$,'pool_empty');
+select expect_err($$select pick_pack_card((select id from pack_openings where team_id='D1'), 1, 'p2')$$,'not_team_owner');
+select expect_err($$select pick_pack_card((select id from pack_openings where team_id='D1'), 3, 'p1')$$,'pick_required');
+select expect_err($$select pick_pack_card('nope', 1, 'p1')$$,'opening_not_found');
+select pick_pack_card((select id from pack_openings where team_id='D1'), 1, 'p1') as pk \gset
+select expect_eq('escolha: dono recebe a carta da posicao 1', (select player_id from player_ownership where tournament_id='T12' and team_id='D1'), (:'r'::jsonb)->'cards'->1->>'playerId');
+select expect_eq('escolha: marca chosen so na 1', (select string_agg((c->>'chosen'), ',' order by ord) from pack_openings, jsonb_array_elements(cards) with ordinality t(c,ord) where team_id='D1'), 'false,true,false');
+select expect_eq('escolha: 1 pack_pull', (select count(*)::text from transfers where tournament_id='T12' and transfer_type='pack_pull'), '1');
+select expect_err($$select pick_pack_card((select id from pack_openings where team_id='D1'), 0, 'p1')$$,'already_picked');
+-- as 2 nao escolhidas voltaram ao pool: D1 abre de novo (3 cartas) -> pool = 6 - 1 dono - 3 reservados de D2 = 2 livres
+select expect_err($$select open_pack('T12','pk','D1','p1')$$,'pool_empty');
+-- carta reservada roubada por posse de outro (simulacao): pick falha com card_taken
+update teams set budget=100 where id='D2';
+delete from player_ownership where tournament_id='T12';
+select open_pack('T12','pk','D2','p2') is not null;
+insert into player_ownership(tournament_id,player_id,team_id,acquisition_source,acquired_at)
+ select 'T12', c->>'playerId', 'D1', 'initial_roster', now() from pack_openings po, jsonb_array_elements(po.cards) c where po.team_id='D2' and po.id=(select id from pack_openings where team_id='D2' order by created_at desc limit 1) limit 1;
+select expect_err($$select pick_pack_card((select id from pack_openings where team_id='D2' order by created_at desc limit 1), 0, 'p2')$$,'card_taken');
+-- estorno de abertura pendente devolve o preco
+select expect_eq('estorno de pendente reembolsa', rollback_pack_opening((select id from pack_openings where team_id='D2' order by created_at desc limit 1),'adm')->>'refunded', '10');

@@ -868,3 +868,4 @@
 
 .pack-card-back{transition:box-shadow 1s ease,border-color 1s ease,background 1s ease}
 .pack-card-back span{transition:color 1s ease,text-shadow 1s ease}
+.pack-pending{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.pack-pending .pack-open-btn{width:auto;padding:8px 14px}

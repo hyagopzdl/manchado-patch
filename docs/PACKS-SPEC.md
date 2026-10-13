@@ -145,3 +145,10 @@ Se 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` 
 - Cliente: nada é cobrado até a escolha (a mesa de cartas abre virada, sem chamar o servidor). Depois da escolha a carta vira, revela por etapas (posição → nacionalidade → clube → nome e overall) e então as outras viram em sequência. Tocar na carta durante a revelação pula a animação.
 - `packSettings.suspense` (padrão `true`) liga/desliga as etapas; vale também no modo "todas" (cada carta virada passa pelas etapas; "Revelar todas" pula).
 - Em `pick` a cor/brilho antes da revelação é neutro (não entrega o overall).
+
+### Escolher 1 em duas etapas (PACKS-V3-PICK-TWO-STEP.sql)
+
+- Para o brilho da melhor carta aparecer ao abrir a caixa (antes da escolha), o pacote `pick` agora **cobra e sorteia na abertura**: `open_pack` sem `p_pick_index` devolve `pending: true` com as N cartas (todas `chosen:false`, sem posse).
+- `pick_pack_card(opening, índice, perfil)` entrega a carta escolhida (valida dono, vaga no elenco, `already_picked`, `card_taken`).
+- Cartas de aberturas pendentes ficam reservadas (não saem em outros sorteios). Fechar o modal não perde nada: o app mostra "aguardando a sua escolha" e retoma. O admin pode estornar uma abertura pendente (devolve o preço).
+- `open_pack` com `p_pick_index` continua valendo (escolha imediata, V2).

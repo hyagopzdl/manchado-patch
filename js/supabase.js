@@ -811,7 +811,7 @@
     let mine=[];
     if(teamId){
       const own=await select("pack_openings","id,pack_id,price,cards,created_at",q=>q.eq("tournament_id",tid).eq("team_id",String(teamId)).is("rolled_back_at",null).order("created_at",{ascending:false}).limit(mineLimit));
-      mine=own.map(row=>({id:row.id,packId:row.pack_id,price:Number(row.price)||0,cards:(Array.isArray(row.cards)?row.cards:[]).filter(card=>card&&card.chosen!==false),createdAt:ms(row.created_at)}));
+      mine=own.map(row=>({id:row.id,packId:row.pack_id,price:Number(row.price)||0,allCards:Array.isArray(row.cards)?row.cards:[],cards:(Array.isArray(row.cards)?row.cards:[]).filter(card=>card&&card.chosen!==false),pending:Array.isArray(row.cards)&&row.cards.length>0&&row.cards.every(card=>card&&card.chosen===false),createdAt:ms(row.created_at)}));
     }
     return {counts,mine};
   }
@@ -838,6 +838,14 @@
     });
     if(error) throw error;
     invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"pack_opened");
+    return data||{ok:true};
+  }
+  // Segunda etapa do pacote "escolher 1": entrega a carta escolhida de uma abertura pendente.
+  async function pickPackCard({openingId,pickIndex,actorProfileId:actorId,tournamentId=null}){
+    await load(); if(!client) throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("pick_pack_card",{p_opening_id:String(openingId),p_pick_index:pickIndex,p_actor_profile_id:actorId?String(actorId):actorProfileId()});
+    if(error) throw error;
+    invalidateCache(); await refreshNormalizedStateAfterRpc(); if(tournamentId) await broadcastTournamentInvalidation(tournamentId,"pack_opened");
     return data||{ok:true};
   }
   async function loadPlayerOverrideHistory(limit=200){
@@ -1039,5 +1047,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,loadPackStats,openPack,rollbackPackOpening,rollbackReleaseClause,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,loadPackStats,openPack,pickPackCard,rollbackPackOpening,rollbackReleaseClause,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();

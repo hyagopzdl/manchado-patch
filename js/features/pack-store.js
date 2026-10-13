@@ -15,6 +15,11 @@
     packs_not_configured: "A loja deste campeonato ainda não foi configurada.",
     catalog_outdated: "A base de jogadores do app é diferente da carregada no servidor. Recarregue a página; se persistir, avise o admin.",
     catalog_not_loaded: "A base de jogadores deste campeonato não foi carregada no servidor. Avise o admin.",
+    pick_required: "O servidor ainda não tem a abertura em duas etapas (falta aplicar o PACKS-V3-PICK-TWO-STEP.sql no Supabase). Avise o admin.",
+    already_picked: "Este pacote já teve uma carta escolhida.",
+    card_taken: "Essa carta já pertence a outro time. Peça ao admin para estornar a abertura.",
+    opening_not_found: "Esta abertura não existe mais.",
+    already_rolled_back: "Esta abertura foi estornada pelo admin.",
   };
   function errorText(error) {
     const code = String((error && (error.message || error.details)) || error || "").trim();
@@ -61,7 +66,7 @@
     },
       h("div", { className: "pack-card-inner" },
         h("div", { className: "pack-card-face pack-card-back" }, h("span", null, pending ? "…" : "?")),
-        card ? h("div", { className: "pack-card-face pack-card-front" + (revealed && elite ? " is-elite" : "") + (revealed ? " is-revealed" : ""), style: { "--card-color": color } },
+        card && flipped ? h("div", { className: "pack-card-face pack-card-front" + (revealed && elite ? " is-elite" : "") + (revealed ? " is-revealed" : ""), style: { "--card-color": color } },
           h("div", { className: "pack-card-overall" + (revealed ? "" : " is-mystery"), style: { color } }, revealed ? card.overall : "??"),
           h("span", { className: "pack-card-pos" + hide(1), style: { background: positionColor(card.position) } }, card.position || "—"),
           h("div", { className: "pack-card-nation" + hide(2) }, h("span", { className: "pack-card-flag" }, flag), h("span", null, (info && info.nationality) || "")),
@@ -123,6 +128,7 @@
       return h("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Entre com um perfil que participa deste campeonato para abrir pacotes.");
     }
 
+    const pendingOpenings = stats.mine.filter((opening) => opening.pending && !(reveal && reveal.openingId === opening.id));
     function labelOf(packId) {
       const found = settings.packs.find((pack) => pack.id === packId);
       return found ? found.label : packId;
@@ -147,15 +153,19 @@
     async function openPack(pack) {
       if (busyPackId || packBlock(pack)) return;
       setError("");
-      // Escolher 1: abre a mesa de cartas virada; nada é cobrado até o usuário escolher uma.
-      if (pack.interaction === "pick") { setReveal(newReveal(pack)); return; }
       setBusyPackId(pack.id);
       try {
         let checksum = null;
         try { checksum = (await Packs.loadCatalog(Packs.catalogIdOf(tournament))).checksum; } catch (checksumError) { checksum = null; }
         const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum });
-        const cards = (Array.isArray(result.cards) ? result.cards : []).slice().sort((a, b) => (Number(a.overall) || 0) - (Number(b.overall) || 0));
-        if (alive.current) setReveal(newReveal(pack, { cards, phase: "revealing", teaser: true }));
+        const raw = Array.isArray(result.cards) ? result.cards : [];
+        if (pack.interaction === "pick") {
+          // Escolher 1: o pacote já foi cobrado e sorteado; as cartas aparecem viradas com o brilho da melhor e o usuário escolhe uma.
+          if (alive.current) setReveal(newReveal(pack, { cards: raw, openingId: result.openingId, phase: "choose", teaser: true }));
+        } else {
+          const cards = raw.slice().sort((a, b) => (Number(a.overall) || 0) - (Number(b.overall) || 0));
+          if (alive.current) setReveal(newReveal(pack, { cards, phase: "revealing", teaser: true }));
+        }
         reloadStats();
       } catch (openError) {
         console.error("open_pack failed", openError);
@@ -164,23 +174,25 @@
         if (alive.current) setBusyPackId(null);
       }
     }
+    // Retoma um pacote "escolher 1" que foi aberto (e pago) mas ainda não teve carta escolhida.
+    function resumePending(opening) {
+      const pack = settings.packs.find((item) => item.id === opening.packId);
+      if (!pack) return;
+      setError("");
+      setReveal(newReveal(pack, { cards: opening.allCards, openingId: opening.id, phase: "choose", teaser: true }));
+    }
     async function choosePick(index) {
       const current = reveal;
-      if (!current || current.mode !== "pick" || current.phase !== "choose") return;
-      const pack = settings.packs.find((item) => item.id === current.packId);
-      if (!pack || packBlock(pack)) { setReveal((state) => state && { ...state, error: (pack && packBlock(pack)) || "Pacote indisponível." }); return; }
+      if (!current || current.mode !== "pick" || current.phase !== "choose" || !current.openingId) return;
       setReveal({ ...current, phase: "opening", pickIndex: index, error: "" });
       try {
-        let checksum = null;
-        try { checksum = (await Packs.loadCatalog(Packs.catalogIdOf(tournament))).checksum; } catch (checksumError) { checksum = null; }
-        const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum, pickIndex: index });
-        const cards = Array.isArray(result.cards) ? result.cards : [];
-        if (alive.current) setReveal((state) => state && state.phase === "opening" ? { ...state, cards, phase: "revealing", flipped: [index], completed: [], teaser: true } : state);
+        const result = await App.pickPackCard({ openingId: current.openingId, pickIndex: index, actorProfileId: profile && profile.id, tournamentId });
+        const cards = Array.isArray(result.cards) ? result.cards : current.cards;
+        if (alive.current) setReveal((state) => state && state.phase === "opening" ? { ...state, cards, phase: "revealing", flipped: [index], completed: [] } : state);
         reloadStats();
       } catch (openError) {
-        console.error("open_pack (pick) failed", openError);
-        const missing = /p_pick_index|PGRST202|schema cache/i.test(String(openError && (openError.message || openError.details || openError)));
-        if (alive.current) setReveal((state) => state && { ...state, phase: "choose", pickIndex: null, error: missing ? "O servidor ainda não tem o modo \"escolher 1 carta\" (falta aplicar o PACKS-V2-PICK.sql no Supabase)." : errorText(openError) });
+        console.error("pick_pack_card failed", openError);
+        if (alive.current) setReveal((state) => state && { ...state, phase: "choose", pickIndex: null, error: errorText(openError) });
       }
     }
 
@@ -241,7 +253,7 @@
       const flipAll = () => setReveal((current) => current && { ...current, skip: true, flipped: current.cards.map((_, index) => index) });
       const slots = Array.from({ length: total }, (_, index) => index);
       const hint = choosing
-        ? (reveal.phase === "opening" ? "Abrindo o pacote…" : "Escolha uma carta. As outras serão reveladas depois, mas só a sua fica com você.")
+        ? (reveal.phase === "opening" ? "Entregando a carta…" : "Escolha uma carta. As outras serão reveladas depois, mas só a sua fica com você. (O pacote já foi pago; se fechar agora, dá para escolher depois.)")
         : !done ? (isPick ? "Toque na carta durante a revelação para pular a animação." : "Toque em qualquer carta para virar. Durante a revelação, toque nela para pular.") : "";
       return ReactDOM.createPortal(
         h("div", { className: "pack-reveal-overlay" },
@@ -255,7 +267,7 @@
               const card = reveal.cards[index] || null;
               const info = card && catalogMap && catalogMap.get ? catalogMap.get(String(card.playerId)) : null;
               const isChosen = isPick && index === reveal.pickIndex;
-              const lost = isPick && !!card && !isChosen;
+              const lost = isPick && reveal.phase === "revealing" && !!card && !isChosen;
               return h(RevealCard, {
                 key: `${reveal.uid}-${index}`,
                 card, info, glow,
@@ -274,7 +286,7 @@
               !choosing && !done && !isPick && h("button", { className: "tapbtn pack-open-btn", onClick: flipNext }, flippedSet.size === 0 ? "Revelar" : "Próxima carta"),
               !choosing && !done && !isPick && h("button", { className: "tapbtn pack-ghost-btn", onClick: flipAll }, "Revelar todas"),
               done && pack && h("button", { className: "tapbtn pack-open-btn", disabled: !again || !!busyPackId, onClick: () => openPack(pack) }, again ? `Abrir outro · ${L(pack.price)}` : (packBlock(pack) || "Indisponível")),
-              (done || (isPick && reveal.phase === "choose")) && h("button", { className: "tapbtn pack-ghost-btn", onClick: () => setReveal(null) }, done ? "Fechar" : "Cancelar")
+              done && h("button", { className: "tapbtn pack-ghost-btn", onClick: () => setReveal(null) }, "Fechar")
             )
           )
         ),
@@ -290,12 +302,15 @@
       !settings.isOpen && h("div", { className: "pack-store-notice" }, "A loja está fechada pela administração."),
       !settings.unlocksEnabled && h("div", { className: "pack-store-notice" }, "Modo de teste: os marcos de desbloqueio estão desativados e todos os pacotes estão liberados."),
       error && h("div", { className: "pack-store-error", role: "alert" }, error),
+      pendingOpenings.map((opening) => h("div", { key: opening.id, className: "pack-store-notice pack-pending" },
+        h("span", null, `Pacote ${labelOf(opening.packId)} aberto, aguardando a sua escolha.`),
+        h("button", { className: "tapbtn pack-open-btn", onClick: () => resumePending(opening) }, "Escolher carta"))),
       h("div", { className: "pack-grid" }, settings.packs.map(packTile)),
       stats.mine.length > 0 && h("section", { className: "pack-history" },
         h("h3", null, "Suas últimas aberturas"),
         stats.mine.slice(0, 8).map((opening) => h("div", { key: opening.id, className: "pack-history-row" },
           h("strong", null, labelOf(opening.packId)),
-          h("span", null, opening.cards.map((card) => `${card.overall} ${card.name}`).join(" · "))
+          h("span", null, opening.pending ? "aguardando escolha" : opening.cards.map((card) => `${card.overall} ${card.name}`).join(" · "))
         ))
       ),
       revealModal()
