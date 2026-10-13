@@ -99,6 +99,14 @@
       return () => timers.forEach(clearTimeout);
     }, [pickDone]);
 
+    // Ao abrir, as cartas fechadas brilham na cor da melhor carta do pacote e, depois de alguns segundos, apagam (cinza) até serem reveladas.
+    const teaserUid = reveal && reveal.teaser ? reveal.uid : null;
+    React.useEffect(() => {
+      if (teaserUid == null) return undefined;
+      const timer = setTimeout(() => setReveal((current) => current && current.uid === teaserUid ? { ...current, teaser: false } : current), 3200);
+      return () => clearTimeout(timer);
+    }, [teaserUid]);
+
     const reloadStats = React.useCallback(async () => {
       if (!tournamentId || typeof App.loadPackStats !== "function") return;
       try {
@@ -134,7 +142,7 @@
 
     function newReveal(pack, extra) {
       const mean = weightedMeanOverall(pack.weights);
-      return { uid: Date.now() + Math.random(), mode: pack.interaction === "pick" ? "pick" : "all", packId: pack.id, packLabel: pack.label, n: pack.cards, accent: overallColor(Math.round(mean)), cards: [], pickIndex: null, phase: "choose", flipped: [], completed: [], skip: false, error: "", ...extra };
+      return { uid: Date.now() + Math.random(), mode: pack.interaction === "pick" ? "pick" : "all", packId: pack.id, packLabel: pack.label, n: pack.cards, accent: overallColor(Math.round(mean)), cards: [], pickIndex: null, phase: "choose", flipped: [], completed: [], skip: false, teaser: false, error: "", ...extra };
     }
     async function openPack(pack) {
       if (busyPackId || packBlock(pack)) return;
@@ -147,7 +155,7 @@
         try { checksum = (await Packs.loadCatalog(Packs.catalogIdOf(tournament))).checksum; } catch (checksumError) { checksum = null; }
         const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum });
         const cards = (Array.isArray(result.cards) ? result.cards : []).slice().sort((a, b) => (Number(a.overall) || 0) - (Number(b.overall) || 0));
-        if (alive.current) setReveal(newReveal(pack, { cards, phase: "revealing" }));
+        if (alive.current) setReveal(newReveal(pack, { cards, phase: "revealing", teaser: true }));
         reloadStats();
       } catch (openError) {
         console.error("open_pack failed", openError);
@@ -167,7 +175,7 @@
         try { checksum = (await Packs.loadCatalog(Packs.catalogIdOf(tournament))).checksum; } catch (checksumError) { checksum = null; }
         const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum, pickIndex: index });
         const cards = Array.isArray(result.cards) ? result.cards : [];
-        if (alive.current) setReveal((state) => state && state.phase === "opening" ? { ...state, cards, phase: "revealing", flipped: [index], completed: [] } : state);
+        if (alive.current) setReveal((state) => state && state.phase === "opening" ? { ...state, cards, phase: "revealing", flipped: [index], completed: [], teaser: true } : state);
         reloadStats();
       } catch (openError) {
         console.error("open_pack (pick) failed", openError);
@@ -218,8 +226,9 @@
       const completedSet = new Set(reveal.completed);
       const choosing = isPick && reveal.phase !== "revealing";
       const done = !choosing && (isPick ? completedSet.has(reveal.pickIndex) && flippedSet.size >= total : completedSet.size >= total);
-      // O brilho das cartas fechadas é neutro (nem a cor do pacote, que vem do overall médio): nunca sugere o overall antes da revelação.
-      const glow = "#aab6b0";
+      // Brilho das cartas fechadas: cor do maior overall do pacote logo ao abrir (teaser) e depois cinza neutro.
+      const best = reveal.cards.reduce((max, card) => Math.max(max, Number(card.overall) || 0), 0);
+      const glow = reveal.teaser && best ? overallColor(best) : "#aab6b0";
       const again = pack && !packBlock(pack);
       const suspenseOn = settings.suspense && !reveal.skip;
       const flipOne = (index) => setReveal((current) => current && !current.flipped.includes(index) ? { ...current, flipped: [...current.flipped, index] } : current);
