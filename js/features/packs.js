@@ -45,12 +45,20 @@
       sellDepreciationPct: 25,
       eliteThreshold: 90,
       suspense: true,
+      cardsPerPack: 3,
       packs: PACK_PRESETS.map((preset) => ({
         id: preset.id, label: preset.label, enabled: true, price: preset.price, cards: preset.cards, interaction: "all",
         weights: gaussianWeights(preset.mu, preset.sigma, preset.tail),
         unlock: preset.unlock ? { ...preset.unlock } : null,
       })),
     };
+  }
+
+  function cardsPerPackOf(raw) {
+    const explicit = Math.round(Number(raw && raw.cardsPerPack));
+    if (explicit >= 1) return Math.min(10, explicit);
+    const first = Array.isArray(raw && raw.packs) ? raw.packs.find((pack) => pack && Number(pack.cards) >= 1) : null;
+    return first ? Math.min(10, Math.round(Number(first.cards))) : 3;
   }
 
   function packSettingsOf(tournament) {
@@ -63,6 +71,8 @@
       unlocksEnabled: raw.unlocksEnabled === true,
       // Revelação em etapas (posição → nacionalidade → clube → nome e overall). Ligada por padrão.
       suspense: raw.suspense !== false,
+      // Quantidade de cartas global (vale para todos os pacotes). Sem ela, usa a do primeiro pacote.
+      cardsPerPack: cardsPerPackOf(raw),
       sellDepreciationPct: Math.min(100, Math.max(0, Number(raw.sellDepreciationPct != null ? raw.sellDepreciationPct : fallback.sellDepreciationPct) || 0)),
       // O limite máximo do elenco é o do campeonato (rosterSettings, editado pelo admin).
       // packSettings.rosterMax só é usado como legado, se o torneio não tiver rosterSettings.
@@ -73,7 +83,7 @@
         label: String(pack.label || pack.id),
         enabled: pack.enabled !== false,
         price: Math.max(0, Number(pack.price) || 0),
-        cards: Math.min(10, Math.max(1, Math.round(Number(pack.cards) || 3))),
+        cards: cardsPerPackOf(raw) || Math.min(10, Math.max(1, Math.round(Number(pack.cards) || 3))),
         // "all": todas as cartas ficam com o time. "pick": o usuário escolhe 1 das N cartas (às cegas); as outras são só reveladas.
         interaction: pack.interaction === "pick" ? "pick" : "all",
         weights: pack.weights && typeof pack.weights === "object" ? pack.weights : {},

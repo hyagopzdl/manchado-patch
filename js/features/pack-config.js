@@ -24,6 +24,7 @@
       isOpen: settings.isOpen,
       unlocksEnabled: settings.unlocksEnabled,
       suspense: settings.suspense,
+      cardsPerPack: String(settings.cardsPerPack),
       sellDepreciationPct: String(settings.sellDepreciationPct),
       packs: settings.packs.map((pack) => {
         const percents = window.ManchaApp.PacksFeature.percentWeights(pack.weights);
@@ -103,7 +104,7 @@
     const replaceWeights = (percentMap) => { const next = {}; range.forEach((o) => { next[o] = pctText(percentMap[String(o)] || 0); }); patchPack({ weights: next }); setMessage(null); };
 
     const analysis = Packs.analyzeWeights({
-      weights: weightsNumbers(), pool, cards: pack.interaction === "pick" ? 1 : (Math.round(num(pack.cards)) || 1), price: num(pack.price),
+      weights: weightsNumbers(), pool, cards: pack.interaction === "pick" ? 1 : (Math.round(num(draft.cardsPerPack)) || 1), price: num(pack.price),
       sellPct: num(draft.sellDepreciationPct), elite: settings.eliteThreshold,
     });
     const maxTyped = Math.max(1, ...Object.values(weightsNumbers()));
@@ -137,11 +138,13 @@
       const errors = [];
       const sell = num(draft.sellDepreciationPct);
       if (sell < 0 || sell > 100) errors.push("A taxa de venda precisa estar entre 0 e 100%.");
+      // A quantidade de cartas é global: o mesmo valor vale para todos os pacotes.
+      const cardsPerPack = Math.round(num(draft.cardsPerPack));
+      if (!(cardsPerPack >= 1 && cardsPerPack <= 10)) errors.push("A quantidade de cartas por pacote precisa estar entre 1 e 10.");
       const ids = new Set(draft.packs.map((item) => item.id));
       const packs = draft.packs.map((item) => {
-        const price = num(item.price), cards = Math.round(num(item.cards));
+        const price = num(item.price), cards = cardsPerPack;
         if (!(price > 0)) errors.push(`${item.label}: o preço precisa ser maior que 0.`);
-        if (cards < 1 || cards > 10) errors.push(`${item.label}: o número de cartas precisa estar entre 1 e 10.`);
         const typed = {}; range.forEach((o) => { const v = num(item.weights[o]); if (v > 0) typed[o] = v; });
         const total = Object.values(typed).reduce((a, b) => a + b, 0);
         if (item.enabled && !(total > 0)) errors.push(`${item.label}: defina chances em pelo menos um overall (ou desative o pacote).`);
@@ -158,7 +161,7 @@
       });
       // rosterMax é legado: o limite do elenco é o do campeonato (rosterSettings).
       const { rosterMax: legacyRosterMax, ...rawWithoutLegacy } = raw;
-      return { errors, next: { ...rawWithoutLegacy, version: 1, isOpen: draft.isOpen, unlocksEnabled: draft.unlocksEnabled, suspense: draft.suspense !== false, sellDepreciationPct: sell, packs } };
+      return { errors, next: { ...rawWithoutLegacy, version: 1, isOpen: draft.isOpen, unlocksEnabled: draft.unlocksEnabled, suspense: draft.suspense !== false, cardsPerPack, sellDepreciationPct: sell, packs } };
     }
 
     async function save() {
@@ -226,11 +229,12 @@
         h("button", { className: "tapbtn pack-cfg-link", onClick: loadRemote }, "Carregar a versão dela")),
       readOnly && h("div", { className: "pack-cfg-warn" }, "O campeonato foi encerrado: as configurações estão somente para leitura."),
 
-      h("div", { className: "pack-cfg-card pack-cfg-general" },
+      isAdmin && h("div", { className: "pack-cfg-card pack-cfg-general" },
         isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.isOpen, disabled, onChange: (e) => { setDraft({ ...draft, isOpen: e.target.checked }); setMessage(null); } }), " Loja aberta"),
         isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.unlocksEnabled, disabled, onChange: (e) => { setDraft({ ...draft, unlocksEnabled: e.target.checked }); setMessage(null); } }), " Exigir marcos de desbloqueio"),
         isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.suspense !== false, disabled, onChange: (e) => { setDraft({ ...draft, suspense: e.target.checked }); setMessage(null); } }), " Revelação com suspense (posição, nacionalidade e clube antes do nome)"),
-        h("label", { className: "pack-cfg-field" }, h("span", null, "Taxa na venda de volta (%)"), input(draft.sellDepreciationPct, (value) => setDraft({ ...draft, sellDepreciationPct: value }), { style: { width: 90 } }))),
+        isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Taxa na venda de volta (%)"), input(draft.sellDepreciationPct, (value) => setDraft({ ...draft, sellDepreciationPct: value }), { style: { width: 90 } }))),
+        isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Cartas por pacote (todos os pacotes)"), input(draft.cardsPerPack, (value) => { setDraft({ ...draft, cardsPerPack: value }); setMessage(null); }, { style: { width: 90 } })),
 
       h("div", { className: "pack-cfg-tabs", role: "tablist" }, draft.packs.map((item) =>
         h("button", { key: item.id, role: "tab", "aria-selected": item.id === pack.id, className: "tapbtn pack-cfg-tab" + (item.id === pack.id ? " is-active" : ""), onClick: () => setSelected(item.id) },
@@ -240,7 +244,6 @@
         h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: pack.enabled, disabled, onChange: (e) => { patchPack({ enabled: e.target.checked }); setMessage(null); } }), ` Pacote ${pack.label} ativo`),
         h("div", { className: "pack-cfg-fields" },
           h("label", { className: "pack-cfg-field" }, h("span", null, "Preço (M)"), input(pack.price, (value) => patchPack({ price: value }))),
-          h("label", { className: "pack-cfg-field" }, h("span", null, "Cartas por pacote"), input(pack.cards, (value) => patchPack({ cards: value }))),
           isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Como abrir"),
             h("select", { className: "pack-cfg-input", disabled, value: pack.interaction === "pick" ? "pick" : "all", onChange: (e) => { patchPack({ interaction: e.target.value }); setMessage(null); } },
               h("option", { value: "all" }, "Fica com todas as cartas"),
