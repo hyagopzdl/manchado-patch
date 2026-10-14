@@ -4154,7 +4154,7 @@
           if (/^[A-Za-z]{2}$/.test(raw)) return raw.toUpperCase().replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt()));
           let normalized = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
           let codes = {
-            brazil:"BR",brasil:"BR",argentina:"AR",portugal:"PT",spain:"ES",espanha:"ES",france:"FR",franca:"FR",germany:"DE",alemanha:"DE",italy:"IT",italia:"IT",england:"GB",inglaterra:"GB",netherlands:"NL",holanda:"NL",belgium:"BE",belgica:"BE",croatia:"HR",croacia:"HR",serbia:"RS",uruguay:"UY",paraguay:"PY",chile:"CL",colombia:"CO",mexico:"MX",usa:"US","united states":"US",japan:"JP",japao:"JP",southkorea:"KR","south korea":"KR",coreia:"KR",turkey:"TR",turquia:"TR",greece:"GR",grecia:"GR",sweden:"SE",suecia:"SE",norway:"NO",noruega:"NO",denmark:"DK",dinamarca:"DK",switzerland:"CH",suica:"CH",austria:"AT",poland:"PL",polonia:"PL",czech:"CZ","czech republic":"CZ",romania:"RO",russia:"RU",ukraine:"UA",nigeria:"NG",cameroon:"CM",camaroon:"CM",ghana:"GH","ivory coast":"CI",senegal:"SN",morocco:"MA",marrocos:"MA",algeria:"DZ",egito:"EG",egypt:"EG",australia:"AU",ireland:"IE",scotland:"GB",wales:"GB"
+            brazil:"BR",brasil:"BR",argentina:"AR",portugal:"PT",spain:"ES",espanha:"ES",france:"FR",franca:"FR",germany:"DE",alemanha:"DE",italy:"IT",italia:"IT",england:"GB",inglaterra:"GB",netherlands:"NL",holanda:"NL",belgium:"BE",belgica:"BE",croatia:"HR",croacia:"HR",serbia:"RS",uruguay:"UY",paraguay:"PY",chile:"CL",colombia:"CO",mexico:"MX",usa:"US","united states":"US",japan:"JP",japao:"JP",southkorea:"KR","south korea":"KR",coreia:"KR",turkey:"TR",turquia:"TR",greece:"GR",grecia:"GR",sweden:"SE",suecia:"SE",norway:"NO",noruega:"NO",denmark:"DK",dinamarca:"DK",switzerland:"CH",suica:"CH",austria:"AT",poland:"PL",polonia:"PL",czech:"CZ","czech republic":"CZ",romania:"RO",russia:"RU",ukraine:"UA",nigeria:"NG",cameroon:"CM",camaroon:"CM",ghana:"GH","ivory coast":"CI",senegal:"SN",morocco:"MA",marrocos:"MA",algeria:"DZ",egito:"EG",egypt:"EG",australia:"AU",ireland:"IE",scotland:"GB",wales:"GB","africa do sul":"ZA","albania":"AL","angola":"AO","arabia saudita":"SA","argelia":"DZ","armenia":"AM","benim":"BJ","bolivia":"BO","bosnia e herzegovina":"BA","burkina faso":"BF","cabo verde":"CV","camaroes":"CM","canada":"CA","congo":"CG","coreia do sul":"KR","costa do marfim":"CI","costa rica":"CR","curacao":"CW","equador":"EC","escocia":"GB","eslovaquia":"SK","eslovenia":"SI","estados unidos":"US","finlandia":"FI","gabao":"GA","gambia":"GM","gana":"GH","georgia":"GE","guine":"GN","guine-bissau":"GW","haiti":"HT","hungria":"HU","indonesia":"ID","iraque":"IQ","irlanda":"IE","irlanda do norte":"GB","islandia":"IS","israel":"IL","jamaica":"JM","kosovo":"XK","luxemburgo":"LU","macedonia do norte":"MK","mali":"ML","mocambique":"MZ","montenegro":"ME","nova zelandia":"NZ","pais de gales":"GB","panama":"PA","paraguai":"PY","peru":"PE","quenia":"KE","rd congo":"CD","republica dominicana":"DO","republica tcheca":"CZ","romenia":"RO","servia":"RS","tunisia":"TN","ucrania":"UA","uruguai":"UY","uzbequistao":"UZ","venezuela":"VE","zambia":"ZM"
           };
           let code = codes[normalized];
           return code ? code.replace(/./g, (char) => String.fromCodePoint(127397 + char.charCodeAt())) : "🌐";
@@ -4176,7 +4176,9 @@
             }, React.createElement("svg", { width:17,height:17,viewBox:"0 0 24 24",fill:isFavorite?"currentColor":"none",stroke:"currentColor",strokeWidth:1.9,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true" }, React.createElement("path", { d:"m12 2.8 2.8 5.68 6.27.91-4.54 4.42 1.07 6.24L12 17.1l-5.6 2.95 1.07-6.24-4.54-4.42 6.27-.91L12 2.8Z" }))),
             React.createElement("div", { style:{ position:"relative", alignSelf:"start", fontSize:38, lineHeight:1, fontWeight:850, letterSpacing:"-1.8px", color:overallColor(player.overall) } }, player.overall),
             React.createElement("div", { style:{ position:"relative", minWidth:0, display:"flex", flexDirection:"column", alignItems:"stretch", rowGap:3 } },
-              React.createElement("span", { style:{ justifySelf:"start", alignSelf:"start", display:"inline-flex", alignItems:"center", minHeight:20, fontSize:10.5, fontWeight:800, background:positionColor(player.position), color:"white", padding:"3px 7px", borderRadius:7 } }, player.position),
+              React.createElement("span", { style:{ justifySelf:"start", alignSelf:"start", display:"inline-flex", alignItems:"center", gap:4, flexWrap:"wrap" } },
+                React.createElement("span", { style:{ display:"inline-flex", alignItems:"center", minHeight:20, fontSize:10.5, fontWeight:800, background:positionColor(player.position), color:"white", padding:"3px 7px", borderRadius:7 } }, player.position),
+                window.ManchaApp.PlayerExtras.secondaryPositions(player).map((position) => React.createElement("span", { key:position, className:"player-position-sub is-small", style:{ "--pos-color":positionColor(position) }, title:"Posição secundária" }, position))),
               React.createElement("div", { style:{ display:"flex", alignItems:"flex-start", gap:5, minWidth:0, marginTop:1 } },
                 React.createElement("div", { style:{ minWidth:0, fontSize:17, fontWeight:800, lineHeight:1.08, letterSpacing:"-.4px", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", overflow:"hidden" } }, player.name),
                 React.createElement("span", { title:player.nationality||"Nacionalidade não informada", style:{ flex:"0 0 auto", fontSize:14, lineHeight:1.1 } }, flag)
@@ -5650,7 +5652,7 @@
             return team && team.name ? team.name : "Elenco";
           };
           let flag = nationalityFlag(e.nationality);
-          let footLabel = e.foot === "Right" ? "Direito" : e.foot === "Left" ? "Esquerdo" : "Ambos";
+          let footLabel = ["Right","Direito"].includes(e.foot) ? "Direito" : ["Left","Esquerdo"].includes(e.foot) ? "Esquerdo" : "Ambos";
           let sideValue = String(e.favouredSide || "").trim().toLowerCase();
           let sideLabel = sideValue === "right" ? "Direito" : sideValue === "left" ? "Esquerdo" : sideValue === "both" ? "Ambos" : (e.favouredSide || "—");
           let detailBalanceBlocked = detailContext.balanceCheck && detailContext.balanceCheck.allowed === false;
@@ -5753,7 +5755,11 @@
                       React.createElement("h2", { style:{ margin:0, fontSize:"clamp(26px,5vw,36px)", lineHeight:1.08, letterSpacing:"-.045em", color:"var(--heading)", overflowWrap:"anywhere" } }, e.name),
                       React.createElement("span", { title:e.nationality||"Nacionalidade não informada", style:{ fontSize:24, lineHeight:1, flex:"0 0 auto" } }, flag)
                     ),
-                    React.createElement("span", { style:{ display:"inline-flex", marginTop:12, alignItems:"center", justifyContent:"center", minHeight:27, padding:"5px 11px", borderRadius:9, background:positionColor(e.position), color:"#fff", fontSize:12, fontWeight:850, letterSpacing:".04em" } }, e.position || "—")
+                    React.createElement("div", { className:"player-positions" },
+                      React.createElement("span", { className:"player-position-main", style:{ background:positionColor(e.position) }, title:"Posição principal" }, e.position || "—"),
+                      window.ManchaApp.PlayerExtras.secondaryPositions(e).length > 0 && React.createElement("span", { className:"player-position-label" }, "também joga de"),
+                      window.ManchaApp.PlayerExtras.secondaryPositions(e).map((position) => React.createElement("span", { key:position, className:"player-position-sub", style:{ "--pos-color":positionColor(position) }, title:"Posição secundária" }, position))
+                    )
                   ),
                   React.createElement("section", { style:{ ...E, padding:16, marginBottom:12 } },
                     React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(3,minmax(0,1fr))", gap:8, alignItems:"stretch" } },
@@ -5774,13 +5780,14 @@
                     )
                   ),
                   React.createElement("section", { style:{ ...E, padding:14, marginBottom:12 } },
-                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(5,minmax(0,1fr))", gap:6 } },
-                      [["Idade", e.age ? `${e.age}` : "—"], ["Altura", e.height ? `${e.height} cm` : "—"], ["Peso", e.weight ? `${e.weight} kg` : "—"], ["Pé bom", footLabel === "Direito" ? "D" : footLabel === "Esquerdo" ? "E" : "Ambos"], ["Lado bom", sideLabel]].map(item => React.createElement("div", { key:item[0], style:{ minWidth:0, textAlign:"center", padding:"7px 3px", borderRadius:10, background:"var(--surface-soft)" } },
+                    React.createElement("div", { style:{ display:"grid", gridTemplateColumns:`repeat(${e.favouredSide ? 5 : 4},minmax(0,1fr))`, gap:6 } },
+                      [["Idade", e.age ? `${e.age}` : "—"], ["Altura", e.height ? `${e.height} cm` : "—"], ["Peso", e.weight ? `${e.weight} kg` : "—"], ["Pé bom", footLabel === "Direito" ? "Direito" : footLabel === "Esquerdo" ? "Esquerdo" : "Ambos"], ...(e.favouredSide ? [["Lado bom", sideLabel]] : [])].map(item => React.createElement("div", { key:item[0], style:{ minWidth:0, textAlign:"center", padding:"7px 3px", borderRadius:10, background:"var(--surface-soft)" } },
                         React.createElement("div", { style:{ fontSize:8.5, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".045em", marginBottom:5, whiteSpace:"nowrap" } }, item[0]),
                         React.createElement("strong", { style:{ display:"block", fontSize:11.5, lineHeight:1.2, color:"var(--heading)", overflowWrap:"anywhere" } }, item[1])
                       ))
                     )
                   ),
+                  React.createElement(window.ManchaApp.PlayerAbilities, { player:e }),
                   React.createElement("section", { style:{ ...E, padding:"8px 16px 10px" } },
                     React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, padding:"8px 2px 10px", borderBottom:"1px solid var(--border)" } },
                       React.createElement("strong", { style:{ fontSize:14, color:"var(--heading)" } }, "Atributos"),

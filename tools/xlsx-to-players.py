@@ -7,32 +7,27 @@ Requer: pip install openpyxl
 
 Regras de conversão (iguais às do players.json atual):
   id           = "<prefixo>_<número da linha na planilha, 4 dígitos>"   (estável enquanto as linhas não forem reordenadas)
-  position     = primeira posição da coluna "Posições"
-  nationality  = primeira nacionalidade, em inglês (o app usa nomes em inglês para a bandeira)
-  foot         = D -> Right, E -> Left, A -> Both
-  favouredSide = null (a planilha não tem essa informação)
-  attrs        = colunas de atributos com os mesmos nomes do players.json
+  position       = primeira posição da coluna "Posições" (principal)
+  positions      = todas as posições da coluna, na ordem (a 1ª é a principal, as demais são secundárias)
+  nationality    = primeira nacionalidade, em português (o app reconhece os nomes em português para a bandeira)
+  foot           = D -> Direito, E -> Esquerdo, A -> Ambos
+  injuryTolerance= coluna Injury (A, B ou C)
+  abilities      = habilidades especiais marcadas com ✓, como chaves (ex.: "dribbling", "oneOnOneScoring")
+  attrs          = colunas de atributos com os mesmos nomes do players.json
+  (sem favouredSide: a planilha não tem lado preferido)
 """
 import json, sys, re, collections
 import openpyxl
 
-NAT = {
- 'Albânia':'Albania','Alemanha':'Germany','Angola':'Angola','Argentina':'Argentina','Argélia':'Algeria','Armênia':'Armenia',
- 'Arábia Saudita':'Saudi Arabia','Austrália':'Australia','Benim':'Benin','Bolívia':'Bolivia','Brasil':'Brazil','Burkina Faso':'Burkina Faso',
- 'Bélgica':'Belgium','Bósnia e Herzegovina':'Bosnia and Herzegovina','Cabo Verde':'Cape Verde','Camarões':'Cameroon','Canadá':'Canada',
- 'Chile':'Chile','Colômbia':'Colombia','Congo':'Congo','Coreia do Sul':'South Korea','Costa Rica':'Costa Rica','Costa do Marfim':'Ivory Coast',
- 'Croácia':'Croatia','Curaçao':'Curacao','Dinamarca':'Denmark','Egito':'Egypt','Equador':'Ecuador','Escócia':'Scotland','Eslováquia':'Slovakia',
- 'Eslovênia':'Slovenia','Espanha':'Spain','Estados Unidos':'United States','Finlândia':'Finland','França':'France','Gabão':'Gabon','Gana':'Ghana',
- 'Geórgia':'Georgia','Grécia':'Greece','Guiné':'Guinea','Guiné-Bissau':'Guinea-Bissau','Gâmbia':'Gambia','Haiti':'Haiti','Holanda':'Netherlands',
- 'Hungria':'Hungary','Indonésia':'Indonesia','Inglaterra':'England','Iraque':'Iraq','Irlanda':'Republic of Ireland','Irlanda do Norte':'Northern Ireland',
- 'Islândia':'Iceland','Israel':'Israel','Itália':'Italy','Jamaica':'Jamaica','Japão':'Japan','Kosovo':'Kosovo','Luxemburgo':'Luxembourg',
- 'Macedônia do Norte':'North Macedonia','Mali':'Mali','Marrocos':'Morocco','Montenegro':'Montenegro','Moçambique':'Mozambique','México':'Mexico',
- 'Nigéria':'Nigeria','Noruega':'Norway','Nova Zelândia':'New Zealand','Panamá':'Panama','Paraguai':'Paraguay','País de Gales':'Wales',
- 'Países Baixos':'Netherlands','Peru':'Peru','Polônia':'Poland','Portugal':'Portugal','Quênia':'Kenya','RD Congo':'DR Congo',
- 'Rep. Dominicana':'Dominican Republic','República Dominicana':'Dominican Republic','República Tcheca':'Czech Republic','Romênia':'Romania',
- 'Rússia':'Russia','Senegal':'Senegal','Suécia':'Sweden','Suíça':'Switzerland','Sérvia':'Serbia','Tchéquia':'Czech Republic','Tunísia':'Tunisia',
- 'Turquia':'Turkey','Ucrânia':'Ukraine','Uruguai':'Uruguay','Uzbequistão':'Uzbekistan','Venezuela':'Venezuela','Zâmbia':'Zambia',
- 'África do Sul':'South Africa','Áustria':'Austria',
+NAT_ALIASES = {  # grafias repetidas na planilha -> um único nome
+ 'Países Baixos': 'Holanda', 'Tchéquia': 'República Tcheca', 'Rep. Dominicana': 'República Dominicana',
+}
+ABILITIES = {  # coluna da planilha -> chave usada no JSON (os nomes em português ficam no app)
+ 'Dribbling':'dribbling','Tactical Dribble':'tacticalDribble','Positioning':'positioning','Reaction':'reaction','Playmaking':'playmaking',
+ 'Passing':'passing','Scoring':'scoring','1-1 Scoring':'oneOnOneScoring','Post Player':'postPlayer','Lines':'lines',
+ 'Middle Shooting':'middleShooting','Side':'side','Center':'center','Penalties':'penalties','1-Touch Pass':'oneTouchPass','Outside':'outside',
+ 'Marking':'marking','Sliding Tackle':'slidingTackle','Covering':'covering','D-Line Control':'dLineControl',
+ 'Penalty Stopper':'penaltyStopper','1-on-1 Stopper':'oneOnOneStopper','Long Throw':'longThrow',
 }
 ATTRS = {  # coluna da planilha -> chave em players.json (mesma ordem do players.json)
  'Acceleration':'acceleration','Top Speed':'topSpeed','Dribble Accuracy':'dribbleAccuracy','Dribble Speed':'dribbleSpeed',
@@ -42,7 +37,7 @@ ATTRS = {  # coluna da planilha -> chave em players.json (mesma ordem do players
  'Mentality':'mentality','Aggression':'aggression','Team Work':'teamwork','Consistency':'consistency','GK Skills':'goalKeepingSkills',
  'Weak Foot Accuracy':'weakFootAccuracy','Weak Foot Frequency':'weakFootFrequency','Condition':'conditionFitness','Agility':'agility',
 }
-FOOT = {'D':'Right','E':'Left','A':'Both'}
+FOOT = {'D':'Direito','E':'Esquerdo','A':'Ambos'}
 KNOWN = {'Setor','Jogador','Nacionalidade','Time','Idade','Altura (cm)','Peso (kg)','Pé','Posições','Valor','OVR','Attack','Defence','Injury'} | set(ATTRS)
 
 def positions_of(text):
@@ -59,7 +54,6 @@ def main():
     if missing: sys.exit(f'Colunas ausentes na planilha: {missing}')
     skills = [c for c in head if c not in KNOWN and c]
     players, full, warnings = [], [], []
-    unmapped = collections.Counter()
     for line, r in enumerate(rows[1:], start=2):
         if not any(c is not None for c in r): continue
         g = lambda name: r[idx[name]]
@@ -68,18 +62,18 @@ def main():
         pos = positions_of(g('Posições'))
         if not pos: warnings.append(f'linha {line} ({name}): sem posição, ignorada'); continue
         nats = [t.strip() for t in str(g('Nacionalidade') or '').split('/') if t.strip()]
-        nat_en = None
-        if nats:
-            nat_en = NAT.get(nats[0])
-            if nat_en is None: unmapped[nats[0]] += 1; nat_en = nats[0]
+        nationality = NAT_ALIASES.get(nats[0], nats[0]) if nats else None
         foot_raw = str(g('Pé') or '').strip()
-        if foot_raw not in FOOT: warnings.append(f'linha {line} ({name}): pé "{foot_raw}" desconhecido, usei Right')
+        if foot_raw not in FOOT: warnings.append(f'linha {line} ({name}): pé "{foot_raw}" desconhecido, usei Direito')
         pid = f'{prefix}_{line:04d}'
         entry = {
             'id': pid, 'name': name, 'position': pos[0], 'overall': int(g('OVR')), 'age': g('Idade'), 'height': g('Altura (cm)'), 'weight': g('Peso (kg)'),
-            'foot': FOOT.get(foot_raw, 'Right'), 'favouredSide': None, 'nationality': nat_en, 'club': str(g('Time') or '').strip(),
+            'positions': pos,
+            'foot': FOOT.get(foot_raw, 'Direito'), 'nationality': nationality, 'club': str(g('Time') or '').strip(),
             'value': g('Valor'), 'attack': g('Attack'), 'defense': g('Defence'),
+            'injuryTolerance': (str(g('Injury')).strip() if 'Injury' in idx and g('Injury') else None),
             'attrs': {key: r[idx[col]] for col, key in ATTRS.items() if col in idx},
+            'abilities': [key for col, key in ABILITIES.items() if col in idx and r[idx[col]] not in (None, '', 0)],
         }
         players.append(entry)
         full.append({
@@ -93,7 +87,6 @@ def main():
     full_path = re.sub(r'\.json$', '', out) + '.completo.json'
     with open(full_path, 'w', encoding='utf-8') as f: json.dump(full, f, ensure_ascii=False, indent=2)
     print(f'{len(players)} jogadores -> {out} e {full_path}')
-    if unmapped: print('NACIONALIDADES SEM TRADUÇÃO (mantidas como estão):', dict(unmapped))
     for w in warnings: print('AVISO', w)
 
 main()
