@@ -148,6 +148,45 @@
     return result;
   }
 
+  // ---- Consultor de preços ----
+  // Preço recomendado = o que volta ao vender tudo de volta, com uma margem de "ralo" (parte do preço que nunca volta).
+  // Assim o custo líquido fica positivo (sem dinheiro infinito). Os preços são arredondados para cima de 5 em 5 e
+  // sempre crescem de um pacote para o próximo.
+  function recommendPackPrices({ packs, pool, sellPct, marginPct, elite }) {
+    const margin = Math.min(0.9, Math.max(0, (Number(marginPct) || 0) / 100));
+    let previous = 0;
+    return (packs || []).map((pack) => {
+      const analysis = analyzeWeights({ weights: pack.weights, pool, cards: pack.interaction === "pick" ? 1 : pack.cards, price: pack.price, sellPct, elite });
+      if (!(analysis.evPack > 0)) return { id: pack.id, valid: false };
+      let recommended = Math.ceil(analysis.sellEv / (1 - margin) / 5) * 5;
+      if (recommended <= previous) recommended = previous + 5;
+      previous = recommended;
+      return { id: pack.id, valid: true, evPack: analysis.evPack, sellEv: analysis.sellEv, net: analysis.net, recommended };
+    });
+  }
+
+  // Renda média de um time por jogo. Com jogos já disputados, usa o que foi realmente pago (economyRewards gravado ou recalculado
+  // pelas regras atuais); sem jogos suficientes, estima com um campeonato "neutro": 37,5% vitórias, 37,5% derrotas, 25% empates
+  // (80% com gols), 1,3 gol por time e 0,03 cartão vermelho por time por jogo.
+  function estimateIncomePerGame({ economy, matches, matchEconomy, minGames = 6 }) {
+    const played = (Array.isArray(matches) ? matches : []).filter((match) => match && match.played === true && !match.bye && match.homeId && match.awayId);
+    if (played.length >= minGames && typeof matchEconomy === "function") {
+      let total = 0, count = 0;
+      played.forEach((match) => {
+        [match.homeId, match.awayId].forEach((teamId) => {
+          const stored = match.economyRewards && match.economyRewards[teamId];
+          total += stored != null && Number.isFinite(Number(stored)) ? Number(stored) : matchEconomy(match, teamId, economy).total;
+          count += 1;
+        });
+      });
+      return { value: count ? total / count : 0, source: "real", games: played.length };
+    }
+    const win = 0.375, loss = 0.375, draw = 0.25;
+    const result = win * economy.winReward + loss * economy.lossReward + draw * (0.8 * economy.scoringDrawReward + 0.2 * economy.scorelessDrawReward);
+    const value = Math.max(0, result + 1.3 * economy.goalReward - 0.03 * economy.redCardPenalty);
+    return { value, source: "estimate", games: played.length };
+  }
+
   // Distribui a porcentagem de cada faixa entre os overalls dela.
   // mode "overall": mesma chance para cada overall com jogador livre; "player": proporcional ao nº de jogadores livres.
   function distributeBands(bandPercents, pool, mode) {
@@ -343,6 +382,6 @@
   window.ManchaApp.PacksFeature = {
     DEFAULT_CATALOG_ID, isPacksMode, catalogIdOf, overridesAllowed, gaussianWeights,
     defaultPackSettings, packSettingsOf, packSellDepreciationPct, loadRegistry, loadCatalog,
-    OVERALL_BANDS, percentWeights, poolStats, analyzeWeights, distributeBands, presetWeights, optionBWeights,
+    OVERALL_BANDS, percentWeights, poolStats, analyzeWeights, distributeBands, presetWeights, optionBWeights, recommendPackPrices, estimateIncomePerGame,
   };
 })();

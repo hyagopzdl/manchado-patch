@@ -74,6 +74,7 @@
     const [bandMode, setBandMode] = React.useState("overall");
     const [copyFrom, setCopyFrom] = React.useState("");
     const [opened, setOpened] = React.useState(0);
+    const [adviceMargin, setAdviceMargin] = React.useState("10");
 
     const dirty = JSON.stringify(draft) !== baseJson;
     React.useEffect(() => {
@@ -243,6 +244,55 @@
     }
 
     const totalOk = Math.abs(typedTotal - 100) < 0.01;
+
+    // ---- Consultor de preços (só admin) ----
+    const draftCards = Math.round(num(draft.cardsPerPack)) || 1;
+    const advisorPacks = draft.packs.map((item) => {
+      const weights = {}; range.forEach((o) => { const v = num(item.weights[o]); if (v > 0) weights[o] = v; });
+      return { id: item.id, cards: draftCards, interaction: item.interaction, weights, price: num(item.price) };
+    });
+    const sellPctNow = num(draft.sellDepreciationPct);
+    const advice = isAdmin ? Packs.recommendPackPrices({ packs: advisorPacks, pool, sellPct: sellPctNow, marginPct: num(adviceMargin), elite: settings.eliteThreshold }) : [];
+    const income = isAdmin ? Packs.estimateIncomePerGame({
+      economy: App.economySettingsOf(tournament),
+      matches: tournament && tournament.context && Array.isArray(tournament.context.matches) ? tournament.context.matches : (Array.isArray(tournament && tournament.matches) ? tournament.matches : []),
+      matchEconomy: App.matchEconomyForTeam,
+    }) : null;
+    const gamesText = (price) => (income && income.value > 0 ? `${fmt(price / income.value, 0)} jogos` : "—");
+    function applyAdvice() {
+      setDraft((current) => ({ ...current, packs: current.packs.map((item) => { const found = advice.find((entry) => entry.id === item.id); return found && found.valid ? { ...item, price: String(found.recommended) } : item; }) }));
+      setMessage(null);
+    }
+    function advisorCard() {
+      const first = advice.find((entry) => entry.valid);
+      const firstPack = first ? draft.packs.find((item) => item.id === first.id) : null;
+      // O piso vem do que volta ao vender: aumentar a taxa de venda barateia os pacotes recomendados.
+      const altSell = 50;
+      const altFirst = first && sellPctNow < altSell ? Math.ceil(first.evPack * (1 - altSell / 100) / (1 - Math.min(0.9, Math.max(0, num(adviceMargin) / 100))) / 5) * 5 : null;
+      return h("div", { className: "pack-cfg-card pack-adv" },
+        h("strong", null, "Consultor de preços"),
+        h("div", { className: "pack-cfg-help" }, "Recomenda o preço de cada pacote a partir do valor dos jogadores livres e das chances atuais (inclui alterações ainda não salvas). O preço sugerido é o que volta ao vender tudo de volta mais uma margem que nunca volta, para ninguém lucrar abrindo e vendendo."),
+        h("div", { className: "pack-cfg-fields" },
+          h("label", { className: "pack-cfg-field" }, h("span", null, "Margem que não volta (% do preço)"), input(adviceMargin, setAdviceMargin, { style: { width: 90 } }))),
+        income && h("div", { className: "pack-cfg-note" }, income.source === "real"
+          ? `Renda média por jogo: ${fmt(income.value, 1)}M por time, calculada em ${income.games} jogos já disputados (com as recompensas pagas).`
+          : `Renda média por jogo: ≈ ${fmt(income.value, 1)}M por time, estimada com as recompensas atuais num campeonato equilibrado (poucos jogos disputados). Ajusta sozinha quando houver jogos.`),
+        h("div", { className: "pack-adv-table", role: "table" },
+          h("div", { className: "pack-adv-row pack-adv-head", role: "row" }, h("span", null, "Pacote"), h("span", null, "Atual"), h("span", null, "Recomendado"), h("span", null, "Custo líquido hoje")),
+          draft.packs.map((item) => {
+            const entry = advice.find((adv) => adv.id === item.id) || { valid: false };
+            if (!entry.valid) return h("div", { key: item.id, className: "pack-adv-row", role: "row" }, h("strong", null, item.label), h("span", { className: "pack-adv-muted" }, "sem chances válidas"), h("span", null), h("span", null));
+            const price = num(item.price), bad = entry.net < 0;
+            return h("div", { key: item.id, className: "pack-adv-row" + (bad ? " is-bad" : ""), role: "row" },
+              h("strong", null, item.label),
+              h("span", null, `${fmt(price, 0)}M`, h("small", null, gamesText(price))),
+              h("span", { className: "pack-adv-rec" }, `${fmt(entry.recommended, 0)}M`, h("small", null, gamesText(entry.recommended))),
+              h("span", { className: bad ? "is-bad" : "" }, `${entry.net >= 0 ? "+" : ""}${fmt(entry.net, 0)}M`, bad && h("small", null, "dinheiro infinito")));
+          })),
+        h("div", { className: "pack-cfg-help" }, "As linhas \"jogos\" mostram quantos jogos de renda média um time precisa para pagar o pacote. Se os preços recomendados parecerem altos demais para o ritmo do campeonato, os caminhos são aumentar as recompensas das partidas, baixar o valor dos jogadores ou aumentar a taxa de venda de volta."),
+        altFirst != null && firstPack && h("div", { className: "pack-cfg-note" }, `Exemplo: com taxa de venda de volta de ${altSell}% (hoje ${fmt(sellPctNow, 0)}%), o pacote ${firstPack.label} recomendado cairia de ${fmt(first.recommended, 0)}M para ${fmt(altFirst, 0)}M (${gamesText(altFirst)}).`),
+        h("button", { className: "tapbtn pack-ghost-btn", disabled: disabled || !advice.some((entry) => entry.valid), onClick: applyAdvice }, "Usar preços recomendados (no rascunho)"));
+    }
     return h("div", { className: "pack-cfg" },
       h("div", { className: "pack-cfg-meta" },
         h("div", { className: "pack-cfg-build" }, `Versão do app: ${buildTag()}`),
@@ -277,6 +327,8 @@
               h("option", { value: "" }, "Sem marco"),
               draft.packs.slice(0, draft.packs.findIndex((item) => item.id === pack.id)).map((item) => h("option", { key: item.id, value: item.id }, `Após abrir pacotes ${item.label}`)))),
           isAdmin && pack.unlock && h("label", { className: "pack-cfg-field" }, h("span", null, "Quantidade"), input(pack.unlock.count, (value) => patchPack({ unlock: { ...pack.unlock, count: value } }))))),
+
+      isAdmin && advisorCard(),
 
       h("div", { className: "pack-cfg-card pack-cfg-summary" },
         analysis.valid ? h(React.Fragment, null,
