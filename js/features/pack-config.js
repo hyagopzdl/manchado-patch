@@ -129,6 +129,18 @@
       const next = {}; range.forEach((o) => { next[o] = source.weights[o] || ""; });
       patchPack({ weights: next }); setMessage(null);
     }
+    // Preenche o rascunho de todos os pacotes com a tabela "Opção B" (valores exatos, sem arredondar). Só vale depois de Salvar.
+    function applyOptionB() {
+      if (!window.confirm("Preencher as chances de TODOS os pacotes com a tabela Opção B? Os valores atuais do rascunho serão substituídos (só valem depois de Salvar).")) return;
+      const exact = (value) => (value > 0 ? String(value).replace(".", ",") : "");
+      setDraft((current) => ({ ...current, packs: current.packs.map((item) => {
+        const table = Packs.optionBWeights(item.id);
+        if (!table) return item;
+        const next = {}; range.forEach((o) => { next[o] = exact(Number(table[String(o)]) || 0); });
+        return { ...item, weights: next };
+      }) }));
+      setMessage(null);
+    }
     function restoreDefault() {
       if (!window.confirm(`Restaurar as chances padrão do pacote ${pack.label}?`)) return;
       replaceWeights(Packs.presetWeights(pack.id));
@@ -234,6 +246,7 @@
         isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.unlocksEnabled, disabled, onChange: (e) => { setDraft({ ...draft, unlocksEnabled: e.target.checked }); setMessage(null); } }), " Exigir marcos de desbloqueio"),
         isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.suspense !== false, disabled, onChange: (e) => { setDraft({ ...draft, suspense: e.target.checked }); setMessage(null); } }), " Revelação com suspense (posição, nacionalidade e clube antes do nome)"),
         isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Taxa na venda de volta (%)"), input(draft.sellDepreciationPct, (value) => setDraft({ ...draft, sellDepreciationPct: value }), { style: { width: 90 } }))),
+        isAdmin && h("button", { type: "button", className: "tapbtn pack-ghost-btn", disabled, onClick: applyOptionB }, "Preencher chances (tabela Opção B)"),
         isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Cartas por pacote (todos os pacotes)"), input(draft.cardsPerPack, (value) => { setDraft({ ...draft, cardsPerPack: value }); setMessage(null); }, { style: { width: 90 } })),
 
       h("div", { className: "pack-cfg-tabs", role: "tablist" }, draft.packs.map((item) =>

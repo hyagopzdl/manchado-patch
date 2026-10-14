@@ -165,6 +165,130 @@
     return weights;
   }
 
+  // Tabela "Opção B" (chances em % por overall; cada pacote soma 100). Só é aplicada no rascunho do editor, quando o admin pede.
+  const OPTION_B_WEIGHTS = {
+  "bronze": {
+   "75": 5,
+   "76": 7.5,
+   "77": 15,
+   "78": 20,
+   "79": 20,
+   "80": 15,
+   "81": 7.5,
+   "82": 5,
+   "83": 2.5,
+   "84": 1,
+   "85": 0.7,
+   "86": 0.4,
+   "87": 0.2,
+   "88": 0.1,
+   "89": 0.05,
+   "90": 0.025,
+   "91": 0.01,
+   "92": 0.0075,
+   "93": 0.005,
+   "94": 0.0025
+  },
+  "prata": {
+   "75": 1,
+   "76": 3,
+   "77": 6,
+   "78": 10,
+   "79": 15,
+   "80": 10,
+   "81": 20,
+   "82": 15,
+   "83": 10,
+   "84": 5,
+   "85": 2.5,
+   "86": 1,
+   "87": 0.7,
+   "88": 0.4,
+   "89": 0.2,
+   "90": 0.1,
+   "91": 0.05,
+   "92": 0.025,
+   "93": 0.01,
+   "94": 0.0075,
+   "95": 0.005,
+   "96": 0.0025
+  },
+  "ouro": {
+   "75": 0.25,
+   "76": 0.5,
+   "77": 0.75,
+   "78": 1,
+   "79": 2,
+   "80": 4,
+   "81": 8,
+   "82": 15,
+   "83": 20,
+   "84": 18,
+   "85": 14,
+   "86": 7,
+   "87": 5,
+   "88": 2.5,
+   "89": 1,
+   "90": 0.5,
+   "91": 0.25,
+   "92": 0.09,
+   "93": 0.06,
+   "94": 0.04,
+   "95": 0.03,
+   "96": 0.02,
+   "97": 0.01
+  },
+  "platina": {
+   "75": 0.1,
+   "76": 0.2,
+   "77": 0.5,
+   "78": 0.7,
+   "79": 1,
+   "80": 2,
+   "81": 4,
+   "82": 7.5,
+   "83": 12.5,
+   "84": 20,
+   "85": 12.5,
+   "86": 12.5,
+   "87": 9,
+   "88": 5,
+   "89": 4,
+   "90": 3,
+   "91": 2.5,
+   "92": 1,
+   "93": 0.75,
+   "94": 0.5,
+   "95": 0.25,
+   "96": 0.25,
+   "97": 0.25
+  },
+  "diamante": {
+   "77": 0.1,
+   "78": 0.2,
+   "79": 0.5,
+   "80": 0.7,
+   "81": 1,
+   "82": 2.5,
+   "83": 4,
+   "84": 7,
+   "85": 10,
+   "86": 15,
+   "87": 20,
+   "88": 15,
+   "89": 7,
+   "90": 5,
+   "91": 4,
+   "92": 3,
+   "93": 2,
+   "94": 1,
+   "95": 1,
+   "96": 0.5,
+   "97": 0.5
+  }
+};
+  function optionBWeights(packId) { return OPTION_B_WEIGHTS[packId] || null; }
+
   function presetWeights(packId) {
     const preset = PACK_PRESETS.find((item) => item.id === packId);
     return preset ? percentWeights(gaussianWeights(preset.mu, preset.sigma, preset.tail)) : {};
@@ -219,6 +343,6 @@
   window.ManchaApp.PacksFeature = {
     DEFAULT_CATALOG_ID, isPacksMode, catalogIdOf, overridesAllowed, gaussianWeights,
     defaultPackSettings, packSettingsOf, packSellDepreciationPct, loadRegistry, loadCatalog,
-    OVERALL_BANDS, percentWeights, poolStats, analyzeWeights, distributeBands, presetWeights,
+    OVERALL_BANDS, percentWeights, poolStats, analyzeWeights, distributeBands, presetWeights, optionBWeights,
   };
 })();
