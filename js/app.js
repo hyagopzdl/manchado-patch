@@ -2119,16 +2119,18 @@
               if(!generated.ok){window.alert(generated.message||"Não foi possível gerar elencos balanceados.");return false;}
               ownership={};
               let members={},now=Date.now();
+              // Rerolls por participante (0 = sem sorteio de escolha: o campeonato já começa com o elenco sorteado). maxRolls conta a tentativa inicial.
+              let rerolls=Math.max(0,Math.min(10,Math.round(Number(options.randomRoster.rerolls!=null?options.randomRoster.rerolls:2))||0)),maxRolls=rerolls+1,instantStart=rerolls===0;
               teams.forEach((team,index)=>{
                 let roster=generated.rosters[index]||[],metrics=generated.metrics[index]||balancedRosterMetrics(roster),profileId=String(team.profileId);
                 roster.forEach((player)=>{ownership[String(player.id)]={playerId:String(player.id),teamId:String(team.id),initialTeamId:String(team.id),squadRole:"base",acquisitionSource:"initial_roster",acquiredAt:now,forSale:false,randomRoster:true,rollNumber:1};});
-                members[profileId]={teamId:String(team.id),rollNumber:1,maxRolls:3,accepted:false,acceptedAt:null,metrics,initialBudget:Math.max(0,Number(team.budget)||0),updatedAt:now};
+                members[profileId]={teamId:String(team.id),rollNumber:1,maxRolls,accepted:instantStart,acceptedAt:instantStart?now:null,metrics,initialBudget:Math.max(0,Number(team.budget)||0),updatedAt:now};
               });
-              randomRoster={version:1,enabled:true,status:"selection",targetOverall,maxRolls:3,rosterSize:23,composition:Object.fromEntries(BALANCED_ROSTER_GROUPS.map((group)=>[group.key,group.count])),generatedAt:now,members,balance:generated.balance};
+              randomRoster={version:1,enabled:true,status:instantStart?"active":"selection",...(instantStart?{startedAt:now}:{}),targetOverall,maxRolls,rosterSize:23,composition:Object.fromEntries(BALANCED_ROSTER_GROUPS.map((group)=>[group.key,group.count])),generatedAt:now,members,balance:generated.balance};
             }
             let tournament = {
               id: _(), name, format: source ? (source.format || "liga") : "liga", season: B.seasonCounter,
-              teamIds: teams.map((team) => team.id), participants, groups: null, matches: [], status: randomRoster ? "roster_selection" : "ongoing",
+              teamIds: teams.map((team) => team.id), participants, groups: null, matches: [], status: randomRoster && randomRoster.status !== "active" ? "roster_selection" : "ongoing",
               champion: null, createdAt: Date.now(),
               sourceChampionshipId: source ? source.id : null,
               inheritance: source ? inheritance : null,
@@ -7519,6 +7521,7 @@ Hyago 0 x 0 Lucas`;
           let [newParticipantDrafts, setNewParticipantDrafts] = b({});
           let [randomRosterEnabled, setRandomRosterEnabled] = b(false);
           let [randomRosterTargetOverall, setRandomRosterTargetOverall] = b(80);
+          let [randomRosterRerolls, setRandomRosterRerolls] = b(2);
           let [lateJoinOpen,setLateJoinOpen]=b(false),[lateJoinMode,setLateJoinMode]=b("balanced"),[lateJoinProfileId,setLateJoinProfileId]=b(""),[lateJoinOverall,setLateJoinOverall]=b(80),[lateJoinBudget,setLateJoinBudget]=b(0),[lateJoinBusy,setLateJoinBusy]=b(false),[lateJoinTxt,setLateJoinTxt]=b(""),[lateJoinTxtPreview,setLateJoinTxtPreview]=b(null);
           let lateJoinBenchmark=currentTournament?balancedTournamentBenchmark(currentTournament,teams,currentTournament.context&&currentTournament.context.ownership||{},catalog):null;
           let lateJoinPending=currentTournament&&currentTournament.randomRoster&&currentTournament.randomRoster.lateJoin&&currentTournament.randomRoster.lateJoin.members?currentTournament.randomRoster.lateJoin.members:{};
@@ -7657,7 +7660,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
               ? { competitionType:"cup", linkedLeagueId:cupLeagueId, groupLegs, cupPrize, cupParticipantIds }
               : creationMode === "continue"
                 ? { competitionType:"league", mode:"continue", sourceTournamentId, inheritance, participantOverrides }
-                : { competitionType:"league", mode:"new", tournamentModel, catalogId:creationCatalogId, newParticipantIds, newParticipantDrafts, randomRoster:{enabled:tournamentModel==="packs"?true:randomRosterEnabled,targetOverall:randomRosterTargetOverall,maxRolls:3} };
+                : { competitionType:"league", mode:"new", tournamentModel, catalogId:creationCatalogId, newParticipantIds, newParticipantDrafts, randomRoster:{enabled:tournamentModel==="packs"?true:randomRosterEnabled,targetOverall:randomRosterTargetOverall,rerolls:Math.max(0,Math.min(10,Math.round(Number(randomRosterRerolls))||0))} };
             try {
               let result = await onCreateTournament(options);
               if (result !== false) closeCompetitionWizard();
@@ -7724,14 +7727,18 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 content = React.createElement("div", { style:{ display:"grid", gap:16 } },
                   React.createElement("div", { style:{ padding:15,border:"1px solid var(--border)",borderRadius:16,background:randomRosterEnabled?"color-mix(in srgb,var(--green) 8%,var(--surface-soft))":"var(--surface-soft)" } },
                     React.createElement("label", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,cursor:"pointer" } },
-                      React.createElement("span", null, React.createElement("span", { style:{ display:"block",fontWeight:850,fontSize:14 } }, "Gerar elencos balanceados automaticamente"), React.createElement("span", { style:{ display:"block",fontSize:11.5,lineHeight:1.45,color:"var(--muted)",marginTop:4 } }, "23 jogadores por time, posições equilibradas e 3 tentativas totais por participante.")),
+                      React.createElement("span", null, React.createElement("span", { style:{ display:"block",fontWeight:850,fontSize:14 } }, "Gerar elencos balanceados automaticamente"), React.createElement("span", { style:{ display:"block",fontSize:11.5,lineHeight:1.45,color:"var(--muted)",marginTop:4 } }, "23 jogadores por time e posições equilibradas. Você define quantos rerolls cada participante pode fazer.")),
                       React.createElement("input", { type:"checkbox",checked:tournamentModel==="packs"?true:randomRosterEnabled,disabled:tournamentModel==="packs",onChange:(event)=>setRandomRosterEnabled(event.target.checked) })
                     ),
-                    randomRosterEnabled && React.createElement("div", { style:{ marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)",display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
+                    (tournamentModel==="packs"||randomRosterEnabled) && React.createElement("div", { style:{ marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)",display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
                       React.createElement("div", null, React.createElement("div", { style:{fontWeight:750,fontSize:12.5} }, "Overall médio alvo"), React.createElement("div", { style:{fontSize:11,color:"var(--muted)",marginTop:3,lineHeight:1.4} }, "O algoritmo também equilibra melhor XI, setores e valor de mercado.")),
                       React.createElement("input", { style:q,type:"number",min:60,max:95,step:1,value:randomRosterTargetOverall,onChange:(event)=>setRandomRosterTargetOverall(event.target.value) })
                     ),
-                    randomRosterEnabled && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.55,marginTop:12 } }, "Composição fixa: 3 GOL · 5 ZAG · 4 LAT · 6 MEI · 5 ATK. Cada reroll descarta a opção atual e gera outra de força equivalente.")
+                    (tournamentModel==="packs"||randomRosterEnabled) && React.createElement("div", { style:{ marginTop:12,display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
+                      React.createElement("div", null, React.createElement("div", { style:{fontWeight:750,fontSize:12.5} }, "Rerolls por participante"), React.createElement("div", { style:{fontSize:11,color:"var(--muted)",marginTop:3,lineHeight:1.4} }, Math.round(Number(randomRosterRerolls))===0 ? "Com 0, não há escolha de elenco: o campeonato começa direto com o elenco sorteado." : "Cada participante pode trocar o elenco sorteado até esse número de vezes antes de confirmar.")),
+                      React.createElement("input", { style:q,type:"number",min:0,max:10,step:1,value:randomRosterRerolls,onChange:(event)=>setRandomRosterRerolls(event.target.value) })
+                    ),
+                    (tournamentModel==="packs"||randomRosterEnabled) && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.55,marginTop:12 } }, "Composição fixa: 3 GOL · 5 ZAG · 4 LAT · 6 MEI · 5 ATK. Cada reroll descarta a opção atual e gera outra de força equivalente.")
                   ),
                   React.createElement("div", null,
                     React.createElement("div", { style:{ fontWeight:800, marginBottom:4 } }, `Participantes · ${newParticipantIds.length} selecionados`),
