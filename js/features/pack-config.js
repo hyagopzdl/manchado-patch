@@ -38,7 +38,7 @@
     };
   }
 
-  function PackConfigEditor({ tournament, catalog, ownership, profiles = [], profile, onSave, readOnly = false }) {
+  function PackConfigEditor({ tournament, catalog, ownership, profiles = [], profile, onSave, readOnly = false, isAdmin = false }) {
     const App = window.ManchaApp, Packs = App.PacksFeature, E = App.E;
     const settings = React.useMemo(() => Packs.packSettingsOf(tournament), [tournament]);
     const pool = React.useMemo(() => Packs.poolStats(catalog, ownership), [catalog, ownership]);
@@ -227,9 +227,9 @@
       readOnly && h("div", { className: "pack-cfg-warn" }, "O campeonato foi encerrado: as configurações estão somente para leitura."),
 
       h("div", { className: "pack-cfg-card pack-cfg-general" },
-        h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.isOpen, disabled, onChange: (e) => { setDraft({ ...draft, isOpen: e.target.checked }); setMessage(null); } }), " Loja aberta"),
-        h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.unlocksEnabled, disabled, onChange: (e) => { setDraft({ ...draft, unlocksEnabled: e.target.checked }); setMessage(null); } }), " Exigir marcos de desbloqueio"),
-        h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.suspense !== false, disabled, onChange: (e) => { setDraft({ ...draft, suspense: e.target.checked }); setMessage(null); } }), " Revelação com suspense (posição, nacionalidade e clube antes do nome)"),
+        isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.isOpen, disabled, onChange: (e) => { setDraft({ ...draft, isOpen: e.target.checked }); setMessage(null); } }), " Loja aberta"),
+        isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.unlocksEnabled, disabled, onChange: (e) => { setDraft({ ...draft, unlocksEnabled: e.target.checked }); setMessage(null); } }), " Exigir marcos de desbloqueio"),
+        isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.suspense !== false, disabled, onChange: (e) => { setDraft({ ...draft, suspense: e.target.checked }); setMessage(null); } }), " Revelação com suspense (posição, nacionalidade e clube antes do nome)"),
         h("label", { className: "pack-cfg-field" }, h("span", null, "Taxa na venda de volta (%)"), input(draft.sellDepreciationPct, (value) => setDraft({ ...draft, sellDepreciationPct: value }), { style: { width: 90 } }))),
 
       h("div", { className: "pack-cfg-tabs", role: "tablist" }, draft.packs.map((item) =>
@@ -241,15 +241,15 @@
         h("div", { className: "pack-cfg-fields" },
           h("label", { className: "pack-cfg-field" }, h("span", null, "Preço (M)"), input(pack.price, (value) => patchPack({ price: value }))),
           h("label", { className: "pack-cfg-field" }, h("span", null, "Cartas por pacote"), input(pack.cards, (value) => patchPack({ cards: value }))),
-          h("label", { className: "pack-cfg-field" }, h("span", null, "Como abrir"),
+          isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Como abrir"),
             h("select", { className: "pack-cfg-input", disabled, value: pack.interaction === "pick" ? "pick" : "all", onChange: (e) => { patchPack({ interaction: e.target.value }); setMessage(null); } },
               h("option", { value: "all" }, "Fica com todas as cartas"),
               h("option", { value: "pick" }, "Escolhe 1 carta (as outras só são reveladas)"))),
-          h("label", { className: "pack-cfg-field" }, h("span", null, "Marco de desbloqueio"),
+          isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Marco de desbloqueio"),
             h("select", { className: "pack-cfg-input", disabled, value: pack.unlock ? pack.unlock.packId : "", onChange: (e) => { patchPack({ unlock: e.target.value ? { packId: e.target.value, count: pack.unlock ? pack.unlock.count : "50" } : null }); setMessage(null); } },
               h("option", { value: "" }, "Sem marco"),
               draft.packs.slice(0, draft.packs.findIndex((item) => item.id === pack.id)).map((item) => h("option", { key: item.id, value: item.id }, `Após abrir pacotes ${item.label}`)))),
-          pack.unlock && h("label", { className: "pack-cfg-field" }, h("span", null, "Quantidade"), input(pack.unlock.count, (value) => patchPack({ unlock: { ...pack.unlock, count: value } }))))),
+          isAdmin && pack.unlock && h("label", { className: "pack-cfg-field" }, h("span", null, "Quantidade"), input(pack.unlock.count, (value) => patchPack({ unlock: { ...pack.unlock, count: value } }))))),
 
       h("div", { className: "pack-cfg-card pack-cfg-summary" },
         analysis.valid ? h(React.Fragment, null,
