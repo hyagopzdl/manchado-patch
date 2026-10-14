@@ -4,7 +4,8 @@
 
   const num = (value) => { const parsed = Number(String(value == null ? "" : value).replace(",", ".")); return Number.isFinite(parsed) ? parsed : 0; };
   const fmt = (value, digits = 1) => Number(value).toFixed(digits).replace(".", ",");
-  const pctText = (value) => { const rounded = Math.round(Number(value) * 100) / 100; return rounded > 0 ? String(rounded).replace(".", ",") : ""; };
+  // Mostra até 4 casas (a mesma precisão em que o servidor guarda), sem zeros à direita: 0,0025 continua 0,0025.
+  const pctText = (value) => { const rounded = Math.round(Number(value) * 10000) / 10000; return rounded > 0 ? String(rounded).replace(".", ",") : ""; };
 
   // Rascunhos sobrevivem a trocar de aba dentro do app (somem ao recarregar a página).
   const DRAFTS = new Map();
