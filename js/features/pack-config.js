@@ -10,6 +10,15 @@
   // Rascunhos sobrevivem a trocar de aba dentro do app (somem ao recarregar a página).
   const DRAFTS = new Map();
 
+  // Tag de versão carregada pela página (a mesma ?v= do index.html), para conferir se o navegador está com o código novo.
+  function buildTag() {
+    try {
+      const el = document.querySelector('script[src*="pack-config.js"]');
+      const match = el && /[?&]v=([^&]+)/.exec(el.getAttribute("src"));
+      return match ? match[1] : "desconhecida";
+    } catch (error) { return "desconhecida"; }
+  }
+
   function overallRange(pool, packs) {
     const keys = [...pool.keys()];
     (packs || []).forEach((pack) => Object.keys(pack.weights || {}).forEach((key) => keys.push(Number(key))));
@@ -236,6 +245,7 @@
     const totalOk = Math.abs(typedTotal - 100) < 0.01;
     return h("div", { className: "pack-cfg" },
       h("div", { className: "pack-cfg-meta" },
+        h("div", { className: "pack-cfg-build" }, `Versão do app: ${buildTag()}`),
         raw.updatedAt ? `Última alteração: ${(updatedBy && updatedBy.name) || "alguém"} em ${new Date(Number(raw.updatedAt)).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "Ainda não houve alterações manuais.",
         opened > 0 && h("div", { className: "pack-cfg-warn" }, `${opened} pacote${opened > 1 ? "s" : ""} já ${opened > 1 ? "foram abertos" : "foi aberto"} neste campeonato: mudar as chances afeta quem ainda vai abrir.`)),
       remoteChanged && h("div", { className: "pack-cfg-warn", role: "alert" }, "Outra pessoa salvou novas configurações enquanto você editava. ",

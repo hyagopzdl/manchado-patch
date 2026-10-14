@@ -894,3 +894,4 @@
 .pack-card-nation{max-width:100%;min-width:0}
 .pack-card-nation .pack-card-flag{flex:0 0 auto}
 .pack-card-nation span:last-child{flex:0 1 auto;min-width:0}
+.pack-cfg-build{font-size:11px;color:var(--muted);margin-bottom:4px}
