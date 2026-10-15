@@ -1,3 +1,4 @@
 [
-  { "id": "default", "label": "Base atual", "file": "players.json" }
+  { "id": "default", "label": "Base antiga", "file": "players.json" },
+  { "id": "edicao-2026-27", "label": "Base 2026/27", "file": "players-2026.json" }
 ]
