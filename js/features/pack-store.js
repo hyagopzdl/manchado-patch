@@ -257,8 +257,7 @@
       return h("div", { key: card.playerId, role: onOpenDetail && !pending ? "button" : undefined, onClick: onOpenDetail && !pending ? () => onOpenDetail(info || { id: String(card.playerId), name: card.name, position: card.position, overall: card.overall, value: card.value }) : undefined, className: "ph-card" + (onOpenDetail && !pending ? " is-link" : "") + (chosen ? " is-chosen" : "") + (pending ? " is-pending" : "") + (!chosen && !pending ? " is-lost" : ""), style: { "--ph-color": color }, title: `${card.name} · ${card.overall}` },
         h("b", { className: "ph-ovr" }, pending ? "?" : card.overall),
         h("span", { className: "ph-pos", style: { background: positionColor(card.position) } }, pending ? "?" : (card.position || "—")),
-        h("span", { className: "ph-name" }, pending ? "Mistério" : card.name),
-        chosen && h("i", { className: "ph-star", "aria-hidden": "true" }, "★"));
+        h("span", { className: "ph-name" }, pending ? "Mistério" : card.name));
     }
     function historyRow(opening) {
       const who = whoOf(opening), pack = settings.packs.find((item) => item.id === opening.packId);
