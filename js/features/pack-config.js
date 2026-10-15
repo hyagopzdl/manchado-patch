@@ -108,7 +108,7 @@
     const baseDraft = JSON.parse(baseJson);
     const baseOf = (id) => baseDraft.packs.find((item) => item.id === id);
     const packDirty = (item) => JSON.stringify(item) !== JSON.stringify(baseOf(item.id));
-    const disabled = readOnly || saving;
+    const disabled = readOnly || saving || !isAdmin;
 
     const patchPack = (patch) => setDraft((current) => ({ ...current, packs: current.packs.map((item) => item.id === pack.id ? { ...item, ...patch } : item) }));
     const setWeight = (overall, value) => { patchPack({ weights: { ...pack.weights, [overall]: value } }); setMessage(null); };
@@ -299,8 +299,8 @@
       h("div", { className: "pack-cfg-meta" },
         h("div", { className: "pack-cfg-build" }, `Versão do app: ${buildTag()}`),
         raw.updatedAt ? `Última alteração: ${(updatedBy && updatedBy.name) || "alguém"} em ${new Date(Number(raw.updatedAt)).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "Ainda não houve alterações manuais.",
-        opened > 0 && h("div", { className: "pack-cfg-warn" }, `${opened} pacote${opened > 1 ? "s" : ""} já ${opened > 1 ? "foram abertos" : "foi aberto"} neste campeonato: mudar as chances afeta quem ainda vai abrir.`)),
-      remoteChanged && h("div", { className: "pack-cfg-warn", role: "alert" }, "Outra pessoa salvou novas configurações enquanto você editava. ",
+        isAdmin && opened > 0 && h("div", { className: "pack-cfg-warn" }, `${opened} pacote${opened > 1 ? "s" : ""} já ${opened > 1 ? "foram abertos" : "foi aberto"} neste campeonato: mudar as chances afeta quem ainda vai abrir.`)),
+      isAdmin && remoteChanged && h("div", { className: "pack-cfg-warn", role: "alert" }, "Outra pessoa salvou novas configurações enquanto você editava. ",
         h("button", { className: "tapbtn pack-cfg-link", onClick: loadRemote }, "Carregar a versão dela")),
       readOnly && h("div", { className: "pack-cfg-warn" }, "O campeonato foi encerrado: as configurações estão somente para leitura."),
 
@@ -342,11 +342,11 @@
             h("div", null, h("small", null, `Chance de ${settings.eliteThreshold}+`), h("strong", null, `${fmt(analysis.pEliteCard * 100, 1)}%`), h("em", null, `${fmt(analysis.pEliteAtLeastOne * 100, 1)}% no pacote`)),
             h("div", null, h("small", null, "Venda de volta"), h("strong", null, `${fmt(analysis.sellEv, 0)}M`)),
             h("div", null, h("small", null, "Custo líquido"), h("strong", { className: analysis.net >= 0 ? "" : "is-bad" }, `${fmt(analysis.net, 0)}M`))),
-          analysis.net < 0 && h("div", { className: "pack-cfg-warn" }, "Custo líquido negativo: abrir e vender tudo de volta dá lucro. Isso gera dinheiro infinito."),
+          isAdmin && analysis.net < 0 && h("div", { className: "pack-cfg-warn" }, "Custo líquido negativo: abrir e vender tudo de volta dá lucro. Isso gera dinheiro infinito."),
           analysis.unavailableShare > 0.0001 && h("div", { className: "pack-cfg-note" }, `${fmt(analysis.unavailableShare * 100, 0)}% das chances estão em overalls sem jogador livre e são redistribuídas entre os demais.`))
           : h("div", { className: "pack-cfg-warn" }, "Nenhum overall com chance e jogador livre: este pacote não consegue abrir.")),
 
-      h("details", { className: "pack-cfg-card pack-cfg-tools" },
+      isAdmin && h("details", { className: "pack-cfg-card pack-cfg-tools" },
         h("summary", null, "Atalhos para preencher as chances"),
         h("div", { className: "pack-cfg-tool" }, h("strong", null, "Curva"),
           h("div", { className: "pack-cfg-fields" },
@@ -373,12 +373,12 @@
       h("div", { className: "pack-cfg-card" },
         h("div", { className: "pack-cfg-total" + (totalOk ? " is-ok" : "") },
           h("strong", null, `Total: ${fmt(typedTotal, 1)}%`),
-          !totalOk && h("button", { className: "tapbtn pack-ghost-btn", disabled: disabled || !(typedTotal > 0), onClick: normalize }, "Normalizar para 100%")),
-        h("div", { className: "pack-cfg-help" }, "Digite a chance de cada overall. O total não precisa fechar 100%: ao salvar o app normaliza. Overalls sem jogador livre ficam apagados e suas chances são redistribuídas."),
+          isAdmin && !totalOk && h("button", { className: "tapbtn pack-ghost-btn", disabled: disabled || !(typedTotal > 0), onClick: normalize }, "Normalizar para 100%")),
+        isAdmin && h("div", { className: "pack-cfg-help" }, "Digite a chance de cada overall. O total não precisa fechar 100%: ao salvar o app normaliza. Overalls sem jogador livre ficam apagados e suas chances são redistribuídas."),
         Packs.OVERALL_BANDS.map(bandSection)),
 
       message && h("div", { className: message.kind === "error" ? "pack-store-error" : "pack-store-notice", role: "alert" }, message.text),
-      !readOnly && h("div", { className: "pack-cfg-actions" },
+      isAdmin && !readOnly && h("div", { className: "pack-cfg-actions" },
         h("button", { className: "tapbtn pack-open-btn", disabled: !dirty || saving, onClick: save }, saving ? "Salvando…" : dirty ? "Salvar configurações" : "Sem alterações"),
         h("button", { className: "tapbtn pack-ghost-btn", disabled: !dirty || saving, onClick: discard }, "Descartar")));
   }
