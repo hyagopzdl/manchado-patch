@@ -217,10 +217,11 @@
       const locked = isLocked(pack);
       const have = pack.unlock ? Math.min(stats.counts[pack.unlock.packId] || 0, pack.unlock.count) : 0;
       const cardsLabel = pack.interaction === "pick" ? `Escolha 1 de ${pack.cards}` : `${pack.cards} cartas`;
+      const cardsChipLabel = pack.interaction === "pick" ? `Escolha 1/${pack.cards}` : cardsLabel;
       return h("article", { key: pack.id, className: "pack-tile" + (locked ? " is-locked" : "") + (block && !locked ? " is-blocked" : ""), style: { "--pack-accent": accent } },
         h("div", { className: "pack-tile-art" },
           h("span", { className: "pack-tile-chip is-ovr" }, `OVR ≈ ${Math.round(mean)}`),
-          h("span", { className: "pack-tile-chip is-cards" }, cardsLabel),
+          h("span", { className: "pack-tile-chip is-cards", title: cardsLabel }, cardsChipLabel),
           packImage(pack, "pack-tile-img")),
         h("div", { className: "pack-tile-body" },
           h("strong", { className: "pack-tile-name" }, pack.label),

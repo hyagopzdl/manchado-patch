@@ -1042,3 +1042,9 @@
 .pack-card.is-openable:hover .pack-card-front{filter:brightness(1.08)}
 .ph-card.is-link{cursor:pointer}
 .ph-card.is-link:hover{filter:brightness(1.1)}
+/* nada passa dos limites do card (ex.: "Escolha 1 de 4", botão) */
+.pack-tile{grid-template-columns:minmax(0,1fr);min-width:0;overflow:hidden}
+.pack-tile-art,.pack-tile-body{min-width:0;max-width:100%;box-sizing:border-box}
+.pack-tile-chip{max-width:calc(50% - 12px);overflow:hidden;text-overflow:ellipsis}
+.pack-tile .pack-open-btn{min-width:0;max-width:100%;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:38px;padding:0 9px}
+@media (max-width:699px){.pack-tile .pack-open-btn{line-height:42px}}
