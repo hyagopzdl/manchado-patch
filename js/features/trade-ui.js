@@ -117,7 +117,7 @@
     function lane(side) {
       const mine = side === "give", ids = mine ? give : get, players = mine ? myPlayers : theirPlayers, team = mine ? myTeam : partner;
       return h("section", { className: "trade-lane " + (mine ? "is-give" : "is-get") },
-        h("div", { className: "trade-lane-head" }, h(Avatar, { team, profile: profileOf(team), size: 26 }), h("strong", null, mine ? "Você dá" : `Você recebe${partner ? ` de ${partner.name}` : ""}`), h("small", null, `${ids.length}/${settings.maxPlayersPerSide}`)),
+        h("div", { className: "trade-lane-head" }, h(Avatar, { team, profile: profileOf(team), size: 26 }), h("strong", null, mine ? "Oferecendo" : `Recebendo${partner ? ` de ${partner.name}` : ""}`), h("small", null, `${ids.length}/${settings.maxPlayersPerSide}`)),
         h("div", { className: "trade-slots" },
           ids.map((id) => h(MiniCard, { key: id, player: byId(players, id), onRemove: (player) => toggle(side, player), onOpen: onOpenDetail })),
           ids.length < settings.maxPlayersPerSide && h("button", { type: "button", className: "trade-add", disabled: !team, onClick: () => setPicker(side) }, h("span", null, "+"), h("small", null, "Adicionar jogador"))));

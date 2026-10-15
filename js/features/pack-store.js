@@ -368,6 +368,10 @@
         : !done ? (isPick ? "Toque na carta durante a revelação para pular a animação." : "Toque em qualquer carta para virar. Durante a revelação, toque nela para pular.") : "";
       return ReactDOM.createPortal(
         h("div", { className: "pack-reveal-overlay" },
+         h("div", { className: "pack-reveal-stack" },
+          h("div", { className: "pack-wallet" },
+            h("span", null, `Saldo ${L(budget)}`),
+            h("span", null, `Elenco ${rosterSize}/${settings.rosterMax}`)),
           h("div", { className: "pack-reveal-panel" },
             h("div", { className: "pack-reveal-head" },
               h("strong", { className: "pack-reveal-title" }, pack && packImage(pack, "pack-reveal-img"), isPick ? `Pacote ${reveal.packLabel} · escolha 1 de ${total}` : `Pacote ${reveal.packLabel}`),
@@ -402,18 +406,14 @@
               done && h("button", { className: "tapbtn pack-ghost-btn", onClick: () => setReveal(null) }, "Fechar")
             )
           )
+         )
         ),
         document.body
       );
     }
 
     return h("div", { className: "pack-store" },
-      h("div", { className: "pack-store-summary" },
-        h("span", null, `Elenco ${rosterSize}/${settings.rosterMax}`),
-        h("span", null, `Saldo ${L(budget)}`)
-      ),
       !settings.isOpen && h("div", { className: "pack-store-notice" }, "A loja está fechada pela administração."),
-      !settings.unlocksEnabled && h("div", { className: "pack-store-notice" }, "Modo de teste: os marcos de desbloqueio estão desativados e todos os pacotes estão liberados."),
       error && h("div", { className: "pack-store-error", role: "alert" }, error),
       pendingOpenings.map((opening) => h("div", { key: opening.id, className: "pack-store-notice pack-pending" },
         h("span", null, `Pacote ${labelOf(opening.packId)} aberto, aguardando a sua escolha.`),

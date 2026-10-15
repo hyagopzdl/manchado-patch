@@ -3479,6 +3479,7 @@
                       currentProfile: te,
                       onOpenChampionshipSummary: (item) => setChampionshipSummary(item),
                       onOfferPlayer: (player) => { setViewedTeamId(null); kt(player); },
+                      onProposeTrade: ProfileTeam && R && window.ManchaApp.TradeFeature.tradeSettingsOf(R).enabled && String(viewedTeamId) !== String(ProfileTeam.id) ? (player) => { let target = String(viewedTeamId); setViewedTeamId(null); setTradeDeskRequest({ toTeamId: target, get: player ? [String(player.id)] : [], at: Date.now() }); oe("market"); } : null,
                       onClose: () => setViewedTeamId(null),
                     }),
                     matchWizard && React.createElement(MatchWizard, { data: matchWizard, setData: setMatchWizard, teams: p.filter((team) => team && team.active !== false), profiles: x, presence, players: n, ownership: c, onClose: () => setMatchWizard(null), onSave: saveQuickMatch }),
@@ -5301,7 +5302,6 @@
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("all"), style: segmentStyle(marketSection === "all") }, React.createElement(Xe, { size: 15 }), "Jogadores"),
               tradeCenter && React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("trades"), style: segmentStyle(marketSection === "trades") }, React.createElement(OfferIcon, { size: 15 }), "Trocas", tradeBadge > 0 && React.createElement("span", { style: { minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:"var(--danger)",color:"white",display:"inline-grid",placeItems:"center",fontSize:10,fontWeight:850,marginLeft:6 } }, tradeBadge > 9 ? "9+" : tradeBadge)),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("favorites"), style: segmentStyle(marketSection === "favorites") }, React.createElement("svg", { width:15,height:15,viewBox:"0 0 24 24",fill:"currentColor",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true" }, React.createElement("path", { d:"m12 2.8 2.8 5.68 6.27.91-4.54 4.42 1.07 6.24L12 17.1l-5.6 2.95 1.07-6.24-4.54-4.42 6.27-.91L12 2.8Z" })), "Favoritos"),
-              React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("recommended"), style: segmentStyle(marketSection === "recommended") }, React.createElement(Star, { size: 15 }), "Recomendados"),
             ),
             packsMode && packConfig && React.createElement("div", { style: { display: marketSection === "config" ? "block" : "none" } }, packConfig),
             packsMode && marketSection === "packs"
@@ -8376,7 +8376,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
           );
         }
 
-        function TeamViewer({ team, squadOf, ownership, onOpenDetail, profiles, tournament, tournaments, teams, currentProfile, onOpenChampionshipSummary, onOfferPlayer, onClose }) {
+        function TeamViewer({ team, squadOf, ownership, onOpenDetail, profiles, tournament, tournaments, teams, currentProfile, onOpenChampionshipSummary, onOfferPlayer, onProposeTrade, onClose }) {
           let profile = (profiles || []).find((item) => item && typeof item === "object" && String(item.id) === String(team.profileId));
           let currentTeam = (teams || []).find((item)=>item&&currentProfile&&String(item.profileId)===String(currentProfile.id)&&item.active!==false) || null;
           let canCompare = !!(tournament && currentTeam && String(currentTeam.id)!==String(team.id));
@@ -8401,11 +8401,12 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 baseRosterPlayerIds:squadOf(team.id).filter((player)=>{ let item=ownership&&ownership[player.id]; return item&&item.acquisitionSource==="initial_roster"&&String(item.initialTeamId||"")===String(team.id); }).map((player)=>String(player.id)),
                 rosterSettings:tournament&&tournament.rosterSettings?tournament.rosterSettings:{minPlayers:23,maxPlayers:30},
                 readOnly:true, onBack:onClose, viewerProfile:profile,
-                readOnlyActionLabel:window.ManchaApp.PacksFeature.isPacksMode(tournament)?null:"Fazer oferta", onReadOnlyAction:window.ManchaApp.PacksFeature.isPacksMode(tournament)?null:onOfferPlayer,
+                readOnlyActionLabel:onProposeTrade?"Negociar":(window.ManchaApp.PacksFeature.isPacksMode(tournament)?null:"Fazer oferta"), onReadOnlyAction:onProposeTrade||(window.ManchaApp.PacksFeature.isPacksMode(tournament)?null:onOfferPlayer),
                 viewerTrophies: trophies.length ? React.createElement("div", { style:{ display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:10,marginTop:16,textAlign:"initial" } }, trophies.map(({tournament:item})=>React.createElement("button", { key:item.id,onClick:()=>onOpenChampionshipSummary&&onOpenChampionshipSummary(item),className:"family-card tapbtn",style:{ padding:14,textAlign:"center",cursor:"pointer",color:"inherit",border:"1px solid var(--border)" } }, React.createElement(TrophyAsset,{tournament:item,size:54,style:{marginBottom:6}}), React.createElement("div", { style:{ fontWeight:850,fontSize:13 } }, item.name), React.createElement("div", { style:{ color:"var(--muted)",fontSize:11.5,marginTop:4 } }, item.type === "cup" ? "Campeão da Copa" : "Campeão")))) : null,
                 extraViewLabel:canCompare?"Estatísticas":null,
                 renderExtraView:canCompare?()=>React.createElement(HeadToHeadStats,{tournament,currentTeam,opponentTeam:team,profiles,teams,tournaments,onOpenChampionshipSummary}):null,
-              })
+              }),
+              onProposeTrade&&React.createElement("div",{className:"team-viewer-footer"},React.createElement("button",{className:"tapbtn team-viewer-trade-btn",onClick:()=>onProposeTrade(null)},"Iniciar negociação"))
             )
           );
         }

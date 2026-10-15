@@ -1181,3 +1181,8 @@
 @media (max-width:520px){.trade-pc-body{grid-template-columns:1fr}.trade-pc-arrow{justify-self:center;transform:rotate(90deg)}}
 @media (min-width:720px){.trade-pc-actions .trade-btn-primary{flex:0 0 auto}}
 .trade-partners{padding:6px 2px 8px;align-items:center}.trade-partner{min-height:42px}
+.pack-reveal-stack{width:min(780px,100%);display:grid;gap:10px}
+.pack-reveal-stack .pack-reveal-panel{width:100%}
+.pack-wallet{display:flex;justify-content:space-between;gap:12px;padding:10px 16px;border:1px solid var(--border);border-radius:14px;background:var(--surface);font-weight:750;font-size:13px}
+.team-viewer-footer{position:sticky;bottom:0;margin:16px -4px -4px;padding:12px 4px;background:linear-gradient(transparent,var(--bg) 35%)}
+.team-viewer-trade-btn{width:100%;min-height:46px;border-radius:999px;border:0;background:var(--accent,#2f6bff);color:#fff;font-weight:800;font-size:14px;cursor:pointer}
