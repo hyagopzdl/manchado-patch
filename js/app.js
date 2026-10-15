@@ -259,6 +259,7 @@
             [playerReviewsOpen, setPlayerReviewsOpen] = b(false),
             [marketActionKey, setMarketActionKey] = b(null),
             [randomRosterBusy, setRandomRosterBusy] = b(false),
+            [tradeDeskRequest, setTradeDeskRequest] = b(null),
             marketActionRef = Rf(null);
           function signalImportantUpdate() {
             return Promise.resolve();
@@ -1767,6 +1768,95 @@
               else { applyConfirmedTournamentSnapshot(snapshot); signalImportantUpdate("player_sale", tournamentId); done(); }
             }, false);
           }
+          function tradePlanOn(terms, source) {
+            let t = source ? source.tournament : R;
+            let ownership = source ? source.ownership : c, transfers = source ? source.transfers : k, teams = source ? source.teams : p;
+            let matches = source ? source.matches : null;
+            return window.ManchaApp.TradeFeature.tradePlan(terms, {
+              tournament: t, ownership, transfers, teams, catalog: n,
+              playerOf: (id) => xe.get(id) || xe.get(String(id)) || null,
+              marketOpen: marketAccessSettings(t).isOpen,
+              minGames: (teamId) => { let status = marketMinimumGamesStatus(teamId, t); return { blocked: status.blocked, message: marketMinimumGamesMessage(status) }; },
+              tradeLockFor: (id, ownerTeamId) => playerTradeLockStatus(id, ownerTeamId, t, ownership, transfers, matches)
+            });
+          }
+          function tradeSourceOf(tournament) {
+            let context = tournament.context || {};
+            return { tournament, ownership: context.ownership || {}, transfers: Array.isArray(context.transfers) ? context.transfers : [], teams: Array.isArray(context.teams) ? context.teams : [], matches: context.matches || tournament.matches || [] };
+          }
+          // Transação única sobre o estado do servidor (mesmo padrão da venda e da barca). mutate(tournament, fail) devolve o torneio novo ou null.
+          function tradeTransaction(actionKey, mutate, okMessage) {
+            return new Promise((resolve) => {
+              if (!R) { resolve(false); return; }
+              let tournamentId = R.id, failureReason = null;
+              let fail = (reason) => { failureReason = reason; };
+              let db = Ee();
+              if (!db) {
+                let updated = mutate(R, fail);
+                if (!updated) { window.alert(failureReason || "A operação foi cancelada."); resolve(false); return; }
+                ae(m.map((item) => item.id === tournamentId ? updated : item));
+                if (okMessage) window.alert(okMessage);
+                resolve(true);
+                return;
+              }
+              if (!beginMarketAction(actionKey)) { window.alert("Aguarde a operação atual ser concluída."); resolve(false); return; }
+              db.ref("pes/tournaments").transaction((serverList) => {
+                let isArray = Array.isArray(serverList);
+                let list = isArray ? [...serverList] : Object.values(serverList || {});
+                let index = list.findIndex((item) => item && String(item.id) === String(tournamentId));
+                if (index < 0) return;
+                let updated = mutate(list[index], fail);
+                if (!updated) return;
+                list[index] = updated;
+                return isArray ? list : Object.fromEntries(list.map((item, index) => [item.id || String(index), item]));
+              }, (error, committed, snapshot) => {
+                endMarketAction(actionKey);
+                if (error) { window.alert("Não foi possível concluir. Tente novamente."); resolve(false); }
+                else if (!committed) { window.alert(failureReason || "A operação foi cancelada porque algo mudou. Atualize a página e tente de novo."); resolve(false); }
+                else { applyConfirmedTournamentSnapshot(snapshot); if (okMessage) window.alert(okMessage); resolve(true); }
+              }, false);
+            });
+          }
+          function proposeTrade(terms, counterOfId) {
+            let Trade = window.ManchaApp.TradeFeature;
+            if (!R || !ProfileTeam || !te) return Promise.resolve(false);
+            return tradeTransaction(`trade:${R.id}:${ProfileTeam.id}`, (tournament, fail) => {
+              let context = tournament.context || {};
+              if (String(terms.fromTeamId) !== String(ProfileTeam.id)) { fail("Você só pode propor trocas pelo seu time."); return null; }
+              let plan = tradePlanOn(terms, tradeSourceOf(tournament));
+              if (!plan.ok) { fail(plan.blockers[0] || "A troca não respeita as regras do campeonato."); return null; }
+              if (counterOfId) {
+                let original = (context.tradeProposals || {})[counterOfId];
+                if (!original || !Trade.isOpen(original) || String(original.toTeamId) !== String(ProfileTeam.id)) { fail("A proposta original não está mais disponível."); return null; }
+              }
+              let toTeam = (Array.isArray(context.teams) ? context.teams : []).find((team) => team && String(team.id) === String(terms.toTeamId));
+              let proposal = Trade.newProposal({ ...terms, fromProfileId: te.id, toProfileId: toTeam ? toTeam.profileId : null }, Trade.tradeSettingsOf(tournament), { now: Date.now(), newId: _ }, counterOfId ? { counterOf: counterOfId } : {});
+              return Trade.applyPropose(tournament, proposal, counterOfId);
+            }, counterOfId ? "Contra-proposta enviada!" : "Proposta enviada! Ela vale por " + Trade.tradeSettingsOf(R).expiryHours + " horas.");
+          }
+          function respondTrade(proposalId, action) {
+            let Trade = window.ManchaApp.TradeFeature;
+            if (!R || !ProfileTeam) return Promise.resolve(false);
+            return tradeTransaction(`trade-resp:${R.id}:${proposalId}`, (tournament, fail) => {
+              let context = tournament.context || {};
+              let proposal = (context.tradeProposals || {})[proposalId];
+              let now = Date.now();
+              if (!proposal || !Trade.isOpen(proposal, now)) { fail("Esta proposta não está mais disponível (foi respondida, cancelada ou expirou)."); return null; }
+              if (action === "cancel") {
+                if (String(proposal.fromTeamId) !== String(ProfileTeam.id)) { fail("Só quem enviou pode cancelar."); return null; }
+                return Trade.applyClose(tournament, proposalId, "cancelled", now);
+              }
+              if (String(proposal.toTeamId) !== String(ProfileTeam.id)) { fail("Só quem recebeu a proposta pode responder."); return null; }
+              if (action === "decline") return Trade.applyClose(tournament, proposalId, "declined", now);
+              let plan = tradePlanOn({ fromTeamId: proposal.fromTeamId, toTeamId: proposal.toTeamId, give: proposal.give, get: proposal.get, cash: proposal.cash }, tradeSourceOf(tournament));
+              if (!plan.ok) { fail(plan.blockers[0] || "A troca não respeita mais as regras."); return null; }
+              return Trade.applyTrade(tournament, proposal, plan, { financeEntry, newId: _, now, playerOf: (id) => xe.get(id) || xe.get(String(id)) || null });
+            }, action === "accept" ? "Troca concluída! Os jogadores já estão nos novos elencos." : null);
+          }
+          function updateTradeSettings(next) {
+            if (!R) return;
+            ae(m.map((item) => item.id === R.id ? { ...item, tradeSettings: { ...next } } : item));
+          }
           function importRosterPlan(plan, mode) {
             if (!R || !plan || !Array.isArray(plan.entries) || !plan.entries.length) return;
             let tournamentId = R.id;
@@ -2416,6 +2506,15 @@
           async function rollbackTransferHistoryItem(transfer) {
             if (!transfer || !R || !isAdminProfile(te)) return;
             if (transfer.rolledBackAt) { window.alert("Esta transferência já foi revertida."); return; }
+            if (transfer.tradeId) {
+              if (!window.confirm("Estornar esta troca inteira? Os jogadores voltam para os times de origem e o troco e a taxa são devolvidos.")) return;
+              await tradeTransaction(`trade-rb:${R.id}:${transfer.tradeId}`, (tournament, fail) => {
+                let result = window.ManchaApp.TradeFeature.applyRevertTrade(tournament, transfer.tradeId, { financeEntry, now: Date.now() });
+                if (result.error) { fail(result.error); return null; }
+                return result.tournament;
+              }, "Troca estornada.");
+              return;
+            }
             if (transfer.type === "pack_pull") { await rollbackPackTransfer(transfer); return; }
             if (transfer.type === "release_clause") { await rollbackReleaseClauseTransfer(transfer); return; }
             if (typeof loadFinancialTransactions !== "function") { window.alert("Não foi possível carregar o histórico financeiro."); return; }
@@ -3290,6 +3389,9 @@
                           packsMode: packsMode,
                           packConfig: packsMode ? React.createElement(window.ManchaApp.PackConfigEditor, { tournament: R, catalog: n, ownership: c, profiles: x, profile: te, isAdmin: isAdminProfile(te), onSave: updatePackSettings, readOnly: !!(R && R.status === "finished") }) : null,
                           packStore: packsMode ? React.createElement(window.ManchaApp.PackStore, { tournament: R, team: ProfileTeam, teams: p, profiles: x, profile: te, onOpenDetail: (player) => be({ player }), ownership: c, catalogMap: xe, onSell: It, finished: !!(R && R.status === "finished") }) : null,
+                          tradeBadge: ProfileTeam && R && R.context ? Object.values(R.context.tradeProposals || {}).filter((item) => item && String(item.toTeamId) === String(ProfileTeam.id) && window.ManchaApp.TradeFeature.isOpen(item)).length : 0,
+                          tradeRequest: tradeDeskRequest,
+                          tradeCenter: React.createElement(window.ManchaApp.TradeCenter, { tournament: R, myTeam: ProfileTeam, teams: p.filter((team) => team && team.active !== false), profiles: x, proposals: Object.values((R && R.context && R.context.tradeProposals) || {}), squadOf: Oe, playerOf: (id) => xe.get(id) || xe.get(String(id)) || null, planFor: (terms) => tradePlanOn(terms), lockInfo: (id, ownerTeamId) => playerTradeLockStatus(id, ownerTeamId), settings: window.ManchaApp.TradeFeature.tradeSettingsOf(R), deskRequest: tradeDeskRequest, onDeskRequestHandled: () => setTradeDeskRequest(null), onPropose: proposeTrade, onRespond: respondTrade, onOpenDetail: (player) => be({ player }), isAdmin: isAdminProfile(te) }),
                           onBuy: kt,
                           onOpenDetail: (player) => { let status = Pe(player); let balanceCheck = ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true }; be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free", balanceCheck }); },
                           transfers: k,
@@ -3325,6 +3427,7 @@
                           onUpdateMarketBalanceRules: updateMarketBalanceRules,
                           onUpdateMarketAccessRules: updateMarketAccessRules,
                           onUpdateRosterRules: updateRosterRules,
+                          onUpdateTradeSettings: updateTradeSettings,
                           onUpdateEconomyRules: updateEconomyRules,
                           onUpdateBalanceLoanSettings: updateBalanceLoanSettings,
                           onGrantBalanceLoan: grantBalanceLoan,
@@ -3475,6 +3578,7 @@
                     Me &&
                       React.createElement(ro, {
                         readOnlyMarket: packsMode,
+                        onProposeTrade: ProfileTeam && R && window.ManchaApp.TradeFeature.tradeSettingsOf(R).enabled ? (player) => { let owner = c[player.id]; if (!owner || !owner.teamId || String(owner.teamId) === String(ProfileTeam.id)) return; be(null); setTradeDeskRequest({ toTeamId: String(owner.teamId), get: [String(player.id)], at: Date.now() }); oe("market"); } : null,
                         player: Me,
                         catalog: n,
                         statusOf: Pe,
@@ -4794,6 +4898,9 @@
           packsMode: packsMode = false,
           packStore: packStore = null,
           packConfig: packConfig = null,
+          tradeCenter: tradeCenter = null,
+          tradeBadge: tradeBadge = 0,
+          tradeRequest: tradeRequest = null,
           catalog: e,
           catalogMap: catalogMap,
           ownership: t,
@@ -5075,6 +5182,7 @@
             setVisibleCount(24);
           }
 
+          He(() => { if (tradeRequest) setMarketSection("trades"); }, [tradeRequest]);
           let segmentStyle = (active) => ({
             flex: "0 0 auto",
             minWidth: 112,
@@ -5191,6 +5299,7 @@
               packsMode && React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("packs"), style: segmentStyle(marketSection === "packs") }, React.createElement(Star, { size: 15 }), "Pacotes"),
               packsMode && React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("config"), style: segmentStyle(marketSection === "config") }, React.createElement(FilterIcon, { size: 15 }), "Configurar"),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("all"), style: segmentStyle(marketSection === "all") }, React.createElement(Xe, { size: 15 }), "Jogadores"),
+              tradeCenter && React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("trades"), style: segmentStyle(marketSection === "trades") }, React.createElement(OfferIcon, { size: 15 }), "Trocas", tradeBadge > 0 && React.createElement("span", { style: { minWidth:17,height:17,padding:"0 5px",borderRadius:999,background:"var(--danger)",color:"white",display:"inline-grid",placeItems:"center",fontSize:10,fontWeight:850,marginLeft:6 } }, tradeBadge > 9 ? "9+" : tradeBadge)),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("favorites"), style: segmentStyle(marketSection === "favorites") }, React.createElement("svg", { width:15,height:15,viewBox:"0 0 24 24",fill:"currentColor",stroke:"currentColor",strokeWidth:1.7,strokeLinecap:"round",strokeLinejoin:"round","aria-hidden":"true" }, React.createElement("path", { d:"m12 2.8 2.8 5.68 6.27.91-4.54 4.42 1.07 6.24L12 17.1l-5.6 2.95 1.07-6.24-4.54-4.42 6.27-.91L12 2.8Z" })), "Favoritos"),
               React.createElement("button", { className: "tapbtn", onClick: () => setMarketSection("recommended"), style: segmentStyle(marketSection === "recommended") }, React.createElement(Star, { size: 15 }), "Recomendados"),
             ),
@@ -5199,6 +5308,8 @@
               ? packStore
               : packsMode && marketSection === "config"
               ? null
+              : marketSection === "trades"
+              ? tradeCenter
               : marketSection === "negotiations"
               ? React.createElement(TradeOffersArea, { offers, catalog: catalogMap, teamById: l, activeTeam, transfers: d, allTeams, profiles, isAdmin, onRollbackTransfer, onDeleteTransfer, onAccept: onAcceptOffer, onUpdate: onUpdateOffer, onOpenDetail: f, onExplorePlayers: () => setMarketSection("all") })
               : marketSection === "favorites"
@@ -5617,7 +5728,7 @@
             value(rightNumber,hasRight,"right")
           );
         }
-        function ro({ readOnlyMarket = false, player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport, playerReportsEnabled = true, releaseClauseOf, onPayReleaseClause, onIncreaseReleaseClause }) {
+        function ro({ readOnlyMarket = false, onProposeTrade = null, player: e, catalog = [], statusOf, teamById, onClose: t, onOffer, onBuy, activeTeam, onReport, playerReportsEnabled = true, releaseClauseOf, onPayReleaseClause, onIncreaseReleaseClause }) {
           let detailContext = e && e.player ? e : { player:e, fromOtherTeam:false };
           e = detailContext.player;
           let [comparePlayer,setComparePlayer] = b(null), [pickerOpen,setPickerOpen] = b(false), [compareQuery,setCompareQuery] = b("");
@@ -5660,7 +5771,8 @@
             clauseInfo.other&&React.createElement("button",{className:"tapbtn",disabled:clauseInfo.blocked,onClick:()=>!clauseInfo.blocked&&onPayReleaseClause&&onPayReleaseClause(e),style:{...M,...W,width:"100%",marginTop:12,opacity:clauseInfo.blocked?.45:1}},clauseInfo.blocked?clauseInfo.blockedReason:"Pagar multa"),
             clauseInfo.own&&clauseInfo.settings.shieldingEnabled&&React.createElement("button",{className:"tapbtn",onClick:()=>onIncreaseReleaseClause&&onIncreaseReleaseClause(e),style:{...M,width:"100%",marginTop:12}},"Aumentar multa")
           ):null;
-          let footerAction = !comparePlayer ? React.createElement("div",{style:{width:"100%"}},normalAction,clauseAction) : null;
+          let tradeAction = !comparePlayer && onProposeTrade && detailContext.fromOtherTeam ? React.createElement("button", { className:"tapbtn", onClick:()=>onProposeTrade(e), style:{ ...M, width:"100%", marginTop:normalAction||clauseAction?10:0 } }, "Propor troca") : null;
+          let footerAction = !comparePlayer ? React.createElement("div",{style:{width:"100%"}},normalAction,clauseAction,tradeAction) : null;
           let compactPlayerHeader = (player, isRight, opponent) => {
             let playerOverall=Number(player&&player.overall), opponentOverall=Number(opponent&&opponent.overall);
             let playerValue=Number(player&&player.value), opponentValue=Number(opponent&&opponent.value);
@@ -7420,7 +7532,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateTradeSettings, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -7905,7 +8017,10 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Regras do elenco"),
               React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Define quantos jogadores cada time precisa manter e o limite para novas contratações."),
               React.createElement(RosterRulesForm, { settings: currentTournament.rosterSettings, onSave: onUpdateRosterRules }),
-              React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10, lineHeight:1.45 } }, "O mínimo do elenco-base impede a venda ao mercado ou para outro usuário quando o time atingir essa quantidade. Jogadores contratados posteriormente não entram nessa contagem.")
+              React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10, lineHeight:1.45 } }, "O mínimo do elenco-base impede a venda ao mercado ou para outro usuário quando o time atingir essa quantidade. Jogadores contratados posteriormente não entram nessa contagem."),
+              React.createElement("div", { style: { fontSize: 18, fontWeight: 700, margin: "22px 0 4px" } }, "Trocas entre participantes"),
+              React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Limite de jogadores por lado, taxa do banco (dinheiro que sai do jogo a cada troca) e validade das propostas."),
+              React.createElement(window.ManchaApp.TradeRulesForm, { settings: window.ManchaApp.TradeFeature.tradeSettingsOf(currentTournament), onSave: onUpdateTradeSettings })
             ),
             adminSection === "participants" && currentTournament && React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Moedas dos participantes"),
