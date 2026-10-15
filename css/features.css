@@ -998,3 +998,14 @@
 /* botão de abrir pacote = mesmo estilo do "Vender ao mercado" / "Comprar" dos cards de jogador */
 .pack-tile .pack-open-btn{width:100%;height:38px;padding:0 9px;border-radius:999px;border:1px solid rgba(88,204,2,.38);background:rgba(88,204,2,.12);color:var(--green);font-size:11.5px;font-weight:800;display:flex;align-items:center;justify-content:center;text-align:center;box-shadow:none;cursor:pointer}
 .pack-tile .pack-open-btn:disabled{background:var(--surface-soft);color:var(--muted);opacity:.5;cursor:not-allowed}
+
+/* ---- Loja de pacotes no celular: carrossel lateral (um card por vez, com o próximo aparecendo na borda) ---- */
+@media (max-width:699px){
+  .pack-grid{display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;scroll-padding:0 16px;margin:0 -16px;padding:6px 16px 14px;scrollbar-width:none;overscroll-behavior-x:contain}
+  .pack-grid::-webkit-scrollbar{display:none}
+  .pack-grid .pack-tile,.pack-grid .pack-tile:last-child:nth-child(odd){flex:0 0 76%;max-width:320px;grid-column:auto;scroll-snap-align:start}
+  .pack-grid .pack-tile-art,.pack-grid .pack-tile:last-child:nth-child(odd) .pack-tile-art{aspect-ratio:1/1;height:auto;padding:30px 4px 16px}
+  .pack-tile-name{font-size:20px}
+  .pack-tile .pack-open-btn{height:42px;font-size:13px}
+  .pack-tile-chip{font-size:11px;padding:4px 10px}
+}
