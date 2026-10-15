@@ -981,3 +981,7 @@
 .pack-tile-img{transform:scale(1.1);transform-origin:50% 60%}
 .pack-grid .pack-tile:last-child:nth-child(odd) .pack-tile-art{height:215px}
 @media (min-width:700px){.pack-grid .pack-tile:last-child:nth-child(odd) .pack-tile-art{height:auto}}
+/* imagem dos pacotes um pouco mais para baixo */
+.pack-tile-art{padding-top:24px}
+.pack-tile-img{transform:translateY(8px) scale(1.1)}
+@keyframes pack-float{0%,100%{transform:translateY(8px) scale(1.1) rotate(-1deg)}50%{transform:translateY(3px) scale(1.1) rotate(1deg)}}
