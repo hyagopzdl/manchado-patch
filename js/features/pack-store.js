@@ -228,7 +228,7 @@
             h("small", null, `${have}/${pack.unlock.count}`)
           ),
           h("button", { className: "tapbtn pack-open-btn", disabled: !!block || !!busyPackId, onClick: () => openPack(pack) },
-            busyPackId === pack.id ? "Abrindo…" : block ? h("span", { className: "pack-open-block" }, block) : h("span", { className: "pack-open-price" }, h("small", null, "Abrir"), h("b", null, L(pack.price))))
+            busyPackId === pack.id ? "Abrindo…" : block || `Abrir · ${L(pack.price)}`)
         )
       );
     }
