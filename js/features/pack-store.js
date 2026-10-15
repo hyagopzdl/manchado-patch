@@ -36,8 +36,8 @@
     return total ? sum / total : 0;
   }
 
-  // Cor de cada pacote (tile e barra de progresso). Platina e diamante têm cor própria; os demais seguem o overall médio.
-  const PACK_ACCENTS = { platina: "#f06423", diamante: "#d92d20" };
+  // Cor de cada pacote (tile e barra de progresso). Os 5 pacotes padrão têm cor fixa (não depende das chances); pacotes com outro id seguem o overall médio.
+  const PACK_ACCENTS = { bronze: "#8a8a89", prata: "#1f9d55", ouro: "#d6a600", platina: "#f06423", diamante: "#d92d20" };
   // Imagem do pacote: assets/packs/<id>.png (arquivo estático, fora do banco). Sem arquivo, a imagem some e o card usa só o gradiente.
   const PACK_IMAGE_VERSION = "1";
   function packImage(pack, className) {
