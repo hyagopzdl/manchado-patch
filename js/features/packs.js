@@ -45,6 +45,8 @@
       sellDepreciationPct: 25,
       eliteThreshold: 90,
       suspense: true,
+      eliteFreeze: true,
+      eliteConfetti: true,
       cardsPerPack: 3,
       packs: PACK_PRESETS.map((preset) => ({
         id: preset.id, label: preset.label, enabled: true, price: preset.price, cards: preset.cards, interaction: "all",
@@ -71,6 +73,9 @@
       unlocksEnabled: raw.unlocksEnabled === true,
       // Revelação em etapas (posição → nacionalidade → clube → nome e overall). Ligada por padrão.
       suspense: raw.suspense !== false,
+      // Cartas de elite: trava dramática antes de revelar e confete vermelho. Ambos ligados por padrão; o admin pode desligar.
+      eliteFreeze: raw.eliteFreeze !== false,
+      eliteConfetti: raw.eliteConfetti !== false,
       // Quantidade de cartas global (vale para todos os pacotes). Sem ela, usa a do primeiro pacote.
       cardsPerPack: cardsPerPackOf(raw),
       sellDepreciationPct: Math.min(100, Math.max(0, Number(raw.sellDepreciationPct != null ? raw.sellDepreciationPct : fallback.sellDepreciationPct) || 0)),

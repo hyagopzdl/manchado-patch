@@ -89,7 +89,7 @@
     } catch (error) { /* confete é só enfeite */ }
   }
 
-  function RevealCard({ card, info, flipped, suspense, glow, elite, lost = false, pickable = false, pending = false, onFlip, onComplete, onOpen = null, sellButton = null }) {
+  function RevealCard({ card, info, flipped, suspense, glow, elite, freeze = true, confetti = true, lost = false, pickable = false, pending = false, onFlip, onComplete, onOpen = null, sellButton = null }) {
     const App = window.ManchaApp, overallColor = App.overallColor, positionColor = App.positionColor, L = App.L;
     const [stage, setStage] = React.useState(0);
     const completeRef = React.useRef(onComplete);
@@ -97,17 +97,17 @@
     React.useEffect(() => {
       if (!flipped || !card) return undefined;
       if (!suspense) { setStage(4); return undefined; }
-      const timers = (elite ? STAGE_AT_ELITE : STAGE_AT).map((delay, index) => setTimeout(() => setStage((current) => Math.max(current, index + 1)), delay));
+      const timers = (elite && freeze ? STAGE_AT_ELITE : STAGE_AT).map((delay, index) => setTimeout(() => setStage((current) => Math.max(current, index + 1)), delay));
       return () => timers.forEach(clearTimeout);
     }, [flipped, suspense, !!card]);
     React.useEffect(() => { if (flipped && card && stage >= 4 && completeRef.current) completeRef.current(); }, [stage, flipped, !!card]);
     // Confete quando uma carta de elite é revelada (não dispara nas cartas perdidas nem no "Revelar todas", que não usam suspense).
     const confettiDone = React.useRef(false);
-    React.useEffect(() => { if (flipped && card && elite && suspense && stage >= 4 && !confettiDone.current) { confettiDone.current = true; fireConfetti(); } }, [stage, flipped, !!card]);
+    React.useEffect(() => { if (flipped && card && elite && confetti && suspense && stage >= 4 && !confettiDone.current) { confettiDone.current = true; fireConfetti(); } }, [stage, flipped, !!card]);
 
     function onClick() {
       if (!flipped) { if (onFlip) onFlip(); return; }
-      if (stage < 4) { if (elite && suspense && stage >= 3) return; /* a trava dramática não pode ser pulada */ setStage(4); return; }
+      if (stage < 4) { if (elite && freeze && suspense && stage >= 3) return; /* a trava dramática não pode ser pulada */ setStage(4); return; }
       if (onOpen) onOpen();
     }
     const revealed = stage >= 4;
@@ -385,6 +385,7 @@
                 flipped: !!card && flippedSet.has(index),
                 suspense: isPick ? (isChosen && suspenseOn) : suspenseOn,
                 elite: !!card && Number(card.overall) >= settings.eliteThreshold,
+                freeze: settings.eliteFreeze, confetti: settings.eliteConfetti,
                 lost, pickable: choosing && reveal.phase === "choose",
                 pending: reveal.phase === "opening" && isChosen,
                 onFlip: () => { if (choosing) choosePick(index); else flipOne(index); },

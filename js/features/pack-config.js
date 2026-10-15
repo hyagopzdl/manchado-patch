@@ -34,6 +34,8 @@
       isOpen: settings.isOpen,
       unlocksEnabled: settings.unlocksEnabled,
       suspense: settings.suspense,
+      eliteFreeze: settings.eliteFreeze,
+      eliteConfetti: settings.eliteConfetti,
       cardsPerPack: String(settings.cardsPerPack),
       sellDepreciationPct: String(settings.sellDepreciationPct),
       packs: settings.packs.map((pack) => {
@@ -184,7 +186,7 @@
       });
       // rosterMax é legado: o limite do elenco é o do campeonato (rosterSettings).
       const { rosterMax: legacyRosterMax, ...rawWithoutLegacy } = raw;
-      return { errors, next: { ...rawWithoutLegacy, version: 1, isOpen: draft.isOpen, unlocksEnabled: draft.unlocksEnabled, suspense: draft.suspense !== false, cardsPerPack, sellDepreciationPct: sell, packs } };
+      return { errors, next: { ...rawWithoutLegacy, version: 1, isOpen: draft.isOpen, unlocksEnabled: draft.unlocksEnabled, suspense: draft.suspense !== false, eliteFreeze: draft.eliteFreeze !== false, eliteConfetti: draft.eliteConfetti !== false, cardsPerPack, sellDepreciationPct: sell, packs } };
     }
 
     async function save() {
@@ -307,6 +309,8 @@
         isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.unlocksEnabled, disabled, onChange: (e) => { setDraft({ ...draft, unlocksEnabled: e.target.checked }); setMessage(null); } }), " Exigir marcos de desbloqueio"),
         isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.suspense !== false, disabled, onChange: (e) => { setDraft({ ...draft, suspense: e.target.checked }); setMessage(null); } }), " Revelação com suspense (posição, nacionalidade e clube antes do nome)"),
         isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Taxa na venda de volta (%)"), input(draft.sellDepreciationPct, (value) => setDraft({ ...draft, sellDepreciationPct: value }), { style: { width: 90 } }))),
+        isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.eliteFreeze !== false, disabled, onChange: (e) => { setDraft({ ...draft, eliteFreeze: e.target.checked }); setMessage(null); } }), ` Trava dramática de ~4 s antes de revelar cartas de ${settings.eliteThreshold}+ overall`),
+        isAdmin && h("label", { className: "pack-cfg-check" }, h("input", { type: "checkbox", checked: draft.eliteConfetti !== false, disabled, onChange: (e) => { setDraft({ ...draft, eliteConfetti: e.target.checked }); setMessage(null); } }), ` Confete vermelho ao revelar cartas de ${settings.eliteThreshold}+ overall`),
         isAdmin && h("button", { type: "button", className: "tapbtn pack-ghost-btn", disabled, onClick: applyOptionB }, "Preencher chances (tabela Opção B)"),
         isAdmin && h("label", { className: "pack-cfg-field" }, h("span", null, "Cartas por pacote (todos os pacotes)"), input(draft.cardsPerPack, (value) => { setDraft({ ...draft, cardsPerPack: value }); setMessage(null); }, { style: { width: 90 } })),
 
