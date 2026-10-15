@@ -214,17 +214,21 @@
       const block = packBlock(pack);
       const locked = isLocked(pack);
       const have = pack.unlock ? Math.min(stats.counts[pack.unlock.packId] || 0, pack.unlock.count) : 0;
-      return h("article", { key: pack.id, className: "pack-tile" + (locked ? " is-locked" : ""), style: { "--pack-accent": accent } },
-        h("div", { className: "pack-tile-art" }, packImage(pack, "pack-tile-img"), h("span", { className: "pack-tile-cards" }, pack.interaction === "pick" ? `Escolha 1 de ${pack.cards}` : `${pack.cards} cartas`)),
+      const cardsLabel = pack.interaction === "pick" ? `Escolha 1 de ${pack.cards}` : `${pack.cards} cartas`;
+      return h("article", { key: pack.id, className: "pack-tile" + (locked ? " is-locked" : "") + (block && !locked ? " is-blocked" : ""), style: { "--pack-accent": accent } },
+        h("div", { className: "pack-tile-art" },
+          h("span", { className: "pack-tile-chip is-ovr" }, `OVR ≈ ${Math.round(mean)}`),
+          h("span", { className: "pack-tile-chip is-cards" }, cardsLabel),
+          packImage(pack, "pack-tile-img")),
         h("div", { className: "pack-tile-body" },
-          h("div", { className: "pack-tile-title" }, h("strong", null, pack.label), h("span", null, `OVR médio ≈ ${Math.round(mean)}`)),
+          h("strong", { className: "pack-tile-name" }, pack.label),
           locked && h("div", { className: "pack-tile-lock" },
-            h("div", null, `Libera após ${pack.unlock.count} pacotes ${labelOf(pack.unlock.packId)} abertos no campeonato`),
+            h("div", null, `Libera após ${pack.unlock.count} pacotes ${labelOf(pack.unlock.packId)}`),
             h("div", { className: "pack-progress" }, h("span", { style: { width: `${pack.unlock.count ? Math.round((have / pack.unlock.count) * 100) : 100}%` } })),
             h("small", null, `${have}/${pack.unlock.count}`)
           ),
           h("button", { className: "tapbtn pack-open-btn", disabled: !!block || !!busyPackId, onClick: () => openPack(pack) },
-            busyPackId === pack.id ? "Abrindo…" : block || `Abrir · ${L(pack.price)}`)
+            busyPackId === pack.id ? "Abrindo…" : block ? h("span", { className: "pack-open-block" }, block) : h("span", { className: "pack-open-price" }, h("small", null, "Abrir"), h("b", null, L(pack.price))))
         )
       );
     }

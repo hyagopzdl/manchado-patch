@@ -948,3 +948,31 @@
 .pack-reveal-img{width:38px;height:38px;object-fit:contain;flex:0 0 auto}
 @keyframes pack-float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-5px) rotate(1deg)}}
 @media (prefers-reduced-motion:reduce){.pack-tile-img{animation:none}}
+
+/* ---- Loja de pacotes: novo visual dos cards (grid 2 colunas no celular) ---- */
+.pack-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pack-grid .pack-tile:last-child:nth-child(odd){grid-column:1 / -1}
+@media (min-width:700px){.pack-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.pack-grid .pack-tile:last-child:nth-child(odd){grid-column:auto}}
+@media (min-width:1000px){.pack-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}
+.pack-tile{position:relative;border-radius:22px;border:1px solid color-mix(in srgb,var(--pack-accent) 60%,var(--border));background:linear-gradient(180deg,color-mix(in srgb,var(--pack-accent) 14%,var(--surface)),var(--surface) 62%);box-shadow:0 12px 30px color-mix(in srgb,var(--pack-accent) 16%,transparent);transition:transform .2s ease}
+.pack-tile:not(.is-locked):not(.is-blocked):hover{transform:translateY(-3px)}
+.pack-tile.is-blocked{opacity:.8}
+.pack-tile-art{position:relative;display:grid;place-items:center;min-height:0;aspect-ratio:1/1;padding:26px 10px 6px;overflow:hidden;background:radial-gradient(circle at 50% 55%,color-mix(in srgb,var(--pack-accent) 48%,transparent),transparent 68%)}
+.pack-grid .pack-tile:last-child:nth-child(odd) .pack-tile-art{aspect-ratio:auto;height:190px}
+@media (min-width:700px){.pack-grid .pack-tile:last-child:nth-child(odd) .pack-tile-art{aspect-ratio:1/1;height:auto}}
+.pack-tile-img{width:auto;height:100%;max-width:100%;max-height:100%;min-height:0;object-fit:contain}
+.pack-tile-art{box-sizing:border-box}
+.pack-tile-chip{position:absolute;z-index:2;top:9px;padding:3px 8px;border-radius:999px;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#fff;font-size:10px;font-weight:800;letter-spacing:.2px;white-space:nowrap}
+.pack-tile-chip.is-ovr{left:9px}
+.pack-tile-chip.is-cards{right:9px;color:var(--pack-accent);background:rgba(0,0,0,.6)}
+.pack-tile-art .pack-tile-cards{display:none}
+.pack-tile-body{display:grid;gap:8px;padding:6px 10px 12px}
+.pack-tile-name{text-align:center;font-size:17px;font-weight:900;letter-spacing:-.02em;color:var(--heading)}
+.pack-tile-lock{gap:4px;font-size:10.5px;text-align:center}
+.pack-open-btn{padding:9px 10px;border-radius:14px;background:linear-gradient(180deg,color-mix(in srgb,var(--pack-accent,var(--green)) 85%,#fff),var(--pack-accent,var(--green)));color:#0b0d0d;box-shadow:0 6px 16px color-mix(in srgb,var(--pack-accent,var(--green)) 35%,transparent)}
+.pack-tile .pack-open-btn:disabled{background:var(--surface-soft);color:var(--muted);box-shadow:none}
+.pack-open-price{display:flex;align-items:baseline;justify-content:center;gap:6px}
+.pack-open-price small{font-size:11px;font-weight:800;opacity:.75;text-transform:uppercase;letter-spacing:.06em}
+.pack-open-price b{font-size:16px;font-weight:900}
+.pack-open-block{font-size:11.5px;font-weight:800;line-height:1.2}
+.pack-store-summary{padding:10px 14px;font-size:12.5px}
