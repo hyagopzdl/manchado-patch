@@ -3289,7 +3289,7 @@
                           statusOf: Pe,
                           packsMode: packsMode,
                           packConfig: packsMode ? React.createElement(window.ManchaApp.PackConfigEditor, { tournament: R, catalog: n, ownership: c, profiles: x, profile: te, isAdmin: isAdminProfile(te), onSave: updatePackSettings, readOnly: !!(R && R.status === "finished") }) : null,
-                          packStore: packsMode ? React.createElement(window.ManchaApp.PackStore, { tournament: R, team: ProfileTeam, profile: te, ownership: c, catalogMap: xe, onSell: It, finished: !!(R && R.status === "finished") }) : null,
+                          packStore: packsMode ? React.createElement(window.ManchaApp.PackStore, { tournament: R, team: ProfileTeam, teams: p, profiles: x, profile: te, ownership: c, catalogMap: xe, onSell: It, finished: !!(R && R.status === "finished") }) : null,
                           onBuy: kt,
                           onOpenDetail: (player) => { let status = Pe(player); let balanceCheck = ProfileTeam ? evaluateMarketBalance(player, ProfileTeam.id) : { allowed:true }; be({ player, marketStatus: status, fromOtherTeam: !!(status.teamId && ProfileTeam && status.teamId !== ProfileTeam.id), canBuy: status.kind === "free", balanceCheck }); },
                           transfers: k,

@@ -803,8 +803,8 @@
   // ---- Modo cartas (pacotes) ----
   // counts: aberturas não revertidas por pacote, somando todos os times (base dos marcos de desbloqueio).
   // mine: últimas aberturas do time informado, com as cartas.
-  async function loadPackStats({tournamentId,teamId=null,mineLimit=20}={}){
-    if(!client||!tournamentId) return {counts:{},mine:[]};
+  async function loadPackStats({tournamentId,teamId=null,mineLimit=20,recentLimit=0}={}){
+    if(!client||!tournamentId) return {counts:{},mine:[],recent:[]};
     const tid=String(tournamentId);
     const rows=await selectAll("pack_openings","id,pack_id",q=>q.eq("tournament_id",tid).is("rolled_back_at",null).order("id"));
     const counts={}; rows.forEach(row=>{counts[row.pack_id]=(counts[row.pack_id]||0)+1;});
@@ -813,7 +813,12 @@
       const own=await select("pack_openings","id,pack_id,price,cards,created_at",q=>q.eq("tournament_id",tid).eq("team_id",String(teamId)).is("rolled_back_at",null).order("created_at",{ascending:false}).limit(mineLimit));
       mine=own.map(row=>({id:row.id,packId:row.pack_id,price:Number(row.price)||0,allCards:Array.isArray(row.cards)?row.cards:[],cards:(Array.isArray(row.cards)?row.cards:[]).filter(card=>card&&card.chosen!==false),pending:Array.isArray(row.cards)&&row.cards.length>0&&row.cards.every(card=>card&&card.chosen===false),createdAt:ms(row.created_at)}));
     }
-    return {counts,mine};
+    let recent=[];
+    if(recentLimit>0){
+      const all=await select("pack_openings","id,pack_id,team_id,profile_id,price,cards,created_at",q=>q.eq("tournament_id",tid).is("rolled_back_at",null).order("created_at",{ascending:false}).limit(recentLimit));
+      recent=all.map(row=>({id:row.id,packId:row.pack_id,teamId:row.team_id,profileId:row.profile_id,price:Number(row.price)||0,cards:Array.isArray(row.cards)?row.cards:[],createdAt:ms(row.created_at)}));
+    }
+    return {counts,mine,recent};
   }
   async function rollbackReleaseClause({tournamentId,transferId,actorProfileId:actorId}){
     await load(); if(!client) throw new Error("Supabase não configurado");

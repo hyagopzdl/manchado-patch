@@ -91,13 +91,14 @@
     );
   }
 
-  function PackStore({ tournament, team, profile, ownership, catalogMap, onSell = null, finished = false }) {
+  function PackStore({ tournament, team, teams = [], profiles = [], profile, ownership, catalogMap, onSell = null, finished = false }) {
     const App = window.ManchaApp, Packs = App.PacksFeature, L = App.L, E = App.E, overallColor = App.overallColor, positionColor = App.positionColor;
     const settings = React.useMemo(() => Packs.packSettingsOf(tournament), [tournament]);
     const [stats, setStats] = React.useState({ counts: {}, mine: [], loaded: false });
     const [busyPackId, setBusyPackId] = React.useState(null);
     const [reveal, setReveal] = React.useState(null);
     const [error, setError] = React.useState("");
+    const [historyLimit, setHistoryLimit] = React.useState(20);
     const teamId = team && team.id ? String(team.id) : null;
     const tournamentId = tournament && tournament.id ? String(tournament.id) : null;
     const rosterSize = Object.values(ownership || {}).filter((item) => item && teamId && String(item.teamId) === teamId).length;
@@ -127,13 +128,13 @@
     const reloadStats = React.useCallback(async () => {
       if (!tournamentId || typeof App.loadPackStats !== "function") return;
       try {
-        const next = await App.loadPackStats({ tournamentId, teamId });
+        const next = await App.loadPackStats({ tournamentId, teamId, recentLimit: historyLimit });
         if (alive.current) setStats({ ...next, loaded: true });
       } catch (loadError) {
         console.error("pack stats failed", loadError);
         if (alive.current) setStats((current) => ({ ...current, loaded: true }));
       }
-    }, [tournamentId, teamId]);
+    }, [tournamentId, teamId, historyLimit]);
     React.useEffect(() => { reloadStats(); }, [reloadStats, ownershipVersion]);
 
     if (!team) {
@@ -233,6 +234,57 @@
       );
     }
 
+    // ---- Histórico de aberturas de todos os participantes ----
+    function timeAgo(ms) {
+      const diff = Math.max(0, Date.now() - (Number(ms) || 0)), min = Math.floor(diff / 60000);
+      if (min < 1) return "agora";
+      if (min < 60) return `há ${min} min`;
+      const hours = Math.floor(min / 60);
+      if (hours < 24) return `há ${hours} h`;
+      const days = Math.floor(hours / 24);
+      return days === 1 ? "ontem" : `há ${days} dias`;
+    }
+    function whoOf(opening) {
+      const owner = (teams || []).find((item) => item && String(item.id) === String(opening.teamId));
+      const prof = (profiles || []).find((item) => item && (String(item.id) === String(opening.profileId) || (owner && String(item.id) === String(owner.profileId))));
+      return { name: (prof && prof.name) || (owner && owner.name) || "Participante", color: (prof && prof.color) || (owner && owner.color) || "#4a7fc1", avatar: prof && prof.avatar || null, team: owner && owner.name };
+    }
+    function historyCard(card, chosen, pending) {
+      const color = pending ? "#8a8a89" : overallColor(card.overall); // pendente: não entrega a cor do overall
+      return h("div", { key: card.playerId, className: "ph-card" + (chosen ? " is-chosen" : "") + (pending ? " is-pending" : "") + (!chosen && !pending ? " is-lost" : ""), style: { "--ph-color": color }, title: `${card.name} · ${card.overall}` },
+        h("b", { className: "ph-ovr" }, pending ? "?" : card.overall),
+        h("span", { className: "ph-pos", style: { background: positionColor(card.position) } }, pending ? "?" : (card.position || "—")),
+        h("span", { className: "ph-name" }, pending ? "Mistério" : card.name),
+        chosen && h("i", { className: "ph-star", "aria-hidden": "true" }, "★"));
+    }
+    function historyRow(opening) {
+      const who = whoOf(opening), pack = settings.packs.find((item) => item.id === opening.packId);
+      const accent = pack ? packAccent(pack, overallColor) : "#7e7e7d";
+      const all = Array.isArray(opening.cards) ? opening.cards : [];
+      const pending = all.length > 0 && all.every((card) => card && card.chosen === false);
+      const isPick = all.some((card) => card && card.chosen === false) && !pending;
+      const mine = teamId && String(opening.teamId) === teamId;
+      const best = all.filter((card) => card && card.chosen !== false).reduce((max, card) => Math.max(max, Number(card.overall) || 0), 0);
+      return h("article", { key: opening.id, className: "ph-row" + (mine ? " is-mine" : ""), style: { "--pack-accent": accent } },
+        h("div", { className: "ph-head" },
+          h("span", { className: "ph-avatar", style: { background: who.color } }, who.avatar ? h("img", { src: who.avatar, alt: "" }) : String(who.name).slice(0, 1).toUpperCase()),
+          h("div", { className: "ph-title" },
+            h("strong", null, who.name, mine && h("em", null, "você")),
+            h("span", null, pending ? "abriu e ainda vai escolher" : isPick ? "escolheu uma carta de" : "abriu", " ", pack ? packImage(pack, "ph-pack-img") : null, h("b", { className: "ph-pack-name" }, pack ? pack.label : opening.packId))),
+          h("small", { className: "ph-time" }, timeAgo(opening.createdAt))),
+        h("div", { className: "ph-cards" }, all.map((card) => historyCard(card, !pending && card.chosen !== false, pending))),
+        !pending && best >= settings.eliteThreshold && h("div", { className: "ph-elite" }, `✨ Carta de ${best} de overall!`));
+    }
+    function historySection() {
+      const list = Array.isArray(stats.recent) ? stats.recent : [];
+      if (!list.length) return null;
+      return h("section", { className: "pack-history ph" },
+        h("h3", null, "Últimas aberturas"),
+        h("div", { className: "ph-sub" }, "Quem abriu qual pacote e o que saiu"),
+        h("div", { className: "ph-list" }, list.map(historyRow)),
+        list.length >= historyLimit && h("button", { className: "tapbtn pack-ghost-btn ph-more", onClick: () => setHistoryLimit(historyLimit + 20) }, "Ver mais"));
+    }
+
     function sellButtonFor(card) {
       if (!onSell) return null;
       const info = catalogMap && catalogMap.get ? catalogMap.get(String(card.playerId)) : null;
@@ -322,13 +374,7 @@
         h("span", null, `Pacote ${labelOf(opening.packId)} aberto, aguardando a sua escolha.`),
         h("button", { className: "tapbtn pack-open-btn", onClick: () => resumePending(opening) }, "Escolher carta"))),
       h("div", { className: "pack-grid" }, settings.packs.map(packTile)),
-      stats.mine.length > 0 && h("section", { className: "pack-history" },
-        h("h3", null, "Suas últimas aberturas"),
-        stats.mine.slice(0, 8).map((opening) => h("div", { key: opening.id, className: "pack-history-row" },
-          h("strong", null, labelOf(opening.packId)),
-          h("span", null, opening.pending ? "aguardando escolha" : opening.cards.map((card) => `${card.overall} ${card.name}`).join(" · "))
-        ))
-      ),
+      historySection(),
       revealModal()
     );
   }
