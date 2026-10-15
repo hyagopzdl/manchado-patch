@@ -1038,3 +1038,7 @@
 .ph-card.is-pending{border-style:dashed;--ph-color:#8a8a89}
 .ph-elite{font-size:11.5px;font-weight:800;color:#ffcd3c}
 .ph-more{justify-self:center;margin-top:10px}
+.pack-card.is-openable .pack-card-front{cursor:pointer}
+.pack-card.is-openable:hover .pack-card-front{filter:brightness(1.08)}
+.ph-card.is-link{cursor:pointer}
+.ph-card.is-link:hover{filter:brightness(1.1)}

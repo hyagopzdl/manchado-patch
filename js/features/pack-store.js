@@ -51,7 +51,7 @@
   // Etapas da revelação de uma carta (ms depois de virar): posição → nacionalidade → clube → nome e overall.
   const STAGE_AT = [650, 1750, 2850, 4000];
 
-  function RevealCard({ card, info, flipped, suspense, glow, elite, lost = false, pickable = false, pending = false, onFlip, onComplete, sellButton = null }) {
+  function RevealCard({ card, info, flipped, suspense, glow, elite, lost = false, pickable = false, pending = false, onFlip, onComplete, onOpen = null, sellButton = null }) {
     const App = window.ManchaApp, overallColor = App.overallColor, positionColor = App.positionColor, L = App.L;
     const [stage, setStage] = React.useState(0);
     const completeRef = React.useRef(onComplete);
@@ -66,14 +66,15 @@
 
     function onClick() {
       if (!flipped) { if (onFlip) onFlip(); return; }
-      if (stage < 4) setStage(4);
+      if (stage < 4) { setStage(4); return; }
+      if (onOpen) onOpen();
     }
     const revealed = stage >= 4;
     const color = revealed && card ? overallColor(card.overall) : "var(--muted)";
     const flag = info && App.nationalityFlag ? App.nationalityFlag(info.nationality) : "🌐";
     const hide = (needed) => (stage < needed ? " is-hidden" : "");
     return h("div", {
-      className: "pack-card" + (flipped ? " is-flipped" : "") + (pickable ? " is-pickable" : "") + (pending ? " is-pending" : "") + (lost ? " is-lost" : ""),
+      className: "pack-card" + (flipped && stage >= 4 && onOpen ? " is-openable" : "") + (flipped ? " is-flipped" : "") + (pickable ? " is-pickable" : "") + (pending ? " is-pending" : "") + (lost ? " is-lost" : ""),
       style: { "--glow": glow }, onClick,
     },
       h("div", { className: "pack-card-inner" },
@@ -91,7 +92,7 @@
     );
   }
 
-  function PackStore({ tournament, team, teams = [], profiles = [], profile, ownership, catalogMap, onSell = null, finished = false }) {
+  function PackStore({ tournament, team, teams = [], profiles = [], profile, ownership, catalogMap, onSell = null, onOpenDetail = null, finished = false }) {
     const App = window.ManchaApp, Packs = App.PacksFeature, L = App.L, E = App.E, overallColor = App.overallColor, positionColor = App.positionColor;
     const settings = React.useMemo(() => Packs.packSettingsOf(tournament), [tournament]);
     const [stats, setStats] = React.useState({ counts: {}, mine: [], loaded: false });
@@ -251,7 +252,8 @@
     }
     function historyCard(card, chosen, pending) {
       const color = pending ? "#8a8a89" : overallColor(card.overall); // pendente: não entrega a cor do overall
-      return h("div", { key: card.playerId, className: "ph-card" + (chosen ? " is-chosen" : "") + (pending ? " is-pending" : "") + (!chosen && !pending ? " is-lost" : ""), style: { "--ph-color": color }, title: `${card.name} · ${card.overall}` },
+      const info = catalogMap && catalogMap.get ? catalogMap.get(String(card.playerId)) : null;
+      return h("div", { key: card.playerId, role: onOpenDetail && !pending ? "button" : undefined, onClick: onOpenDetail && !pending ? () => onOpenDetail(info || { id: String(card.playerId), name: card.name, position: card.position, overall: card.overall, value: card.value }) : undefined, className: "ph-card" + (onOpenDetail && !pending ? " is-link" : "") + (chosen ? " is-chosen" : "") + (pending ? " is-pending" : "") + (!chosen && !pending ? " is-lost" : ""), style: { "--ph-color": color }, title: `${card.name} · ${card.overall}` },
         h("b", { className: "ph-ovr" }, pending ? "?" : card.overall),
         h("span", { className: "ph-pos", style: { background: positionColor(card.position) } }, pending ? "?" : (card.position || "—")),
         h("span", { className: "ph-name" }, pending ? "Mistério" : card.name),
@@ -346,6 +348,7 @@
                 pending: reveal.phase === "opening" && isChosen,
                 onFlip: () => { if (choosing) choosePick(index); else flipOne(index); },
                 onComplete: () => complete(index),
+                onOpen: card && onOpenDetail ? () => onOpenDetail(info || { id: String(card.playerId), name: card.name, position: card.position, overall: card.overall, value: card.value }) : null,
                 sellButton: card && !lost ? sellButtonFor(card) : null,
               });
             })),
