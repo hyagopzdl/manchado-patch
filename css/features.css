@@ -985,3 +985,10 @@
 .pack-tile-art{padding-top:24px}
 .pack-tile-img{transform:translateY(8px) scale(1.1)}
 @keyframes pack-float{0%,100%{transform:translateY(8px) scale(1.1) rotate(-1deg)}50%{transform:translateY(3px) scale(1.1) rotate(1deg)}}
+/* sem corte embaixo: a imagem cresce para cima e ganha folga na base */
+.pack-tile-art{padding:26px 2px 14px;overflow:visible}
+.pack-tile{overflow:hidden}
+.pack-tile-img{transform-origin:50% 35%;transform:scale(1.08)}
+@keyframes pack-float{0%,100%{transform:scale(1.08) translateY(0) rotate(-1deg)}50%{transform:scale(1.08) translateY(-4px) rotate(1deg)}}
+.pack-grid .pack-tile:last-child:nth-child(odd) .pack-tile-art{height:225px}
+@media (min-width:700px){.pack-grid .pack-tile:last-child:nth-child(odd) .pack-tile-art{height:auto}}
