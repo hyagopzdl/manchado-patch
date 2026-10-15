@@ -50,6 +50,44 @@
 
   // Etapas da revelação de uma carta (ms depois de virar): posição → nacionalidade → clube → nome e overall.
   const STAGE_AT = [650, 1750, 2850, 4000];
+  // Carta de elite (overall >= eliteThreshold): depois do clube, o app "trava" por ~4 s antes de mostrar nome e overall.
+  const ELITE_FREEZE_MS = 4000;
+  const STAGE_AT_ELITE = [650, 1750, 2850, 2850 + ELITE_FREEZE_MS];
+
+  // Confete vermelho na tela toda (canvas temporário, sem biblioteca). Respeita "reduzir movimento".
+  function fireConfetti() {
+    try {
+      if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const canvas = document.createElement("canvas");
+      canvas.setAttribute("aria-hidden", "true");
+      canvas.style.cssText = "position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:1100";
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.round(window.innerWidth * dpr); canvas.height = Math.round(window.innerHeight * dpr);
+      document.body.appendChild(canvas);
+      const ctx = canvas.getContext("2d");
+      const colors = ["#d92d20", "#ff4d3d", "#b71c1c", "#ff7a59", "#ff2e2e", "#ffffff"];
+      const count = 220, W = canvas.width, H = canvas.height;
+      const parts = Array.from({ length: count }, (_, i) => ({
+        x: Math.random() * W, y: -Math.random() * H * 0.5 - 20 * dpr,
+        w: (6 + Math.random() * 8) * dpr, h: (10 + Math.random() * 12) * dpr,
+        vx: (Math.random() - 0.5) * 3 * dpr, vy: (2.5 + Math.random() * 4.5) * dpr,
+        rot: Math.random() * Math.PI * 2, vr: (Math.random() - 0.5) * 0.35,
+        sway: Math.random() * Math.PI * 2, color: colors[i % colors.length],
+      }));
+      const start = performance.now(), total = 4200;
+      (function frame(now) {
+        const t = now - start;
+        ctx.clearRect(0, 0, W, H);
+        const fade = t > total - 800 ? Math.max(0, (total - t) / 800) : 1;
+        parts.forEach((q) => {
+          q.sway += 0.06; q.x += q.vx + Math.sin(q.sway) * 1.2 * dpr; q.y += q.vy; q.rot += q.vr; q.vy += 0.025 * dpr;
+          ctx.save(); ctx.globalAlpha = fade; ctx.translate(q.x, q.y); ctx.rotate(q.rot); ctx.fillStyle = q.color;
+          ctx.fillRect(-q.w / 2, -q.h / 2, q.w, q.h); ctx.restore();
+        });
+        if (t < total) requestAnimationFrame(frame); else canvas.remove();
+      })(start);
+    } catch (error) { /* confete é só enfeite */ }
+  }
 
   function RevealCard({ card, info, flipped, suspense, glow, elite, lost = false, pickable = false, pending = false, onFlip, onComplete, onOpen = null, sellButton = null }) {
     const App = window.ManchaApp, overallColor = App.overallColor, positionColor = App.positionColor, L = App.L;
@@ -59,14 +97,17 @@
     React.useEffect(() => {
       if (!flipped || !card) return undefined;
       if (!suspense) { setStage(4); return undefined; }
-      const timers = STAGE_AT.map((delay, index) => setTimeout(() => setStage((current) => Math.max(current, index + 1)), delay));
+      const timers = (elite ? STAGE_AT_ELITE : STAGE_AT).map((delay, index) => setTimeout(() => setStage((current) => Math.max(current, index + 1)), delay));
       return () => timers.forEach(clearTimeout);
     }, [flipped, suspense, !!card]);
     React.useEffect(() => { if (flipped && card && stage >= 4 && completeRef.current) completeRef.current(); }, [stage, flipped, !!card]);
+    // Confete quando uma carta de elite é revelada (não dispara nas cartas perdidas nem no "Revelar todas", que não usam suspense).
+    const confettiDone = React.useRef(false);
+    React.useEffect(() => { if (flipped && card && elite && suspense && stage >= 4 && !confettiDone.current) { confettiDone.current = true; fireConfetti(); } }, [stage, flipped, !!card]);
 
     function onClick() {
       if (!flipped) { if (onFlip) onFlip(); return; }
-      if (stage < 4) { setStage(4); return; }
+      if (stage < 4) { if (elite && suspense && stage >= 3) return; /* a trava dramática não pode ser pulada */ setStage(4); return; }
       if (onOpen) onOpen();
     }
     const revealed = stage >= 4;
