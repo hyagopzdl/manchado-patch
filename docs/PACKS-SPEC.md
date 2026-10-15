@@ -152,3 +152,5 @@ Se 2 e 3 ficarem fora de sincronia, o `open_pack` recusa com `catalog_outdated` 
 - `pick_pack_card(opening, índice, perfil)` entrega a carta escolhida (valida dono, vaga no elenco, `already_picked`, `card_taken`).
 - Cartas de aberturas pendentes ficam reservadas (não saem em outros sorteios). Fechar o modal não perde nada: o app mostra "aguardando a sua escolha" e retoma. O admin pode estornar uma abertura pendente (devolve o preço).
 - `open_pack` com `p_pick_index` continua valendo (escolha imediata, V2).
+
+- **Sem elenco inicial (opcional):** na criação de um campeonato de Cartas, o checkbox do elenco balanceado pode ser desmarcado. O campeonato nasce em andamento, sem jogadores; todos começam abrindo pacotes. Nesse caso `rosterSettings.minPlayers` nasce em 0 (o admin pode ajustar depois nas regras de elenco).

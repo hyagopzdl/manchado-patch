@@ -2138,7 +2138,7 @@
               ...(newCatalogId !== Packs.DEFAULT_CATALOG_ID ? { catalogId: newCatalogId } : {}),
               ...(packsMode ? { mode: "packs", packSettings: source && source.packSettings ? { ...source.packSettings } : Packs.defaultPackSettings() } : {}),
               marketSettings: source && source.marketSettings ? { ...source.marketSettings } : { depreciationPct: 10, initialRosterDepreciationPct:50, isOpen:true, freePlayerOverallLimit:{enabled:false,minOverall:1,maxOverall:99} },
-              rosterSettings: source && source.rosterSettings ? { ...source.rosterSettings } : { minPlayers: 23, maxPlayers: 30, minBaseRosterPlayers: 0 },
+              rosterSettings: source && source.rosterSettings ? { ...source.rosterSettings } : { minPlayers: packsMode && !randomRoster ? 0 : 23, maxPlayers: 30, minBaseRosterPlayers: 0 },
               economySettings: source && source.economySettings ? { ...source.economySettings } : { winReward: 5, scoringDrawReward: 3, scorelessDrawReward: 2, lossReward: 1, goalReward: 1, redCardPenalty: 1 },
               finalPrizeSettings: source && source.finalPrizeSettings ? { ...source.finalPrizeSettings } : { firstPlacePrize: 20, lastPlacePercentage: 50 },
               context: { teams, ownership, playerStats: {}, transfers: [], tradeOffers: {}, financialTransactions },
@@ -7660,7 +7660,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
               ? { competitionType:"cup", linkedLeagueId:cupLeagueId, groupLegs, cupPrize, cupParticipantIds }
               : creationMode === "continue"
                 ? { competitionType:"league", mode:"continue", sourceTournamentId, inheritance, participantOverrides }
-                : { competitionType:"league", mode:"new", tournamentModel, catalogId:creationCatalogId, newParticipantIds, newParticipantDrafts, randomRoster:{enabled:tournamentModel==="packs"?true:randomRosterEnabled,targetOverall:randomRosterTargetOverall,rerolls:Math.max(0,Math.min(10,Math.round(Number(randomRosterRerolls))||0))} };
+                : { competitionType:"league", mode:"new", tournamentModel, catalogId:creationCatalogId, newParticipantIds, newParticipantDrafts, randomRoster:{enabled:randomRosterEnabled,targetOverall:randomRosterTargetOverall,rerolls:Math.max(0,Math.min(10,Math.round(Number(randomRosterRerolls))||0))} };
             try {
               let result = await onCreateTournament(options);
               if (result !== false) closeCompetitionWizard();
@@ -7728,17 +7728,17 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                   React.createElement("div", { style:{ padding:15,border:"1px solid var(--border)",borderRadius:16,background:randomRosterEnabled?"color-mix(in srgb,var(--green) 8%,var(--surface-soft))":"var(--surface-soft)" } },
                     React.createElement("label", { style:{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:14,cursor:"pointer" } },
                       React.createElement("span", null, React.createElement("span", { style:{ display:"block",fontWeight:850,fontSize:14 } }, "Gerar elencos balanceados automaticamente"), React.createElement("span", { style:{ display:"block",fontSize:11.5,lineHeight:1.45,color:"var(--muted)",marginTop:4 } }, "23 jogadores por time e posições equilibradas. Você define quantos rerolls cada participante pode fazer.")),
-                      React.createElement("input", { type:"checkbox",checked:tournamentModel==="packs"?true:randomRosterEnabled,disabled:tournamentModel==="packs",onChange:(event)=>setRandomRosterEnabled(event.target.checked) })
+                      React.createElement("input", { type:"checkbox",checked:randomRosterEnabled,onChange:(event)=>setRandomRosterEnabled(event.target.checked) })
                     ),
-                    (tournamentModel==="packs"||randomRosterEnabled) && React.createElement("div", { style:{ marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)",display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
+                    randomRosterEnabled && React.createElement("div", { style:{ marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)",display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
                       React.createElement("div", null, React.createElement("div", { style:{fontWeight:750,fontSize:12.5} }, "Overall médio alvo"), React.createElement("div", { style:{fontSize:11,color:"var(--muted)",marginTop:3,lineHeight:1.4} }, "O algoritmo também equilibra melhor XI, setores e valor de mercado.")),
                       React.createElement("input", { style:q,type:"number",min:60,max:95,step:1,value:randomRosterTargetOverall,onChange:(event)=>setRandomRosterTargetOverall(event.target.value) })
                     ),
-                    (tournamentModel==="packs"||randomRosterEnabled) && React.createElement("div", { style:{ marginTop:12,display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
+                    randomRosterEnabled && React.createElement("div", { style:{ marginTop:12,display:"grid",gridTemplateColumns:"minmax(0,1fr) 110px",gap:12,alignItems:"end" } },
                       React.createElement("div", null, React.createElement("div", { style:{fontWeight:750,fontSize:12.5} }, "Rerolls por participante"), React.createElement("div", { style:{fontSize:11,color:"var(--muted)",marginTop:3,lineHeight:1.4} }, Math.round(Number(randomRosterRerolls))===0 ? "Com 0, não há escolha de elenco: o campeonato começa direto com o elenco sorteado." : "Cada participante pode trocar o elenco sorteado até esse número de vezes antes de confirmar.")),
                       React.createElement("input", { style:q,type:"number",min:0,max:10,step:1,value:randomRosterRerolls,onChange:(event)=>setRandomRosterRerolls(event.target.value) })
                     ),
-                    (tournamentModel==="packs"||randomRosterEnabled) && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.55,marginTop:12 } }, "Composição fixa: 3 GOL · 5 ZAG · 4 LAT · 6 MEI · 5 ATK. Cada reroll descarta a opção atual e gera outra de força equivalente.")
+                    randomRosterEnabled && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.55,marginTop:12 } }, "Composição fixa: 3 GOL · 5 ZAG · 4 LAT · 6 MEI · 5 ATK. Cada reroll descarta a opção atual e gera outra de força equivalente.")
                   ),
                   React.createElement("div", null,
                     React.createElement("div", { style:{ fontWeight:800, marginBottom:4 } }, `Participantes · ${newParticipantIds.length} selecionados`),
