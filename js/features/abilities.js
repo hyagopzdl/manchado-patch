@@ -63,7 +63,6 @@
     const keys = Object.keys(ABILITIES);
     const order = (key) => (owned.has(key) ? 0 : 1) * 100 + GROUPS.findIndex((group) => group.id === ABILITIES[key].group);
     const sorted = keys.slice().sort((a, b) => order(a) - order(b));
-    const injury = player.injuryTolerance && INJURY[player.injuryTolerance] ? `${INJURY[player.injuryTolerance]} (${player.injuryTolerance})` : null;
     const toggle = () => setFlipped((value) => !value);
 
     const row = (key) => {
@@ -76,7 +75,6 @@
       h("div", { className: "ability-back-head" },
         h("strong", null, "Habilidades especiais"),
         h("span", { className: "ability-count" }, `${owned.size} de ${keys.length}`)),
-      injury && h("div", { className: "ability-injury" }, h("span", null, "Resistência a lesões"), h("b", null, injury)),
       sorted.map(row),
       h("div", { className: "flip-hint" }, "Toque para voltar aos atributos"));
     return h("div", { className: "flip-card" + (flipped ? " is-flipped" : ""), role: "button", tabIndex: 0, "aria-pressed": flipped,
@@ -88,5 +86,5 @@
   }
 
   window.ManchaApp.PlayerFlipCard = PlayerFlipCard;
-  window.ManchaApp.PlayerExtras = { ABILITIES, GROUPS, secondaryPositions };
+  window.ManchaApp.PlayerExtras = { ABILITIES, GROUPS, INJURY, secondaryPositions };
 })();

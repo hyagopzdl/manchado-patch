@@ -5784,7 +5784,8 @@
                         React.createElement("strong", { style:{ fontSize:14, color:"var(--heading)" } }, "Atributos"),
                         React.createElement("span", { style:{ fontSize:13, color:"var(--muted)", fontWeight:800 } }, "#")
                       ),
-                      attributes.map(attribute => React.createElement(N, { key:attribute[0], label:attribute[0], value:attribute[1], max:attribute[2] || 99 }))
+                      attributes.map(attribute => React.createElement(N, { key:attribute[0], label:attribute[0], value:attribute[1], max:attribute[2] || 99 })),
+                      e.injuryTolerance && window.ManchaApp.PlayerExtras.INJURY[e.injuryTolerance] && React.createElement("div", { className:"ability-injury" }, React.createElement("span", null, "Resistência a lesões"), React.createElement("strong", null, `${window.ManchaApp.PlayerExtras.INJURY[e.injuryTolerance]} (${e.injuryTolerance})`))
                     )
                   })
                 )
