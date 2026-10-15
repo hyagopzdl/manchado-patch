@@ -53,43 +53,40 @@
     return (Array.isArray(player && player.positions) ? player.positions : []).filter((position, index, list) => position && position !== main && list.indexOf(position) === index);
   }
 
-  function PlayerAbilities({ player }) {
-    const [showAll, setShowAll] = React.useState(false);
-    const [openKey, setOpenKey] = React.useState(null);
-    if (!player || !Array.isArray(player.abilities)) return null;
+  // Cartão com duas faces: frente = atributos (conteúdo recebido), verso = habilidades especiais. Tocar gira o cartão.
+  // Bases antigas não têm `abilities`: nesse caso só a frente é exibida, sem giro.
+  function PlayerFlipCard({ player, front }) {
+    const [flipped, setFlipped] = React.useState(false);
+    if (!player || !Array.isArray(player.abilities)) return front;
+    const surface = window.ManchaApp.E || {};
     const owned = new Set(player.abilities.filter((key) => ABILITIES[key]));
-    const total = Object.keys(ABILITIES).length;
+    const keys = Object.keys(ABILITIES);
+    const order = (key) => (owned.has(key) ? 0 : 1) * 100 + GROUPS.findIndex((group) => group.id === ABILITIES[key].group);
+    const sorted = keys.slice().sort((a, b) => order(a) - order(b));
     const injury = player.injuryTolerance && INJURY[player.injuryTolerance] ? `${INJURY[player.injuryTolerance]} (${player.injuryTolerance})` : null;
+    const toggle = () => setFlipped((value) => !value);
 
-    function tile(key) {
-      const info = ABILITIES[key], group = GROUPS.find((item) => item.id === info.group), active = owned.has(key), open = openKey === key;
-      return h("button", {
-        key, type: "button", className: "ability-tile" + (active ? " is-active" : " is-off") + (open ? " is-open" : ""), style: { "--ability-color": group.color },
-        "aria-expanded": open, onClick: () => setOpenKey(open ? null : key),
-      },
-        h("span", { className: "ability-icon" }, groupIcon(info.group, 18)),
-        h("span", { className: "ability-text" }, h("strong", null, info.label), h("small", null, active ? group.label : `${group.label} · não tem`)),
-        active && h("span", { className: "ability-check", "aria-hidden": "true" }, "✓"),
-        open && h("span", { className: "ability-desc" }, info.desc));
-    }
-
-    const body = showAll
-      ? GROUPS.map((group) => h("div", { key: group.id, className: "ability-group" },
-        h("div", { className: "ability-group-title", style: { "--ability-color": group.color } }, groupIcon(group.id, 14), h("span", null, group.label),
-          h("em", null, `${Object.keys(ABILITIES).filter((key) => ABILITIES[key].group === group.id && owned.has(key)).length}/${Object.keys(ABILITIES).filter((key) => ABILITIES[key].group === group.id).length}`)),
-        h("div", { className: "ability-grid" }, Object.keys(ABILITIES).filter((key) => ABILITIES[key].group === group.id).map(tile))))
-      : (owned.size
-        ? h("div", { className: "ability-grid" }, Object.keys(ABILITIES).filter((key) => owned.has(key)).map(tile))
-        : h("div", { className: "ability-empty" }, "Este jogador não tem habilidades especiais."));
-
-    return h("section", { className: "ability-card" },
-      h("div", { className: "ability-head" },
-        h("div", null, h("strong", null, "Habilidades especiais"), h("span", { className: "ability-count" }, `${owned.size} de ${total}`)),
-        h("button", { type: "button", className: "ability-toggle", onClick: () => { setShowAll(!showAll); setOpenKey(null); } }, showAll ? "Só as dele" : "Ver todas")),
+    const row = (key) => {
+      const info = ABILITIES[key], group = GROUPS.find((item) => item.id === info.group), active = owned.has(key);
+      return h("div", { key, className: "ability-row" + (active ? "" : " is-off"), style: { "--ability-color": group.color }, title: `${info.label}: ${info.desc}` },
+        h("span", { className: "ability-row-label" }, h("span", { className: "ability-icon" }, groupIcon(info.group, 16)), h("span", null, info.label)),
+        h("span", { className: "ability-star", "aria-label": active ? "Possui" : "Não possui" }, active ? "★" : "☆"));
+    };
+    const back = h("section", { className: "flip-face flip-back", style: { ...surface, padding: "8px 16px 10px" } },
+      h("div", { className: "ability-back-head" },
+        h("strong", null, "Habilidades especiais"),
+        h("span", { className: "ability-count" }, `${owned.size} de ${keys.length}`)),
       injury && h("div", { className: "ability-injury" }, h("span", null, "Resistência a lesões"), h("b", null, injury)),
-      body);
+      sorted.map(row),
+      h("div", { className: "flip-hint" }, "Toque para voltar aos atributos"));
+    return h("div", { className: "flip-card" + (flipped ? " is-flipped" : ""), role: "button", tabIndex: 0, "aria-pressed": flipped,
+      "aria-label": flipped ? "Voltar aos atributos" : "Ver habilidades especiais", onClick: toggle,
+      onKeyDown: (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggle(); } } },
+      h("div", { className: "flip-inner" },
+        h("div", { className: "flip-face flip-front" }, front, h("div", { className: "flip-hint" }, `Toque para ver as habilidades especiais · ${owned.size} de ${keys.length}`)),
+        back));
   }
 
-  window.ManchaApp.PlayerAbilities = PlayerAbilities;
+  window.ManchaApp.PlayerFlipCard = PlayerFlipCard;
   window.ManchaApp.PlayerExtras = { ABILITIES, GROUPS, secondaryPositions };
 })();

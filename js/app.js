@@ -4737,15 +4737,7 @@
               ),
               React.createElement("div", { style:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(135px,1fr))", gap:10 } },
                 statCard("Overall do elenco", overall ? overall.toFixed(1) : "—", overall?overallColor(overall):null),
-                statCard("Valor do elenco", L(totalValue)),
-                ...sectorData.map((item)=>statCard(item.label, item.count ? item.average.toFixed(1) : "—", item.count?overallColor(item.average):null, !!(weakest && weakest.key===item.key)))
-              ),
-              !readOnly && React.createElement("div", { style:{ marginTop:10, padding:"14px 16px", borderRadius:16, border:"1px solid color-mix(in srgb, var(--muted) 40%, var(--border))", background:"color-mix(in srgb, var(--muted) 9%, var(--surface-soft))", display:"flex", gap:11, alignItems:"flex-start" } },
-                React.createElement("span", { style:{ flex:"0 0 auto", marginTop:1, width:26, height:26, borderRadius:999, display:"grid", placeItems:"center", background:"color-mix(in srgb, var(--muted) 18%, var(--surface))", color:"var(--muted)", fontSize:14, fontWeight:900 } }, "!"),
-                React.createElement("div", null,
-                  React.createElement("div", { style:{ fontSize:10.5, fontWeight:800, color:"var(--muted)", textTransform:"uppercase", letterSpacing:".08em", marginBottom:5 } }, weakest ? `Atenção em ${weakest.label}` : "Análise do time"),
-                  React.createElement("div", { style:{ fontSize:14, lineHeight:1.5, color:"var(--heading)" } }, tip)
-                )
+                statCard("Valor do elenco", L(totalValue))
               )
             ),
             barcaAvailable && squad.length > 0 && React.createElement("div", { className:"barca-toolbar" },
@@ -5757,7 +5749,6 @@
                     ),
                     React.createElement("div", { className:"player-positions" },
                       React.createElement("span", { className:"player-position-main", style:{ background:positionColor(e.position) }, title:"Posição principal" }, e.position || "—"),
-                      window.ManchaApp.PlayerExtras.secondaryPositions(e).length > 0 && React.createElement("span", { className:"player-position-label" }, "também joga de"),
                       window.ManchaApp.PlayerExtras.secondaryPositions(e).map((position) => React.createElement("span", { key:position, className:"player-position-sub", style:{ "--pos-color":positionColor(position) }, title:"Posição secundária" }, position))
                     )
                   ),
@@ -5787,14 +5778,15 @@
                       ))
                     )
                   ),
-                  React.createElement(window.ManchaApp.PlayerAbilities, { player:e }),
+                  React.createElement(window.ManchaApp.PlayerFlipCard, { player:e, front:
                   React.createElement("section", { style:{ ...E, padding:"8px 16px 10px" } },
-                    React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, padding:"8px 2px 10px", borderBottom:"1px solid var(--border)" } },
-                      React.createElement("strong", { style:{ fontSize:14, color:"var(--heading)" } }, "Atributos"),
-                      React.createElement("span", { style:{ fontSize:13, color:"var(--muted)", fontWeight:800 } }, "#")
-                    ),
-                    attributes.map(attribute => React.createElement(N, { key:attribute[0], label:attribute[0], value:attribute[1], max:attribute[2] || 99 }))
-                  )
+                      React.createElement("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, padding:"8px 2px 10px", borderBottom:"1px solid var(--border)" } },
+                        React.createElement("strong", { style:{ fontSize:14, color:"var(--heading)" } }, "Atributos"),
+                        React.createElement("span", { style:{ fontSize:13, color:"var(--muted)", fontWeight:800 } }, "#")
+                      ),
+                      attributes.map(attribute => React.createElement(N, { key:attribute[0], label:attribute[0], value:attribute[1], max:attribute[2] || 99 }))
+                    )
+                  })
                 )
               ),
               footerAction && React.createElement("footer", { className:"player-detail-footer" }, detailBalanceBlocked && React.createElement("div", { style:{ fontSize:11.5,color:"var(--muted)",lineHeight:1.4,marginBottom:9,textAlign:"center" } }, `Esta contratação deixaria a diferença entre os times em ${detailContext.balanceCheck.futureGap.toFixed(1)} OVR. Limite atual: ${(detailContext.balanceCheck.currentGap > detailContext.balanceCheck.maxDifference ? detailContext.balanceCheck.currentGap : detailContext.balanceCheck.maxDifference).toFixed(1)} OVR.`), footerAction),
