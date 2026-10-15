@@ -38,6 +38,12 @@
 
   // Cor de cada pacote (tile e barra de progresso). Platina e diamante têm cor própria; os demais seguem o overall médio.
   const PACK_ACCENTS = { platina: "#f06423", diamante: "#d92d20" };
+  // Imagem do pacote: assets/packs/<id>.png (arquivo estático, fora do banco). Sem arquivo, a imagem some e o card usa só o gradiente.
+  const PACK_IMAGE_VERSION = "1";
+  function packImage(pack, className) {
+    return h("img", { className, src: `./assets/packs/${encodeURIComponent(pack.id)}.png?v=${PACK_IMAGE_VERSION}`, alt: "", loading: "lazy", decoding: "async", draggable: false, onError: (event) => { event.currentTarget.style.display = "none"; } });
+  }
+
   function packAccent(pack, overallColor) {
     return PACK_ACCENTS[pack.id] || overallColor(Math.round(weightedMeanOverall(pack.weights)));
   }
@@ -209,7 +215,7 @@
       const locked = isLocked(pack);
       const have = pack.unlock ? Math.min(stats.counts[pack.unlock.packId] || 0, pack.unlock.count) : 0;
       return h("article", { key: pack.id, className: "pack-tile" + (locked ? " is-locked" : ""), style: { "--pack-accent": accent } },
-        h("div", { className: "pack-tile-art" }, h("span", { className: "pack-tile-cards" }, pack.interaction === "pick" ? `Escolha 1 de ${pack.cards}` : `${pack.cards} cartas`)),
+        h("div", { className: "pack-tile-art" }, packImage(pack, "pack-tile-img"), h("span", { className: "pack-tile-cards" }, pack.interaction === "pick" ? `Escolha 1 de ${pack.cards}` : `${pack.cards} cartas`)),
         h("div", { className: "pack-tile-body" },
           h("div", { className: "pack-tile-title" }, h("strong", null, pack.label), h("span", null, `OVR médio ≈ ${Math.round(mean)}`)),
           locked && h("div", { className: "pack-tile-lock" },
@@ -265,7 +271,7 @@
         h("div", { className: "pack-reveal-overlay" },
           h("div", { className: "pack-reveal-panel" },
             h("div", { className: "pack-reveal-head" },
-              h("strong", null, isPick ? `Pacote ${reveal.packLabel} · escolha 1 de ${total}` : `Pacote ${reveal.packLabel}`),
+              h("strong", { className: "pack-reveal-title" }, pack && packImage(pack, "pack-reveal-img"), isPick ? `Pacote ${reveal.packLabel} · escolha 1 de ${total}` : `Pacote ${reveal.packLabel}`),
               h("button", { className: "tapbtn pack-reveal-close", "aria-label": "Fechar", disabled: reveal.phase === "opening", onClick: () => setReveal(null) }, "✕")
             ),
             reveal.error && h("div", { className: "pack-store-error", role: "alert" }, reveal.error),

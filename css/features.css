@@ -938,3 +938,13 @@
 /* tag secundária idêntica à principal (cartão aberto e fechado) */
 .player-position-sub{min-height:27px;padding:5px 11px;border-radius:9px;font-size:12px;letter-spacing:.04em;border:0;box-shadow:inset 0 0 0 1.5px var(--pos-color,var(--border));box-sizing:border-box}
 .player-position-sub.is-small{min-height:20px;padding:3px 7px;border-radius:7px;font-size:10.5px;letter-spacing:0;box-shadow:inset 0 0 0 1px var(--pos-color,var(--border))}
+
+/* ---- Imagens dos pacotes ---- */
+.pack-tile-art{position:relative;min-height:170px;overflow:hidden}
+.pack-tile-img{position:relative;z-index:1;width:auto;height:150px;max-width:80%;object-fit:contain;filter:drop-shadow(0 8px 14px rgba(0,0,0,.45));animation:pack-float 3.2s ease-in-out infinite}
+.pack-tile-art .pack-tile-cards{position:absolute;z-index:2;left:10px;bottom:10px}
+.pack-tile.is-locked .pack-tile-img{filter:grayscale(.8) drop-shadow(0 8px 14px rgba(0,0,0,.45));animation:none}
+.pack-reveal-title{display:flex;align-items:center;gap:10px;min-width:0}
+.pack-reveal-img{width:38px;height:38px;object-fit:contain;flex:0 0 auto}
+@keyframes pack-float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-5px) rotate(1deg)}}
+@media (prefers-reduced-motion:reduce){.pack-tile-img{animation:none}}
