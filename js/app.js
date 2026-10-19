@@ -3427,7 +3427,7 @@
                         }),
                       Y === "admin" && isAdminProfile(te) && adminUnlocked &&
                         React.createElement(AdminArea, {
-                          currentTournament: R, tournaments: m, teams: p, profiles: x,
+                          currentTournament: R, tournaments: m, teams: p, profiles: x, actorProfile: te,
                           profileName: adminProfileName, setProfileName: setAdminProfileName,
                           profileColor: adminProfileColor, setProfileColor: setAdminProfileColor,
                           profileBudget: adminProfileBudget, setProfileBudget: setAdminProfileBudget,
@@ -7548,7 +7548,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateTradeSettings, onUpdateMarketModel, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, actorProfile, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateTradeSettings, onUpdateMarketModel, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -7894,6 +7894,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             competitions: { title: "Competições", description: "Crie ligas, copas e novas temporadas." },
             participants: { title: "Participantes e times", description: "Defina quem participa, nomes dos times e saldos." },
             rules: { title: "Regras e economia", description: "Configure mercado, elenco, recompensas e premiações." },
+            gifts: { title: "Pacotes de presente", description: "Dê pacotes de cartas aos participantes. Eles abrem de graça no mercado." },
             tools: { title: "Dados e ferramentas", description: "Importe elencos e execute tarefas administrativas." },
             logs: { title: "Logs de atividade", description: "Acompanhe ações dos usuários que alteram partidas, mercado e catálogo." },
             integrity: { title: "Integridade financeira", description: "Verifique se todas as recompensas de partidas foram registradas corretamente." },
@@ -7927,6 +7928,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 adminHubCard("competitions", React.createElement(TrophyIcon,{size:22}), "Competições", "Crie ligas, copas e continue temporadas.", `${activeCompetitions} em andamento · ${finishedCompetitions} encerradas`),
                 adminHubCard("participants", React.createElement(TeamIcon,{size:22}), "Participantes e times", "Gerencie participantes, times e carteiras da competição selecionada.", currentTournament ? `${activeTeams} participantes em ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("rules", React.createElement(SettingsIcon,{size:22}), "Regras e economia", "Defina mercado, limites de elenco, recompensas e premiação.", currentTournament ? `Editando ${currentTournament.name}` : "Selecione uma competição"),
+                currentTournament && window.ManchaApp.PacksFeature.isPacksMode(currentTournament) && adminHubCard("gifts", React.createElement(TrophyIcon,{size:22}), "Pacotes de presente", "Dê pacotes de cartas aos participantes; eles abrem de graça no mercado.", `Em ${currentTournament.name}`),
                 adminHubCard("logs", React.createElement(ActivityLogIcon,{size:22}), "Logs de atividade", "Veja ações que impactam outros usuários e ajudam na auditoria da liga.", currentTournament ? `Acompanhando ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("integrity", React.createElement(DatabaseIcon,{size:22}), "Integridade financeira", "Confira recompensas ausentes, divergentes ou duplicadas sem alterar saldos automaticamente.", currentTournament ? `Auditar ${currentTournament.name}` : "Selecione uma competição"),
                 adminHubCard("tools", React.createElement(DatabaseIcon,{size:22}), "Dados e ferramentas", "Importe elencos e execute tarefas de manutenção.", "Ferramentas administrativas"),
@@ -8137,6 +8139,9 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
                 React.createElement("div", { style:{display:"grid",gap:8,maxHeight:390,overflow:"auto"} },historyImportPreview.names.map((name)=>React.createElement("div", { key:name,style:{display:"grid",gridTemplateColumns:"minmax(0,1fr) minmax(0,1.2fr)",gap:10,alignItems:"center",padding:10,border:"1px solid var(--border)",borderRadius:12} },React.createElement("div", { style:{fontWeight:800,fontSize:13} },name),React.createElement("select", { value:historyMappings[name]||"",onChange:(event)=>setHistoryMappings({...historyMappings,[name]:event.target.value}),style:{...q,padding:"9px 10px",fontSize:12} },React.createElement("option", { value:"" },"Selecionar perfil"),globalProfiles.map((profile)=>React.createElement("option", { key:profile.id,value:profile.id },profile.name)))))),
                 React.createElement("button", { onClick:confirmHistoryImport,disabled:historyImportPreview.names.some((name)=>!historyMappings[name]),style:{...M,...W,opacity:historyImportPreview.names.some((name)=>!historyMappings[name])?.45:1} },historyImportPreview.names.some((name)=>!historyMappings[name])?"Vincule todos os participantes":"Confirmar importação")
               )
+            ),
+            adminSection === "gifts" && currentTournament && React.createElement("div", { style: E },
+              React.createElement(window.ManchaApp.PackGiftsAdmin, { tournament: currentTournament, teams, profiles, profile: actorProfile })
             ),
             adminSection === "rules" && currentTournament && React.createElement("section", { style:{ ...E,padding:20,marginTop:18 } },
               React.createElement("h3", { style:{ margin:"0 0 6px" } }, "Economia e premiação"),

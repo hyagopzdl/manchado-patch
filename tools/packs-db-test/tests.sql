@@ -242,3 +242,28 @@ insert into player_ownership(tournament_id,player_id,team_id,acquisition_source,
 select expect_err($$select pick_pack_card((select id from pack_openings where team_id='D2' order by created_at desc limit 1), 0, 'p2')$$,'card_taken');
 -- estorno de abertura pendente devolve o preco
 select expect_eq('estorno de pendente reembolsa', rollback_pack_opening((select id from pack_openings where team_id='D2' order by created_at desc limit 1),'adm')->>'refunded', '10');
+
+select '--- 9 pacotes de presente';
+update teams set budget=777 where id='B';
+delete from player_ownership where tournament_id='T1' and team_id='B';
+select expect_err($$select grant_pack_gift('T1', array['B'], 'bronze', 1, 'p1')$$,'not_admin');
+select expect_err($$select grant_pack_gift('T1', array['B'], 'nope', 1, 'adm')$$,'pack_not_found');
+select expect_err($$select grant_pack_gift('T1', array['ZZ'], 'bronze', 1, 'adm')$$,'team_not_found');
+select expect_eq('concedeu 2', grant_pack_gift('T1', array['B'], 'bronze', 2, 'adm')->>'granted', '2');
+select id as g1 from pack_gifts where team_id='B' order by id limit 1 \gset
+select id as g2 from pack_gifts where team_id='B' order by id offset 1 limit 1 \gset
+select expect_err($$select open_pack('T1','bronze','B','p2',null,null,'nope')$$,'gift_not_found');
+select expect_err($$select open_pack('T1','prata','B','p2',null,null,'$$ || :'g1' || $$')$$,'gift_mismatch') where false;
+select expect_err('select open_pack(''T1'',''bronze'',''A'',''p1'',null,null,'''||:'g1'||''')','gift_mismatch');
+select expect_err('select open_pack(''T1'',''bronze'',''B'',''p1'',null,null,'''||:'g1'||''')','not_team_owner');
+select open_pack('T1','bronze','B','p2',null,null,:'g1') as gr \gset
+select expect_eq('presente: saldo intacto', (:'gr'::jsonb)->>'balanceAfter', '777');
+select expect_eq('presente: preco 0', (:'gr'::jsonb)->>'price', '0');
+select expect_eq('presente: 3 cartas', (select count(*)::text from player_ownership where tournament_id='T1' and team_id='B'), '3');
+select expect_err('select open_pack(''T1'',''bronze'',''B'',''p2'',null,null,'''||:'g1'||''')','gift_unavailable');
+select expect_err($$select revoke_pack_gift((select id from pack_gifts where used_opening_id is not null limit 1),'adm')$$,'gift_already_used');
+select expect_eq('revogou o outro', revoke_pack_gift(:'g2','adm')->>'ok', 'true');
+select expect_err('select open_pack(''T1'',''bronze'',''B'',''p2'',null,null,'''||:'g2'||''')','gift_unavailable');
+select rollback_pack_opening((:'gr'::jsonb)->>'openingId','adm') is not null;
+select expect_eq('estorno devolve o presente', (select (used_opening_id is null)::text from pack_gifts where id=:'g1'), 'true');
+select expect_eq('estorno nao mexe no saldo', (select budget::text from teams where id='B'), '777');

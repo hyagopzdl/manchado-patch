@@ -834,12 +834,33 @@
     invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"pack_rollback");
     return data||{ok:true};
   }
-  async function openPack({tournamentId,packId,teamId,actorProfileId:actorId,catalogChecksum,pickIndex=null}){
+  // Pacotes de presente (dados pelo admin): teamId opcional filtra por time.
+  async function loadPackGifts({tournamentId,teamId=null}={}){
+    if(!client||!tournamentId) return [];
+    const rows=await selectAll("pack_gifts","id,team_id,pack_id,created_by_profile_id,created_at,used_opening_id,used_at,revoked_at",q=>{q=q.eq("tournament_id",String(tournamentId));if(teamId)q=q.eq("team_id",String(teamId));return q.order("created_at",{ascending:false}).order("id");});
+    return rows.map(row=>({id:row.id,teamId:row.team_id,packId:row.pack_id,createdBy:row.created_by_profile_id,createdAt:ms(row.created_at),usedOpeningId:row.used_opening_id||null,usedAt:row.used_at?ms(row.used_at):null,revoked:!!row.revoked_at}));
+  }
+  async function grantPackGift({tournamentId,teamIds,packId,quantity=1,actorProfileId:actorId}){
+    await load(); if(!client) throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("grant_pack_gift",{p_tournament_id:String(tournamentId),p_team_ids:teamIds.map(String),p_pack_id:String(packId),p_quantity:quantity,p_actor_profile_id:actorId?String(actorId):actorProfileId()});
+    if(error) throw error;
+    await broadcastTournamentInvalidation(tournamentId,"pack_gift");
+    return data||{ok:true};
+  }
+  async function revokePackGift({tournamentId,giftId,actorProfileId:actorId}){
+    await load(); if(!client) throw new Error("Supabase não configurado");
+    const {data,error}=await client.rpc("revoke_pack_gift",{p_gift_id:String(giftId),p_actor_profile_id:actorId?String(actorId):actorProfileId()});
+    if(error) throw error;
+    await broadcastTournamentInvalidation(tournamentId,"pack_gift");
+    return data||{ok:true};
+  }
+  async function openPack({tournamentId,packId,teamId,actorProfileId:actorId,catalogChecksum,pickIndex=null,giftId=null}){
     await load(); if(!client) throw new Error("Supabase não configurado");
     const {data,error}=await client.rpc("open_pack",{
       p_tournament_id:String(tournamentId),p_pack_id:String(packId),p_team_id:String(teamId),
       p_actor_profile_id:actorId?String(actorId):actorProfileId(),p_catalog_checksum:catalogChecksum||null,
-      ...(Number.isInteger(pickIndex)?{p_pick_index:pickIndex}:{})
+      ...(Number.isInteger(pickIndex)?{p_pick_index:pickIndex}:{}),
+      ...(giftId?{p_gift_id:String(giftId)}:{})
     });
     if(error) throw error;
     invalidateCache(); await refreshNormalizedStateAfterRpc(); await broadcastTournamentInvalidation(tournamentId,"pack_opened");
@@ -1052,5 +1073,5 @@
   const normalizeIdentityText=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase().replace(/\s+/g," ");
   function stableIdentityId(prefix,seed){const input=`${prefix}:${normalizeIdentityText(seed)||"legacy"}`;let hash=2166136261;for(let i=0;i<input.length;i++){hash^=input.charCodeAt(i);hash=Math.imul(hash,16777619);}return`${prefix}_${(hash>>>0).toString(36)}`;}
   function migrateStableIdentitySchema(){return Promise.resolve(true);}
-  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,loadPackStats,openPack,pickPackCard,rollbackPackOpening,rollbackReleaseClause,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
+  Object.assign(window.ManchaApp,{Ee,U,Q,startPresenceHeartbeat,startTournamentRealtimeSync,refreshTournamentSlice,broadcastTournamentInvalidation,setTeamBudget,importHistoricalMatches,loadFinancialTransactions,loadPlayerReviews,loadPlayerOverrideHistory,hydrateTournamentFinancial,auditRewardIntegrity,repairRewardIntegrity,applyPlayerReviewOverride,rerollBalancedRoster,acceptBalancedRoster,startBalancedRosterTournament,prepareLateJoinBalancedRoster,rerollLateJoinBalancedRoster,acceptLateJoinBalancedRoster,importLateJoinTxtRoster,payReleaseClause,increaseReleaseClauseShielding,loadPackStats,loadPackGifts,grantPackGift,revokePackGift,openPack,pickPackCard,rollbackPackOpening,rollbackReleaseClause,normalizeIdentityText,stableIdentityId,migrateStableIdentitySchema,IDENTITY_SCHEMA_VERSION,supabaseClient:client,fetchSupabasePage:fetchPage});
 })();

@@ -136,7 +136,7 @@
   function PackStore({ tournament, team, teams = [], profiles = [], profile, ownership, catalogMap, onSell = null, onOpenDetail = null, finished = false }) {
     const App = window.ManchaApp, Packs = App.PacksFeature, L = App.L, E = App.E, overallColor = App.overallColor, positionColor = App.positionColor;
     const settings = React.useMemo(() => Packs.packSettingsOf(tournament), [tournament]);
-    const [stats, setStats] = React.useState({ counts: {}, mine: [], loaded: false });
+    const [stats, setStats] = React.useState({ counts: {}, mine: [], gifts: [], loaded: false });
     const [busyPackId, setBusyPackId] = React.useState(null);
     const [reveal, setReveal] = React.useState(null);
     const [error, setError] = React.useState("");
@@ -171,13 +171,25 @@
       if (!tournamentId || typeof App.loadPackStats !== "function") return;
       try {
         const next = await App.loadPackStats({ tournamentId, teamId, recentLimit: historyLimit });
-        if (alive.current) setStats({ ...next, loaded: true });
+        // Presentes do admin (se o SQL ainda não foi aplicado, a loja segue funcionando sem eles).
+        let gifts = [];
+        if (typeof App.loadPackGifts === "function") {
+          try { gifts = (await App.loadPackGifts({ tournamentId, teamId })).filter((gift) => !gift.revoked && !gift.usedOpeningId); } catch (giftError) { gifts = []; }
+        }
+        if (alive.current) setStats({ ...next, gifts, loaded: true });
       } catch (loadError) {
         console.error("pack stats failed", loadError);
         if (alive.current) setStats((current) => ({ ...current, loaded: true }));
       }
     }, [tournamentId, teamId, historyLimit]);
     React.useEffect(() => { reloadStats(); }, [reloadStats, ownershipVersion]);
+    // Presentes novos não mudam o elenco: reconsulta de tempos em tempos e ao voltar para a aba.
+    React.useEffect(() => {
+      const refresh = () => { if (!document.hidden) reloadStats(); };
+      const timer = setInterval(refresh, 30000);
+      document.addEventListener("visibilitychange", refresh);
+      return () => { clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+    }, [reloadStats]);
 
     if (!team) {
       return h("div", { style: { ...E, padding: 24, textAlign: "center", color: "var(--muted)" } }, "Entre com um perfil que participa deste campeonato para abrir pacotes.");
@@ -191,12 +203,19 @@
     function isLocked(pack) {
       return !!(settings.unlocksEnabled && pack.unlock && (stats.counts[pack.unlock.packId] || 0) < pack.unlock.count);
     }
-    function packBlock(pack) {
+    function giftOf(pack) {
+      return (stats.gifts || []).find((gift) => gift.packId === pack.id) || null;
+    }
+    function giftCount(pack) {
+      return (stats.gifts || []).filter((gift) => gift.packId === pack.id).length;
+    }
+    // asGift: o pacote de presente não paga o preço nem depende do marco de desbloqueio.
+    function packBlock(pack, asGift) {
       if (finished) return "Campeonato encerrado";
       if (!settings.isOpen) return "Loja fechada";
       if (!pack.enabled) return "Indisponível";
-      if (isLocked(pack)) return "Bloqueado";
-      if (budget < pack.price) return "Saldo insuficiente";
+      if (!asGift && isLocked(pack)) return "Bloqueado";
+      if (!asGift && budget < pack.price) return "Saldo insuficiente";
       if (rosterSize + (pack.interaction === "pick" ? 1 : pack.cards) > settings.rosterMax) return `Elenco cheio (${rosterSize}/${settings.rosterMax})`;
       return null;
     }
@@ -205,14 +224,15 @@
       const mean = weightedMeanOverall(pack.weights);
       return { uid: Date.now() + Math.random(), mode: pack.interaction === "pick" ? "pick" : "all", packId: pack.id, packLabel: pack.label, n: pack.cards, accent: packAccent(pack, overallColor), cards: [], pickIndex: null, phase: "choose", flipped: [], completed: [], skip: false, teaser: false, error: "", ...extra };
     }
-    async function openPack(pack) {
-      if (busyPackId || packBlock(pack)) return;
+    async function openPack(pack, useGift) {
+      const gift = useGift ? giftOf(pack) : null;
+      if (busyPackId || packBlock(pack, !!gift)) return;
       setError("");
       setBusyPackId(pack.id);
       try {
         let checksum = null;
         try { checksum = (await Packs.loadCatalog(Packs.catalogIdOf(tournament))).checksum; } catch (checksumError) { checksum = null; }
-        const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum });
+        const result = await App.openPack({ tournamentId, packId: pack.id, teamId, actorProfileId: profile && profile.id, catalogChecksum: checksum, giftId: gift ? gift.id : null });
         const raw = Array.isArray(result.cards) ? result.cards : [];
         if (pack.interaction === "pick") {
           // Escolher 1: o pacote já foi cobrado e sorteado; as cartas aparecem viradas com o brilho da melhor e o usuário escolhe uma.
@@ -256,10 +276,12 @@
       const accent = packAccent(pack, overallColor);
       const block = packBlock(pack);
       const locked = isLocked(pack);
+      const gifts = giftCount(pack);
+      const giftBlock = gifts > 0 ? packBlock(pack, true) : null;
       const have = pack.unlock ? Math.min(stats.counts[pack.unlock.packId] || 0, pack.unlock.count) : 0;
       const cardsLabel = pack.interaction === "pick" ? `Escolha 1 de ${pack.cards}` : `${pack.cards} cartas`;
       const cardsChipLabel = pack.interaction === "pick" ? `Escolha 1/${pack.cards}` : cardsLabel;
-      return h("article", { key: pack.id, className: "pack-tile" + (locked ? " is-locked" : "") + (block && !locked ? " is-blocked" : ""), style: { "--pack-accent": accent } },
+      return h("article", { key: pack.id, className: "pack-tile" + (locked ? " is-locked" : "") + (block && !locked && !giftCount(pack) ? " is-blocked" : ""), style: { "--pack-accent": accent } },
         h("div", { className: "pack-tile-art" },
           h("span", { className: "pack-tile-chip is-ovr" }, `OVR ≈ ${Math.round(mean)}`),
           h("span", { className: "pack-tile-chip is-cards", title: cardsLabel }, cardsChipLabel),
@@ -271,8 +293,11 @@
             h("div", { className: "pack-progress" }, h("span", { style: { width: `${pack.unlock.count ? Math.round((have / pack.unlock.count) * 100) : 100}%` } })),
             h("small", null, `${have}/${pack.unlock.count}`)
           ),
-          h("button", { className: "tapbtn pack-open-btn", disabled: !!block || !!busyPackId, onClick: () => openPack(pack) },
-            busyPackId === pack.id ? "Abrindo…" : block || `Abrir · ${L(pack.price)}`)
+          gifts > 0 && h("div", { className: "pack-tile-gift" }, `🎁 Presente${gifts > 1 ? ` ×${gifts}` : ""} · Grátis`),
+          gifts > 0 && h("button", { className: "tapbtn pack-open-btn", disabled: !!giftBlock || !!busyPackId, onClick: () => openPack(pack, true) },
+            busyPackId === pack.id ? "Abrindo…" : giftBlock || "Abrir presente · Grátis"),
+          h("button", { className: "tapbtn " + (gifts > 0 ? "pack-ghost-btn" : "pack-open-btn"), disabled: !!block || !!busyPackId, onClick: () => openPack(pack, false) },
+            busyPackId === pack.id && !gifts ? "Abrindo…" : block || `${gifts > 0 ? "Comprar" : "Abrir"} · ${L(pack.price)}`)
         )
       );
     }
@@ -352,7 +377,8 @@
       // Brilho das cartas fechadas: cor do maior overall do pacote logo ao abrir (teaser) e depois cinza neutro.
       const best = reveal.cards.reduce((max, card) => Math.max(max, Number(card.overall) || 0), 0);
       const glow = reveal.teaser && best ? overallColor(best) : "#aab6b0";
-      const again = pack && !packBlock(pack);
+      const againGift = !!(pack && giftOf(pack) && !packBlock(pack, true));
+      const again = pack && (againGift || !packBlock(pack));
       const suspenseOn = settings.suspense && !reveal.skip;
       const flipOne = (index) => setReveal((current) => current && !current.flipped.includes(index) ? { ...current, flipped: [...current.flipped, index] } : current);
       const complete = (index) => setReveal((current) => current && !current.completed.includes(index) ? { ...current, completed: [...current.completed, index] } : current);
@@ -402,7 +428,7 @@
             h("div", { className: "pack-reveal-actions" },
               !choosing && !done && !isPick && h("button", { className: "tapbtn pack-open-btn", onClick: flipNext }, flippedSet.size === 0 ? "Revelar" : "Próxima carta"),
               !choosing && !done && !isPick && h("button", { className: "tapbtn pack-ghost-btn", onClick: flipAll }, "Revelar todas"),
-              done && pack && h("button", { className: "tapbtn pack-open-btn", disabled: !again || !!busyPackId, onClick: () => openPack(pack) }, again ? `Abrir outro · ${L(pack.price)}` : (packBlock(pack) || "Indisponível")),
+              done && pack && h("button", { className: "tapbtn pack-open-btn", disabled: !again || !!busyPackId, onClick: () => openPack(pack, againGift) }, again ? (againGift ? "Abrir outro · Presente" : `Abrir outro · ${L(pack.price)}`) : (packBlock(pack) || "Indisponível")),
               done && h("button", { className: "tapbtn pack-ghost-btn", onClick: () => setReveal(null) }, "Fechar")
             )
           )
