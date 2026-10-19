@@ -2752,6 +2752,20 @@
             let next = { enabled: enabled === true, maxDifference: Math.max(0, Number(maxDifference) || 0) };
             ae(m.map((item) => item.id === R.id ? { ...item, marketBalanceSettings: next } : item));
           }
+          function updateMarketModel(model) {
+            if (!R || R.status === "finished") return;
+            let toPacks = model === "packs";
+            if (toPacks === window.ManchaApp.PacksFeature.isPacksMode(R)) return;
+            let msg = toPacks
+              ? "Mudar este campeonato para o modelo de PACOTES? Os jogadores livres deixam de ser compráveis; os elencos, saldos e trocas continuam como estão. Dá para voltar depois."
+              : "Voltar este campeonato para o MERCADO de jogadores? A loja de pacotes some, mas as configurações e o histórico dos pacotes ficam guardados. Os elencos e saldos continuam como estão.";
+            if (!window.confirm(msg)) return;
+            ae(m.map((item) => {
+              if (item.id !== R.id) return item;
+              if (toPacks) return { ...item, mode: "packs", packSettings: item.packSettings || window.ManchaApp.PacksFeature.defaultPackSettings() };
+              return { ...item, mode: "market" };
+            }));
+          }
           function updatePackSettings(next) {
             if (!R) return Promise.resolve(false);
             let tournamentId = R.id;
@@ -3428,6 +3442,7 @@
                           onUpdateMarketAccessRules: updateMarketAccessRules,
                           onUpdateRosterRules: updateRosterRules,
                           onUpdateTradeSettings: updateTradeSettings,
+                          onUpdateMarketModel: updateMarketModel,
                           onUpdateEconomyRules: updateEconomyRules,
                           onUpdateBalanceLoanSettings: updateBalanceLoanSettings,
                           onGrantBalanceLoan: grantBalanceLoan,
@@ -4931,6 +4946,7 @@
         }) {
           let catalogValueCeiling = Math.max(333, ...(Array.isArray(e) ? e : []).map((player) => Number(player && player.value) || 0));
           let [marketSection, setMarketSection] = b(packsMode ? "packs" : "all"),
+            _modeSync = He(() => { setMarketSection(packsMode ? "packs" : "all"); }, [packsMode]),
             [clubQuery, setClubQuery] = b(""),
             [positionFilter, setPositionFilter] = b("all"),
             [exactPositionFilter, setExactPositionFilter] = b("all"),
@@ -7532,7 +7548,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateTradeSettings, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateTradeSettings, onUpdateMarketModel, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -8016,6 +8032,9 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
             adminSection === "rules" && currentTournament && React.createElement("div", { style: E },
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Regras do elenco"),
               React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Define quantos jogadores cada time precisa manter e o limite para novas contratações."),
+              React.createElement("div", { style: { fontSize: 18, fontWeight: 700, marginBottom: 4 } }, "Modelo de mercado"),
+              React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 10 } }, "Mercado de jogadores: compra e venda direta entre os times. Pacotes: os jogadores entram abrindo pacotes de cartas. A troca vale na hora para todos e pode ser desfeita."),
+              React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 22 } }, [["market", "Mercado de jogadores"], ["packs", "Pacotes de cartas"]].map(([id, label]) => { let active = (currentTournament.mode === "packs") === (id === "packs"); return React.createElement("button", { key: id, className: "tapbtn", disabled: currentTournament.status === "finished", onClick: () => onUpdateMarketModel(id), style: { minHeight: 44, borderRadius: 999, border: "1px solid " + (active ? "var(--accent,#2f6bff)" : "var(--border)"), background: active ? "var(--accent,#2f6bff)" : "var(--surface-soft)", color: active ? "#fff" : "var(--heading)", fontWeight: 800 } }, label); })),
               React.createElement(RosterRulesForm, { settings: currentTournament.rosterSettings, onSave: onUpdateRosterRules }),
               React.createElement("div", { style: { fontSize: 11.5, color: "var(--muted)", marginTop: 10, lineHeight:1.45 } }, "O mínimo do elenco-base impede a venda ao mercado ou para outro usuário quando o time atingir essa quantidade. Jogadores contratados posteriormente não entram nessa contagem."),
               React.createElement("div", { style: { fontSize: 18, fontWeight: 700, margin: "22px 0 4px" } }, "Trocas entre participantes"),
