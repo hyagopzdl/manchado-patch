@@ -14,7 +14,7 @@
   const errorText = (error) => ERRORS[String((error && error.message) || "")] || "Não foi possível concluir. Confira se o SQL PACKS-V4-GIFTS foi executado no Supabase.";
 
   // Painel admin: dar pacotes de presente a um ou mais times e acompanhar o que já foi aberto.
-  function PackGiftsAdmin({ tournament, teams, profiles, profile }) {
+  function PackGiftsAdmin({ tournament, teams, profiles, profile, onSaveSettings }) {
     const packs = (tournament && tournament.packSettings && Array.isArray(tournament.packSettings.packs)) ? tournament.packSettings.packs : [];
     const active = (teams || []).filter((team) => team && team.active !== false);
     const [packId, setPackId] = React.useState(packs.length ? packs[0].id : "");
@@ -24,6 +24,16 @@
     const [busy, setBusy] = React.useState(false);
     const [message, setMessage] = React.useState(null);
     const tournamentId = tournament && tournament.id;
+    const currentLabel = (tournament && tournament.packSettings && typeof tournament.packSettings.giftLabel === "string" && tournament.packSettings.giftLabel.trim()) || "Presente grátis";
+    const [labelDraft, setLabelDraft] = React.useState(currentLabel);
+    React.useEffect(() => { setLabelDraft(currentLabel); }, [currentLabel]);
+    async function saveLabel() {
+      const text = labelDraft.trim().slice(0, 40);
+      if (!text || !onSaveSettings || text === currentLabel) return;
+      setMessage(null);
+      try { await onSaveSettings({ ...(tournament.packSettings || {}), giftLabel: text }); setMessage({ kind: "ok", text: "Texto do selo atualizado." }); }
+      catch (saveError) { console.error("gift label failed", saveError); setMessage({ kind: "error", text: "Não foi possível salvar o texto." }); }
+    }
     const finished = !!(tournament && tournament.status === "finished");
 
     const reload = React.useCallback(async () => {
@@ -70,6 +80,9 @@
     return h("div", { className: "pack-gifts" },
       finished && h("div", { className: "pack-cfg-warn" }, "O campeonato foi encerrado: não dá mais para dar pacotes."),
       h("div", { className: "pack-cfg-card" },
+        h("div", { className: "pack-cfg-fields" },
+          h("label", { className: "pack-cfg-field" }, h("span", null, "Texto do selo na loja"),
+            h("input", { className: "pack-cfg-input", maxLength: 40, value: labelDraft, onChange: (e) => setLabelDraft(e.target.value), onBlur: saveLabel, onKeyDown: (e) => { if (e.key === "Enter") e.currentTarget.blur(); } }))),
         h("div", { className: "pack-cfg-fields" },
           h("label", { className: "pack-cfg-field" }, h("span", null, "Pacote"),
             h("select", { className: "pack-cfg-input", value: packId, onChange: (e) => setPackId(e.target.value) },

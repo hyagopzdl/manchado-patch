@@ -3442,6 +3442,7 @@
                           onUpdateMarketAccessRules: updateMarketAccessRules,
                           onUpdateRosterRules: updateRosterRules,
                           onUpdateTradeSettings: updateTradeSettings,
+                          onUpdatePackSettings: updatePackSettings,
                           onUpdateMarketModel: updateMarketModel,
                           onUpdateEconomyRules: updateEconomyRules,
                           onUpdateBalanceLoanSettings: updateBalanceLoanSettings,
@@ -7548,7 +7549,7 @@ Hyago 0 x 0 Lucas`;
             const goalCount=row.homeGoals.length+row.awayGoals.length;if(goalCount!==row.homeScore+row.awayScore)row.warning=`Autores informados: ${goalCount}; placar: ${row.homeScore+row.awayScore}`;rows.push(row);
           });return rows;
         }
-        function AdminArea({ currentTournament, tournaments, teams, profiles, actorProfile, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateTradeSettings, onUpdateMarketModel, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
+        function AdminArea({ currentTournament, tournaments, teams, profiles, actorProfile, profileName, setProfileName, profileColor, setProfileColor, profileBudget, setProfileBudget, tournamentName, setTournamentName, onCreateProfile, onCreateTournament, onDeleteTournament, onSelectTournament, onUpdateBudget, onToggleParticipant, onPrepareLateJoin, onImportLateJoinTxt, onDeleteProfile, onResetTournament, onRemoveOrphanParticipant, onRestoreOrphanProfile, onUpdateMarketDepreciation, onUpdateInitialRosterDepreciation, onUpdateMarketBalanceRules, onUpdateMarketAccessRules, onUpdateRosterRules, onUpdateTradeSettings, onUpdatePackSettings, onUpdateMarketModel, onUpdateEconomyRules, onUpdateBalanceLoanSettings, onGrantBalanceLoan, onGrantExtraordinaryLoan, onFinishTournament, catalog, playerReviews, onRefreshPlayerReviews, onImportRosters, onImportHistoricalCompetition, onImportMissingMatches }) {
           let globalProfiles = (profiles || []).filter((profile) => profile && typeof profile === "object" && profile.active !== false);
           let participants = currentTournament && Array.isArray(currentTournament.participants) ? currentTournament.participants : [];
           let globalProfileIds = new Set(globalProfiles.map((profile) => String(profile.id)));
@@ -8144,7 +8145,7 @@ O elenco ficará abaixo de 23 jogadores e poderá ser completado depois.`;if(!wi
               window.ManchaApp.PacksFeature.isPacksMode(currentTournament) && React.createElement(React.Fragment, null,
                 React.createElement("h3", { style: { margin: "0 0 4px" } }, "Pacotes de presente"),
                 React.createElement("div", { style: { fontSize: 13, color: "var(--muted)", lineHeight: 1.5, marginBottom: 14 } }, "Dê pacotes de cartas aos participantes. Eles abrem de graça no mercado."),
-                React.createElement(window.ManchaApp.PackGiftsAdmin, { tournament: currentTournament, teams, profiles, profile: actorProfile }),
+                React.createElement(window.ManchaApp.PackGiftsAdmin, { tournament: currentTournament, teams, profiles, profile: actorProfile, onSaveSettings: onUpdatePackSettings }),
                 React.createElement("div", { style: { height: 22 } })),
               React.createElement("h3", { style: { margin: "0 0 4px" } }, "Empréstimos"),
               React.createElement(BalanceLoanAdmin, { tournament: currentTournament, teams, onSave: onUpdateBalanceLoanSettings, onGrant: onGrantBalanceLoan, onGrantExtraordinary: onGrantExtraordinaryLoan })

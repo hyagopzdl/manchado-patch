@@ -74,6 +74,8 @@
       // Revelação em etapas (posição → nacionalidade → clube → nome e overall). Ligada por padrão.
       suspense: raw.suspense !== false,
       // Cartas de elite: trava dramática antes de revelar e confete vermelho. Ambos ligados por padrão; o admin pode desligar.
+      // Texto do selo dos pacotes de presente na loja (editável em Admin → Benfeitorias).
+      giftLabel: typeof raw.giftLabel === "string" && raw.giftLabel.trim() ? raw.giftLabel.trim().slice(0, 40) : "Presente grátis",
       eliteFreeze: raw.eliteFreeze !== false,
       eliteConfetti: raw.eliteConfetti !== false,
       // Quantidade de cartas global (vale para todos os pacotes). Sem ela, usa a do primeiro pacote.

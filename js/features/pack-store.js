@@ -293,11 +293,12 @@
             h("div", { className: "pack-progress" }, h("span", { style: { width: `${pack.unlock.count ? Math.round((have / pack.unlock.count) * 100) : 100}%` } })),
             h("small", null, `${have}/${pack.unlock.count}`)
           ),
-          gifts > 0 && h("div", { className: "pack-tile-gift" }, `🎁 Presente${gifts > 1 ? ` ×${gifts}` : ""} · Grátis`),
+          gifts > 0 && h("div", { className: "pack-tile-gift" }, `🎁 ${settings.giftLabel}${gifts > 1 ? ` ×${gifts}` : ""}`),
           gifts > 0 && h("button", { className: "tapbtn pack-open-btn", disabled: !!giftBlock || !!busyPackId, onClick: () => openPack(pack, true) },
             busyPackId === pack.id ? "Abrindo…" : giftBlock || "Abrir presente · Grátis"),
-          h("button", { className: "tapbtn " + (gifts > 0 ? "pack-ghost-btn" : "pack-open-btn"), disabled: !!block || !!busyPackId, onClick: () => openPack(pack, false) },
-            busyPackId === pack.id && !gifts ? "Abrindo…" : block || `${gifts > 0 ? "Comprar" : "Abrir"} · ${L(pack.price)}`)
+          // Com presente disponível, ele precisa ser aberto antes de voltar a comprar este pacote.
+          gifts === 0 && h("button", { className: "tapbtn pack-open-btn", disabled: !!block || !!busyPackId, onClick: () => openPack(pack, false) },
+            busyPackId === pack.id ? "Abrindo…" : block || `Abrir · ${L(pack.price)}`)
         )
       );
     }
@@ -378,7 +379,7 @@
       const best = reveal.cards.reduce((max, card) => Math.max(max, Number(card.overall) || 0), 0);
       const glow = reveal.teaser && best ? overallColor(best) : "#aab6b0";
       const againGift = !!(pack && giftOf(pack) && !packBlock(pack, true));
-      const again = pack && (againGift || !packBlock(pack));
+      const again = pack && (againGift || (!giftOf(pack) && !packBlock(pack)));
       const suspenseOn = settings.suspense && !reveal.skip;
       const flipOne = (index) => setReveal((current) => current && !current.flipped.includes(index) ? { ...current, flipped: [...current.flipped, index] } : current);
       const complete = (index) => setReveal((current) => current && !current.completed.includes(index) ? { ...current, completed: [...current.completed, index] } : current);
